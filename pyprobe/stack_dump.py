@@ -14,8 +14,8 @@ MAX_FRAMES = 100
 MAX_THREADS = 256
 
 
-def dump_frames(reader, frame_addr, trampoline_addr):
-    idx = 0
+def collect_frames(reader, frame_addr, trampoline_addr):
+    frames = []
 
     fc_off = offsets.get("InterpreterFrame.f_code")
     prev_off = offsets.get("InterpreterFrame.previous")
@@ -59,9 +59,6 @@ def dump_frames(reader, frame_addr, trampoline_addr):
         firstlineno = int.from_bytes(
             co_buf[co_firstlineno - co_lo:co_firstlineno - co_lo + 4],
             "little", signed=True)
-        co_qualname_addr = int.from_bytes(
-            co_buf[co_qualname - co_lo:co_qualname - co_lo + PTR_SIZE],
-            "little")
         co_filename_addr = int.from_bytes(
             co_buf[co_filename - co_lo:co_filename - co_lo + PTR_SIZE],
             "little")
@@ -69,7 +66,6 @@ def dump_frames(reader, frame_addr, trampoline_addr):
             co_buf[co_name - co_lo:co_name - co_lo + PTR_SIZE],
             "little")
 
-        qualname = read_pyunicode(reader, co_qualname_addr) if co_qualname_addr else None
         filename = read_pyunicode(reader, co_filename_addr) if co_filename_addr else None
         name = read_pyunicode(reader, co_name_addr) if co_name_addr else None
 
@@ -80,26 +76,63 @@ def dump_frames(reader, frame_addr, trampoline_addr):
 
         line = addr2line(reader, f_code, lasti, firstlineno)
 
-        print(f"  #{idx} {name or '?'} ({filename or '?'}:{line})  [qualname={qualname or '?'}]")
-        idx += 1
+        frames.append((name, filename, line))
         frame_addr = previous
 
+    return frames
 
-def dump_thread(reader, tstate_addr, native_tid, thread_id, name, trampoline_addr):
+
+def _is_thread_idle(pid, native_tid, frames):
+    try:
+        with open(f"/proc/{pid}/task/{native_tid}/stat") as f:
+            stat = f.read()
+        comm_end = stat.rfind(")")
+        state = stat[comm_end + 2]
+        if state != "R":
+            return True
+    except (OSError, IndexError):
+        pass
+
+    if not frames:
+        return False
+
+    name, filename, _ = frames[0]
+    if not filename:
+        return False
+    if name == "wait" and filename.endswith("threading.py"):
+        return True
+    if name == "select" and filename.endswith("selectors.py"):
+        return True
+    if name == "poll" and (
+        filename.endswith("asyncore.py")
+        or "zmq" in filename
+        or "gevent" in filename
+        or "tornado" in filename
+    ):
+        return True
+    return False
+
+
+def dump_thread(reader, pid, tstate_addr, native_tid, name, trampoline_addr):
     cframe_addr = reader.read_ptr(tstate_addr + offsets.get("ThreadState.cframe"))
     current_frame = 0
     if cframe_addr:
         current_frame = reader.read_ptr(cframe_addr + offsets.get("CFrame.current_frame"))
 
-    if name:
-        print(f'Thread {native_tid}: "{name}"')
-    else:
-        print(f"Thread {native_tid}")
+    frames = collect_frames(reader, current_frame, trampoline_addr) if current_frame else []
+    idle = _is_thread_idle(pid, native_tid, frames)
 
-    if current_frame == 0:
+    status = " (idle)" if idle else ""
+    if name:
+        print(f'Thread {native_tid}{status}: "{name}"')
+    else:
+        print(f"Thread {native_tid}{status}")
+
+    if not frames:
         print("  (no Python frame — thread may be in C code or idle)")
     else:
-        dump_frames(reader, current_frame, trampoline_addr)
+        for idx, (fname, filename, line) in enumerate(frames):
+            print(f"  #{idx} {fname or '?'} ({filename or '?'}:{line})")
     print()
 
 
@@ -185,7 +218,7 @@ def dump_python(pid):
     threads.sort(key=lambda t: t["native_tid"])
 
     for t in threads:
-        dump_thread(reader, t["tstate_addr"], t["native_tid"],
-                    t["thread_id"], t["name"], trampoline_addr)
+        dump_thread(reader, pid, t["tstate_addr"], t["native_tid"],
+                    t["name"], trampoline_addr)
 
     return 0

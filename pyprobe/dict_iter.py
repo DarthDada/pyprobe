@@ -15,6 +15,7 @@ class DictIter:
         self.values = 0
         self.entries = None
         self.entry_size = 0
+        self.key_off = 0
 
     def _init_from_keys(self, keys_addr, values_addr):
         keys_sz = offsets.get("dictkeysobject_size")
@@ -30,8 +31,10 @@ class DictIter:
 
         if self.kind == 0:
             self.entry_size = offsets.get("PyDictKeyEntry_size")
+            self.key_off = 8
         else:
             self.entry_size = offsets.get("PyDictUnicodeEntry_size")
+            self.key_off = 0
 
         indices_size = 1 << dk_log2
         entries_addr = keys_addr + indices_size + keys_sz
@@ -74,7 +77,7 @@ class DictIter:
                 return None
 
             base = idx * self.entry_size
-            k, v = struct.unpack_from("<QQ", self.entries, base)
+            k, v = struct.unpack_from("<QQ", self.entries, base + self.key_off)
 
             if k == 0:
                 continue
