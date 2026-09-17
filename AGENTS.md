@@ -2,6 +2,11 @@
 - Python env: `uv sync`
 - C tool: `make -C native/c` or `scripts/build.sh`
 - Offsets: `scripts/gen_offsets.sh` (生成 `pyprobe/offsets.json`)
+- Wheel: `uv build --wheel` (默认 `linux_x86_64`)；两个架构用 `scripts/build_wheels.sh` (产出 `py312-none-linux_{x86_64,aarch64}.whl`)
+  - 无 uv 时改用 pip: `python3 -m pip wheel . --no-deps -w dist` (默认 `linux_x86_64`)；aarch64 加 `--config-settings=--build-option=--plat-name=linux_aarch64`
+  - 离线环境:先建 venv 并预装构建依赖 (`python3 -m venv venv && . venv/bin/activate && pip install setuptools wheel`)，再 `pip wheel . --no-deps -w dist --no-build-isolation`（aarch64 同样加 `--config-settings`）
+    - 预装列表以 `pyproject.toml` 的 `[build-system].requires` 为准，改构建依赖时同步更新
+  - `scripts/build_wheels.sh` 自动选择 uv 或 pip，并按当前 python 能否 `import setuptools` 决定是否加 `--no-build-isolation`（离线 venv 复用预装依赖，在线环境走默认隔离下载）
 
 # Run
 - Sample app: `uv run python examples/fastapi_app.py` (FastAPI on :8000)

@@ -19,6 +19,31 @@ scripts/gen_offsets.sh   # 生成 CPython 结构体偏移量（首次或更换 P
 make -C native/c          # 编译 C 版本（可选）
 ```
 
+### 构建 Wheel
+
+Wheel 标签为 `py312-none-linux_{x86_64,aarch64}`（仅支持 CPython 3.12 + Linux）。
+
+**在线环境（有 uv）**
+
+```bash
+scripts/build_wheels.sh          # 产出两个架构的 wheel 到 dist/
+# 或仅构建当前架构：
+uv build --wheel
+```
+
+**离线环境（无 uv，无网络）**
+
+PEP 517 默认的构建隔离会在临时环境里下载 `setuptools`/`wheel`，离线时无法下载会失败。因此离线流程需先在虚拟环境中预装构建依赖，再用 `--no-build-isolation` 复用它们：
+
+```bash
+python3 -m venv venv && . venv/bin/activate
+pip install setuptools wheel        # 预装构建依赖（以 pyproject.toml 的 [build-system].requires 为准）
+pip wheel . --no-deps -w dist --no-build-isolation
+# aarch64：加 --config-settings=--build-option=--plat-name=linux_aarch64
+```
+
+> 构建依赖以 `pyproject.toml` 的 `[build-system].requires` 为准；若改动该列表，需同步更新此处预装命令。
+
 ### 启动目标进程
 
 ```bash
