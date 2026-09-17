@@ -2,12 +2,9 @@
 
 CPython 进程外检查工具 — 无需 ptrace attach（Python 栈模式）即可获取运行中 Python 进程的调用栈。
 
-## 功能
-
-- **Python 栈转储**（默认）— 遍历 `_PyRuntime → interpreter → threads → frames`，输出 py-spy 风格的 Python 调用栈（函数名、文件、行号、qualname）。
-- **Native 栈转储**（`--native`）— 通过 elfutils libdwfl 对所有线程进行 DWARF 回溯展开，输出 gdb `thread apply all bt` 风格的原生调用栈。
-
 提供纯 Python 实现（主交付物），另附 C 参考实现用于开发期交叉校验（不对外交付）。
+
+> **架构与设计**：模块结构、分层 API、内存读取、偏移量、CPython 遍历、权限模型、版本支持、测试架构等详见 [docs/design.md](docs/design.md)。
 
 ## 快速开始
 
@@ -111,70 +108,15 @@ pyprobe stack -p <pid> --native   原生调用栈转储（gdb 风格）
 
 ## 权限要求
 
-### Python 栈模式（默认）
+> 完整权限模型（ptrace_scope、dumpable、process_vm_readv vs ptrace）见 [docs/design.md §9 权限模型](docs/design.md#9-权限模型)。
 
-使用 `process_vm_readv(2)` 读取目标进程内存，**不需要 ptrace attach**。
-
-| 条件 | 是否可用 |
-|------|----------|
-| root（CAP_SYS_PTRACE） | 任意进程 |
-| 同用户 + `ptrace_scope=0` | 任意进程 |
-| 同用户 + `ptrace_scope=1`（默认） | 仅子进程 |
-| 目标进程 `dumpable=0` | 仍可读取 |
+- **Python 栈模式**（默认）：使用 `process_vm_readv(2)`，**不需要 ptrace attach**。`ptrace_scope=1`（默认）下仅可读取子进程；root 可读取任意进程。
+- **Native 模式**（`--native`）：使用 `ptrace(2)` attach 所有线程。`dumpable=0` 的进程（如 uvicorn/FastAPI）在非 root 下不可用。
 
 ```bash
 cat /proc/sys/kernel/yama/ptrace_scope   # 检查当前 ptrace_scope
-```
-
-### Native 模式（`--native`）
-
-使用 `ptrace(2)` attach 所有线程 + libdwfl DWARF 回溯展开。
-
-| 条件 | 是否可用 |
-|------|----------|
-| root（CAP_SYS_PTRACE） | 任意进程 |
-| 同用户 + `ptrace_scope=0` | 任意进程 |
-| 同用户 + `ptrace_scope=1`（默认） | 仅子进程 |
-| 目标进程 `dumpable=0` | **不可用** |
-
-> **注意**：uvicorn / FastAPI 运行时会将 `dumpable` 设为 0，导致 native 模式在非 root 下无法 attach。Python 栈模式不受此限制。
-
-```bash
 sudo uv run python -m pyprobe stack -p <pid> --native   # root 可绕过所有限制
 ```
-
-## C 参考实现与 Python 实现对比
-
-> C 版本为开发辅助参考实现，不对外交付；仅用于与 Python 实现交叉校验。
-
-| 特性 | C 参考实现 | Python 实现 |
-|------|--------|-------------|
-| Python 栈转储 | `build/pyprobe <pid>` | `python -m pyprobe stack -p <pid>` |
-| Native 栈转储 | `build/pyprobe <pid> --native` | `python -m pyprobe stack -p <pid> --native` |
-| 运行时依赖 | libdw.so、libelf.so、libz | libdw.so.1（仅 native 模式） |
-| 编译需求 | 需要 C 编译器 + CPython 头文件 | 仅生成偏移量时需要 |
-| 外部 Python 包 | 无 | 无（全部使用标准库 ctypes/struct） |
-| 架构支持 | x86-64、aarch64 | x86-64（aarch64 需重新生成偏移量） |
-| CPython 版本 | 编译时绑定 | 运行时按版本自动选择偏移量 |
-
-## 支持的 CPython 版本
-
-| CPython 版本 | 架构 | 状态 |
-|-------------|------|------|
-| 3.12.x | x86-64 | 已验证 |
-| 3.12.x | aarch64 | 未验证（偏移量理论上与 x86-64 相同，待实际验证） |
-| 3.11.x | x86-64, aarch64 | 未验证（回退 3.12 偏移量，输出可能不正确） |
-| 3.13.x | x86-64, aarch64 | 未验证（回退 3.12 偏移量，输出可能不正确） |
-
-> 对未验证版本，pyprobe 会在 stderr 输出告警并使用 3.12 偏移量作为默认回退。
-> 可通过 `scripts/gen_offsets.sh` 为目标 CPython 生成偏移量，验证后编入 `pyprobe/offsets.py`。
-
-## 限制
-
-- **CPython 版本**：已验证 3.12.x (x86-64)；其他版本/架构回退 3.12 偏移量并告警
-- 仅支持 **Linux**（依赖 `/proc`、`process_vm_readv`、`ptrace`）
-- 已验证 **x86-64**；aarch64 偏移量理论上相同（均为 64 位 LP64）但未实际验证
-- Native 模式在非 root 下受 `ptrace_scope` 和 `dumpable` 限制
 
 ## 许可证
 
