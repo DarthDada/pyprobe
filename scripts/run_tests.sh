@@ -8,6 +8,7 @@
 #   scripts/run_tests.sh -- -x        # pass extra args to pytest after --
 set -e
 cd "$(dirname "$0")/.."
+source "$(dirname "$0")/_common.sh"
 
 mode="all"
 extra=()
@@ -27,8 +28,4 @@ case "$mode" in
     integration) selector=(-m "integration" -v) ;;
 esac
 
-if command -v uv >/dev/null 2>&1; then
-    uv run python -m pytest tests/ "${selector[@]}" "${extra[@]}"
-else
-    python3 -m pytest tests/ "${selector[@]}" "${extra[@]}"
-fi
+py_run -m pytest tests/ "${selector[@]}" "${extra[@]}"

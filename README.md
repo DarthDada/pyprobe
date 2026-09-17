@@ -11,35 +11,31 @@ CPython 进程外检查工具 — 无需 ptrace attach（Python 栈模式）即�
 ### 环境准备
 
 ```bash
-uv sync
-scripts/gen_offsets.sh   # 生成 CPython 结构体偏移量（首次或更换 Python 版本时运行）
-make -C reference/c          # 编译 C 参考实现（可选）
+scripts/sync.sh            # 安装/同步依赖（替代裸 uv sync）
+scripts/gen_offsets.sh     # 生成 CPython 结构体偏移量（首次或更换 Python 版本时运行）
+scripts/build.sh           # 编译 C 参考实现（可选；需 libdw/libelf/zlib）
 ```
 
 ### 构建 Wheel
 
 Wheel 标签为 `py3-none-linux_{x86_64,aarch64}`（纯 Python，支持 Python 3.8+ 宿主，仅 Linux）。
 
-**在线环境（有 uv）**
-
 ```bash
-scripts/build_wheels.sh          # 产出两个架构的 wheel 到 dist/
-# 或仅构建当前架构：
-uv build --wheel
+scripts/build_wheel.sh     # 仅构建当前架构 wheel 到 dist/
+scripts/build_wheels.sh    # 构建双架构（x86_64 + aarch64）wheel 到 dist/
 ```
 
-**离线环境（无 uv，无网络）**
+**离线环境（无 uv、无网络）**
 
-PEP 517 默认的构建隔离会在临时环境里下载 `setuptools`/`wheel`，离线时无法下载会失败。因此离线流程需先在虚拟环境中预装构建依赖，再用 `--no-build-isolation` 复用它们：
+上述脚本内置 uv→pip 回退：无 `uv` 时自动改用 `pip wheel`，并在 `setuptools` 可导入时加 `--no-build-isolation` 复用已预装的构建依赖（以 `pyproject.toml` 的 `[build-system].requires` 为准）。因此离线流程只需：
 
 ```bash
 python3 -m venv venv && . venv/bin/activate
-pip install setuptools wheel        # 预装构建依赖（以 pyproject.toml 的 [build-system].requires 为准）
-pip wheel . --no-deps -w dist --no-build-isolation
-# aarch64：加 --config-settings=--build-option=--plat-name=linux_aarch64
+pip install setuptools wheel        # 预装构建依赖（以 [build-system].requires 为准）
+scripts/build_wheels.sh             # 脚本自动检测并走 pip 回退路径
 ```
 
-> 构建依赖以 `pyproject.toml` 的 `[build-system].requires` 为准；若改动该列表，需同步更新此处预装命令。
+> 改 `pyproject.toml` 的 `[build-system].requires` 时，需同步更新此处预装命令与 `scripts/_common.sh` 的回退逻辑。
 
 ### 启动目标进程
 
@@ -105,6 +101,42 @@ pyprobe stack -p <pid> --native   原生调用栈转储（gdb 风格）
 | `stack` | 子命令：转储线程调用栈 |
 | `-p`, `--pid <pid>` | 目标进程的 PID |
 | `--native` | 转储原生（C）调用栈而非 Python 调用栈 |
+
+## 开发脚本
+
+所有构建/测试命令均经 `scripts/` 实现，CI 一律走 `scripts/ci.sh` 编排，避免手敲裸命令变形。公共逻辑（uv/python3 回退、`build_wheel`）抽到 `scripts/_common.sh`，各脚本 `source` 之。
+
+| 脚本 | 用途 |
+|------|------|
+| `scripts/sync.sh` | 安装/同步依赖（替代裸 `uv sync`） |
+| `scripts/gen_offsets.sh` | 生成 `pyprobe/offsets.json` |
+| `scripts/build.sh` | C 参考实现（`build`/`clean`/`rebuild`；需 libdw/libelf/zlib） |
+| `scripts/build_wheel.sh` | 单架构 native wheel（替代裸 `uv build --wheel`） |
+| `scripts/build_wheels.sh` | 双架构（x86_64 + aarch64）wheel |
+| `scripts/smoke.sh` | wheel 冒烟测试（构建 + 隔离 venv 安装 + import/CLI 校验） |
+| `scripts/run_tests.sh` | 测试（`unit`/`integration`/全部） |
+| `scripts/ci.sh` | CI 全流程编排（`sync gen-offsets test smoke`，`full` 含 `build-c`） |
+| `scripts/_common.sh` | 公共逻辑（被各脚本 source，不单独执行） |
+
+`scripts/ci.sh` 用法：
+
+```bash
+scripts/ci.sh                 # 默认流水线：sync gen-offsets test smoke
+scripts/ci.sh full            # 上述 + build-c（需 libdw/libelf/zlib）
+scripts/ci.sh test            # 单阶段
+scripts/ci.sh sync gen-offsets   # 指定阶段，按给出顺序执行
+```
+
+## 测试
+
+```bash
+scripts/run_tests.sh              # 全部测试（unit + integration）
+scripts/run_tests.sh unit         # 仅单元测试（无子进程）
+scripts/run_tests.sh integration  # 仅集成测试
+scripts/run_tests.sh -- -x        # -- 之后的参数透传给 pytest
+```
+
+集成测试通过 `subprocess.Popen` 派生子进程（绕过 `ptrace_scope=1`）；非 Linux 或 ptrace 权限不足时自动 skip。
 
 ## 权限要求
 
