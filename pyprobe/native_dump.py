@@ -5,9 +5,6 @@ import os
 
 from .elf import read_cmdline
 
-libdw = ctypes.CDLL("libdw.so.1", use_errno=True)
-libc = ctypes.CDLL("libc.so.6", use_errno=True)
-
 Dwarf_Addr = ctypes.c_uint64
 pid_t = ctypes.c_int32
 Dwfl = ctypes.c_void_p
@@ -44,46 +41,56 @@ _thread_cb_t = ctypes.CFUNCTYPE(
 _frame_cb_t = ctypes.CFUNCTYPE(
     ctypes.c_int, ctypes.POINTER(Dwfl_Frame), ctypes.c_void_p)
 
-# prototypes
-libdw.dwfl_begin.restype = ctypes.POINTER(Dwfl)
-libdw.dwfl_begin.argtypes = [ctypes.POINTER(Dwfl_Callbacks)]
-libdw.dwfl_end.restype = None
-libdw.dwfl_end.argtypes = [ctypes.POINTER(Dwfl)]
-libdw.dwfl_errmsg.restype = ctypes.c_char_p
-libdw.dwfl_errmsg.argtypes = [ctypes.c_int]
-libdw.dwfl_linux_proc_report.restype = ctypes.c_int
-libdw.dwfl_linux_proc_report.argtypes = [ctypes.POINTER(Dwfl), pid_t]
-libdw.dwfl_report_end.restype = ctypes.c_int
-libdw.dwfl_report_end.argtypes = [ctypes.POINTER(Dwfl), ctypes.c_void_p, ctypes.c_void_p]
-libdw.dwfl_linux_proc_attach.restype = ctypes.c_int
-libdw.dwfl_linux_proc_attach.argtypes = [ctypes.POINTER(Dwfl), pid_t, ctypes.c_bool]
-libdw.dwfl_thread_tid.restype = pid_t
-libdw.dwfl_thread_tid.argtypes = [ctypes.POINTER(Dwfl_Thread)]
-libdw.dwfl_frame_thread.restype = ctypes.POINTER(Dwfl_Thread)
-libdw.dwfl_frame_thread.argtypes = [ctypes.POINTER(Dwfl_Frame)]
-libdw.dwfl_thread_dwfl.restype = ctypes.POINTER(Dwfl)
-libdw.dwfl_thread_dwfl.argtypes = [ctypes.POINTER(Dwfl_Thread)]
-libdw.dwfl_frame_pc.restype = ctypes.c_bool
-libdw.dwfl_frame_pc.argtypes = [ctypes.POINTER(Dwfl_Frame),
-                                 ctypes.POINTER(Dwarf_Addr),
-                                 ctypes.POINTER(ctypes.c_bool)]
-libdw.dwfl_addrmodule.restype = ctypes.POINTER(Dwfl_Module)
-libdw.dwfl_addrmodule.argtypes = [ctypes.POINTER(Dwfl), Dwarf_Addr]
-libdw.dwfl_module_addrname.restype = ctypes.c_char_p
-libdw.dwfl_module_addrname.argtypes = [ctypes.POINTER(Dwfl_Module), GElf_Word]
-libdw.dwfl_module_info.restype = ctypes.c_char_p
-libdw.dwfl_module_info.argtypes = [
-    ctypes.POINTER(Dwfl_Module),
-    ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)),
-    ctypes.POINTER(Dwarf_Addr), ctypes.POINTER(Dwarf_Addr),
-    ctypes.POINTER(ctypes.c_char_p), ctypes.POINTER(ctypes.c_char_p),
-    ctypes.POINTER(ctypes.c_char_p), ctypes.POINTER(ctypes.c_char_p),
-]
-libdw.dwfl_getthreads.restype = ctypes.c_int
-libdw.dwfl_getthreads.argtypes = [ctypes.POINTER(Dwfl), _thread_cb_t, ctypes.c_void_p]
-libdw.dwfl_thread_getframes.restype = ctypes.c_int
-libdw.dwfl_thread_getframes.argtypes = [
-    ctypes.POINTER(Dwfl_Thread), _frame_cb_t, ctypes.c_void_p]
+libdw = None
+libc = None
+
+
+def _init_libs():
+    global libdw, libc
+    if libdw is not None:
+        return
+    libdw = ctypes.CDLL("libdw.so.1", use_errno=True)
+    libc = ctypes.CDLL("libc.so.6", use_errno=True)
+
+    libdw.dwfl_begin.restype = ctypes.POINTER(Dwfl)
+    libdw.dwfl_begin.argtypes = [ctypes.POINTER(Dwfl_Callbacks)]
+    libdw.dwfl_end.restype = None
+    libdw.dwfl_end.argtypes = [ctypes.POINTER(Dwfl)]
+    libdw.dwfl_errmsg.restype = ctypes.c_char_p
+    libdw.dwfl_errmsg.argtypes = [ctypes.c_int]
+    libdw.dwfl_linux_proc_report.restype = ctypes.c_int
+    libdw.dwfl_linux_proc_report.argtypes = [ctypes.POINTER(Dwfl), pid_t]
+    libdw.dwfl_report_end.restype = ctypes.c_int
+    libdw.dwfl_report_end.argtypes = [ctypes.POINTER(Dwfl), ctypes.c_void_p, ctypes.c_void_p]
+    libdw.dwfl_linux_proc_attach.restype = ctypes.c_int
+    libdw.dwfl_linux_proc_attach.argtypes = [ctypes.POINTER(Dwfl), pid_t, ctypes.c_bool]
+    libdw.dwfl_thread_tid.restype = pid_t
+    libdw.dwfl_thread_tid.argtypes = [ctypes.POINTER(Dwfl_Thread)]
+    libdw.dwfl_frame_thread.restype = ctypes.POINTER(Dwfl_Thread)
+    libdw.dwfl_frame_thread.argtypes = [ctypes.POINTER(Dwfl_Frame)]
+    libdw.dwfl_thread_dwfl.restype = ctypes.POINTER(Dwfl)
+    libdw.dwfl_thread_dwfl.argtypes = [ctypes.POINTER(Dwfl_Thread)]
+    libdw.dwfl_frame_pc.restype = ctypes.c_bool
+    libdw.dwfl_frame_pc.argtypes = [ctypes.POINTER(Dwfl_Frame),
+                                     ctypes.POINTER(Dwarf_Addr),
+                                     ctypes.POINTER(ctypes.c_bool)]
+    libdw.dwfl_addrmodule.restype = ctypes.POINTER(Dwfl_Module)
+    libdw.dwfl_addrmodule.argtypes = [ctypes.POINTER(Dwfl), Dwarf_Addr]
+    libdw.dwfl_module_addrname.restype = ctypes.c_char_p
+    libdw.dwfl_module_addrname.argtypes = [ctypes.POINTER(Dwfl_Module), GElf_Word]
+    libdw.dwfl_module_info.restype = ctypes.c_char_p
+    libdw.dwfl_module_info.argtypes = [
+        ctypes.POINTER(Dwfl_Module),
+        ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)),
+        ctypes.POINTER(Dwarf_Addr), ctypes.POINTER(Dwarf_Addr),
+        ctypes.POINTER(ctypes.c_char_p), ctypes.POINTER(ctypes.c_char_p),
+        ctypes.POINTER(ctypes.c_char_p), ctypes.POINTER(ctypes.c_char_p),
+    ]
+    libdw.dwfl_getthreads.restype = ctypes.c_int
+    libdw.dwfl_getthreads.argtypes = [ctypes.POINTER(Dwfl), _thread_cb_t, ctypes.c_void_p]
+    libdw.dwfl_thread_getframes.restype = ctypes.c_int
+    libdw.dwfl_thread_getframes.argtypes = [
+        ctypes.POINTER(Dwfl_Thread), _frame_cb_t, ctypes.c_void_p]
 
 _MAX_FRAMES = 256
 _MAX_LINE = 512
@@ -117,6 +124,7 @@ def _detach_all(tids):
 
 
 def dump_native(pid):
+    _init_libs()
     cmdline = read_cmdline(pid) or ""
     print(f"Process {pid}: {cmdline}\n")
 

@@ -38,16 +38,9 @@ C 代码为开发辅助参考实现，不对外交付，不打包进 wheel 是�
 
 ## 模式二：源码集成 + 命令行工具
 
-### 5. `libdw.so.1` 在导入时强制加载，破坏非 native 模式（致命）
+### 5. `libdw.so.1` 在导入时强制加载，破坏非 native 模式（已修复）
 
-`native_dump.py:8` 在模块顶层执行：
-```python
-libdw = ctypes.CDLL("libdw.so.1", use_errno=True)
-```
-
-导入链：`__main__` → `cli` → `from .native_dump import dump_native` → 触发 `CDLL("libdw.so.1")`。
-
-即使只用 Python 栈模式（不需要 libdw），在没有 `libdw.so.1` 的系统（如精简容器）上，`python -m pyprobe <pid>` 会直接 `OSError` 崩溃。README 说 libdw 是"仅 native 模式"依赖，但实际并非如此。
+`native_dump.py` 原在模块顶层执行 `ctypes.CDLL("libdw.so.1")`，导致导入即加载。现已改为惰性加载：`libdw`/`libc` 初始化为 `None`，CDLL 加载与原型设置移入 `_init_libs()`，仅在 `dump_native()` 首次调用时触发。Python 栈模式不再依赖 libdw。
 
 ### 6. CLI 无 argparse，脆弱且不可扩展
 
@@ -128,7 +121,7 @@ return 1
 | 优先级 | 问题 | 影响 |
 |--------|------|------|
 | P0 | #1 offsets.json 未入 wheel | whl 用户可能得到垃圾输出 |
-| P0 | #5 libdw 导入时加载 | 无 libdw 环境下工具完全不可用 |
+| ~~P0~~ | ~~#5 libdw 导入时加载~~ | 已修复（惰性加载） |
 | P0 | #8 无结构化 API | 模式三（接口集成）根本无法实现 |
 | P1 | #4 无版本校验 | 静默垃圾输出，用户无感知 |
 | P1 | #2 py312 标签 | 不当限制宿主 Python 版本 |
