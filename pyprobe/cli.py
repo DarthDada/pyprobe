@@ -5,29 +5,38 @@ Usage:
   python -m pyprobe <pid> --native   Native stack dump (gdb-style)
 """
 
+import argparse
 import sys
 
 from .stack_dump import dump_python
 from .native_dump import dump_native
+from . import __version__
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(
+        prog="pyprobe",
+        description="CPython out-of-process stack inspection tool.",
+    )
+    parser.add_argument("pid", type=int, help="target process PID")
+    parser.add_argument(
+        "--native", action="store_true",
+        help="dump native (C) stacks via ptrace + libdwfl instead of Python stacks")
+    parser.add_argument(
+        "--version", action="version", version=f"pyprobe {__version__}")
+    return parser
 
 
 def main(argv=None):
     if argv is None:
         argv = sys.argv[1:]
 
-    native_mode = False
-    if len(argv) == 2 and argv[1] == "--native":
-        native_mode = True
-    elif len(argv) != 1:
-        print(f"usage: {sys.argv[0]} <pid> [--native]")
-        return 1
+    parser = build_parser()
+    args = parser.parse_args(argv)
 
-    pid = int(argv[0])
-
-    if native_mode:
-        return dump_native(pid)
-    else:
-        return dump_python(pid)
+    if args.native:
+        return dump_native(args.pid)
+    return dump_python(args.pid)
 
 
 if __name__ == "__main__":

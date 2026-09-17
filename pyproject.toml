@@ -18,8 +18,16 @@ packages = ["pyprobe"]
 [tool.setuptools.package-data]
 pyprobe = ["offsets.json"]
 
-[project.optional-dependencies]
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = [
+    "integration: end-to-end tests that spawn a child process and read its memory (run: pytest -m integration)",
+]
+
+[dependency-groups]
 dev = [
+    "pytest>=8.3.5",
     "fastapi[standard]>=0.141.1; python_version>='3.12'",
     "numpy>=2.5.3; python_version>='3.12'",
 ]

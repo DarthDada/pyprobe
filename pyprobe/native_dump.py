@@ -1,9 +1,19 @@
-"""Native stack dump via libdwfl (elfutils) using ctypes."""
+"""Native stack dump via libdwfl (elfutils) using ctypes.
+
+Layered design (issue #8):
+
+* ``collect_native(pid)`` — ptrace attach + DWARF unwind; returns
+  ``list[NativeThreadInfo]``.  Raises ``AttachFailed`` on ptrace failure.
+* ``format_native(cmdline, threads)`` — render the human-readable output.
+* ``dump_native(pid)`` — thin CLI wrapper: collect + format + print.
+"""
 
 import ctypes
 import os
 
 from .elf import read_cmdline
+from .types import NativeFrame, NativeThreadInfo
+from .errors import AttachFailed
 
 Dwarf_Addr = ctypes.c_uint64
 pid_t = ctypes.c_int32
@@ -93,8 +103,6 @@ def _init_libs():
         ctypes.POINTER(Dwfl_Thread), _frame_cb_t, ctypes.c_void_p]
 
 _MAX_FRAMES = 256
-_MAX_LINE = 512
-
 
 PTRACE_ATTACH = 16
 PTRACE_DETACH = 17
@@ -123,24 +131,16 @@ def _detach_all(tids):
         libc.ptrace(PTRACE_DETACH, tid, 0, 0)
 
 
-def dump_native(pid):
-    _init_libs()
-    cmdline = read_cmdline(pid) or ""
-    print(f"Process {pid}: {cmdline}\n")
-
-    attached = _attach_all_threads(pid)
-    if not attached:
-        e = ctypes.get_errno()
-        print(f"[!] PTRACE_ATTACH failed: {os.strerror(e)}")
-        return 1
-
+def _read_comm(pid, tid):
     try:
-        return _do_dump(pid)
-    finally:
-        _detach_all(attached)
+        with open(f"/proc/{pid}/task/{tid}/comm") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
 
 
-def _do_dump(pid):
+def _collect_frames(pid):
+    """Run the DWARF unwind and return a list of NativeThreadInfo."""
     debuginfo_path = ctypes.c_char_p(None)
     callbacks = Dwfl_Callbacks()
     callbacks.find_elf = _find_elf_t(libdw.dwfl_linux_proc_find_elf)
@@ -150,21 +150,18 @@ def _do_dump(pid):
 
     dwfl = libdw.dwfl_begin(ctypes.byref(callbacks))
     if not dwfl:
-        print(f"[!] dwfl_begin failed: {libdw.dwfl_errmsg(-1)}")
-        return 1
+        raise AttachFailed(pid, f"dwfl_begin failed: {libdw.dwfl_errmsg(-1)}")
 
     try:
         if libdw.dwfl_linux_proc_report(dwfl, pid) != 0:
             e = ctypes.get_errno()
-            print(f"[!] dwfl_linux_proc_report failed: {os.strerror(e)}")
-            return 1
+            raise AttachFailed(pid, f"dwfl_linux_proc_report failed: {os.strerror(e)}")
 
         libdw.dwfl_report_end(dwfl, None, None)
 
         if libdw.dwfl_linux_proc_attach(dwfl, pid, True) != 0:
             e = ctypes.get_errno()
-            print(f"[!] dwfl_linux_proc_attach failed: {os.strerror(e)}")
-            return 1
+            raise AttachFailed(pid, f"dwfl_linux_proc_attach failed: {os.strerror(e)}")
 
         results = []
 
@@ -195,7 +192,7 @@ def _do_dump(pid):
             if r is not None:
                 frames = r.value
                 if len(frames) < _MAX_FRAMES:
-                    frames.append((pc.value, sym, modpath))
+                    frames.append(NativeFrame(pc=pc.value, symbol=sym, module=modpath))
             return 0
 
         @_thread_cb_t
@@ -207,33 +204,62 @@ def _do_dump(pid):
                                                ctypes.cast(ctypes.pointer(obj),
                                                             ctypes.c_void_p))
             comm = _read_comm(pid, tid)
-            results.append((tid, comm, frames, fr != 0 and len(frames) == 0))
+            results.append(NativeThreadInfo(
+                tid=tid, comm=comm, frames=frames,
+                unwind_failed=(fr != 0 and len(frames) == 0),
+            ))
             return 0
 
         libdw.dwfl_getthreads(dwfl, thread_cb, None)
 
-        results.sort(key=lambda r: r[0], reverse=True)
-
-        for i, (tid, comm, frames, unwind_err) in enumerate(results):
-            print(f'Thread {i + 1} (LWP {tid}) "{comm}":')
-            if not frames and unwind_err:
-                print("  Backtrace stopped: Cannot access memory at address 0x0")
-            else:
-                for j, (pc_val, sym_str, modpath) in enumerate(frames):
-                    if modpath:
-                        print(f"  #{j}  0x{pc_val:016x} in {sym_str} () from {modpath}")
-                    else:
-                        print(f"  #{j}  0x{pc_val:016x} in {sym_str} ()")
-            print()
-
-        return 0
+        results.sort(key=lambda r: r.tid, reverse=True)
+        return results
     finally:
         libdw.dwfl_end(dwfl)
 
 
-def _read_comm(pid, tid):
+def collect_native(pid):
+    """Attach to all threads of ``pid`` and collect native stacks.
+
+    Returns ``list[NativeThreadInfo]``.  Raises ``AttachFailed`` on ptrace
+    failure.  No printing is performed.
+    """
+    _init_libs()
+
+    attached = _attach_all_threads(pid)
+    if not attached:
+        e = ctypes.get_errno()
+        raise AttachFailed(pid, os.strerror(e))
+
     try:
-        with open(f"/proc/{pid}/task/{tid}/comm") as f:
-            return f.read().strip()
-    except OSError:
-        return ""
+        return _collect_frames(pid)
+    finally:
+        _detach_all(attached)
+
+
+def format_native(cmdline, threads):
+    """Render collected native stacks as the human-readable CLI output."""
+    parts = [f"Process: {cmdline}\n"] if cmdline is not None else []
+    for i, t in enumerate(threads):
+        parts.append(t.format(i + 1))
+        parts.append("")
+    return "\n".join(parts)
+
+
+def dump_native(pid):
+    """CLI entry point: collect + format + print. Returns exit code."""
+    _init_libs()
+    cmdline = read_cmdline(pid) or ""
+    print(f"Process {pid}: {cmdline}\n")
+
+    try:
+        threads = collect_native(pid)
+    except AttachFailed as e:
+        print(f"[!] {e}")
+        return 1
+    except OSError as e:
+        print(f"[!] {e}")
+        return 1
+
+    print(format_native(cmdline, threads))
+    return 0

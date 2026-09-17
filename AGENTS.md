@@ -15,7 +15,11 @@
 - C version (reference impl): `build/pyprobe <pid> [--native]`
 
 # Test
-- `uv run python -m pytest tests/`
+- All tests: `uv run python -m pytest tests/` 或 `scripts/run_tests.sh`
+- Unit only (无子进程依赖): `scripts/run_tests.sh unit` 或 `pytest -m "not integration"`
+- Integration only (spawn 子进程 + process_vm_readv): `scripts/run_tests.sh integration`
+- 集成测试通过 `target_pid` session fixture 派生子进程作为探测目标（绕过 ptrace_scope=1 限制）；非 Linux 自动 skip
+- Native dump 集成测试在 ptrace 权限不足时自动 skip
 
 # Lint / Typecheck
 - 无配置（暂无 linter / typechecker）
@@ -35,4 +39,9 @@
 - `reference/c/` — C 参考实现（py_stack_dump.c, Makefile；非交付，仅供交叉校验）
 - `examples/` — 示例目标进程
 - `tests/` — 测试
-- `scripts/` — 辅助脚本（build.sh, gen_offsets.sh）
+  - `conftest.py` — `target_pid` session fixture（派生子进程作为探测目标）
+  - `helpers.py` — `FakeReader`（内存字典模拟 `RemoteReader`）+ CPython 对象内存构造器
+  - `targets/target_app.py` — 集成测试目标进程（主线程 + bg-worker 线程）
+  - `test_*.py` — 单元测试（offsets/linetable/dict_iter/elf/pyobject/memory/stack_dump/types/errors）
+  - `test_integration.py` — 集成测试（`@pytest.mark.integration`，端到端验证 `collect_python`/`format_process`/`dump_python`/`collect_native`）
+- `scripts/` — 辅助脚本（build.sh, build_wheels.sh, gen_offsets.sh, run_tests.sh）
