@@ -2,7 +2,7 @@
  * py_stack_dump.c - pyprobe: inspect a running CPython 3.12 process.
  *
  * Build:
- *   make -C native/c
+ *   make -C reference/c
  *
  * Usage:
  *   ./pyprobe <pid>            Python stack dump (py-spy dump style)

@@ -7,7 +7,7 @@ CPython 进程外检查工具 — 无需 ptrace attach（Python 栈模式）即�
 - **Python 栈转储**（默认）— 遍历 `_PyRuntime → interpreter → threads → frames`，输出 py-spy 风格的 Python 调用栈（函数名、文件、行号、qualname）。
 - **Native 栈转储**（`--native`）— 通过 elfutils libdwfl 对所有线程进行 DWARF 回溯展开，输出 gdb `thread apply all bt` 风格的原生调用栈。
 
-提供 C 和纯 Python 两种实现。
+提供纯 Python 实现（主交付物），另附 C 参考实现用于开发期交叉校验（不对外交付）。
 
 ## 快速开始
 
@@ -16,7 +16,7 @@ CPython 进程外检查工具 — 无需 ptrace attach（Python 栈模式）即�
 ```bash
 uv sync
 scripts/gen_offsets.sh   # 生成 CPython 结构体偏移量（首次或更换 Python 版本时运行）
-make -C native/c          # 编译 C 版本（可选）
+make -C reference/c          # 编译 C 参考实现（可选）
 ```
 
 ### 构建 Wheel
@@ -55,7 +55,7 @@ pgrep -f fastapi_app                     # 获取 PID，例如 14695
 
 ```bash
 uv run python -m pyprobe 14695      # Python 实现
-./build/pyprobe 14695               # C 实现
+./build/pyprobe 14695               # C 参考实现
 ```
 
 输出示例：
@@ -80,7 +80,7 @@ Thread 14701
 
 ```bash
 uv run python -m pyprobe 14695 --native   # Python 实现
-./build/pyprobe 14695 --native            # C 实现
+./build/pyprobe 14695 --native            # C 参考实现
 ```
 
 输出示例：
@@ -142,9 +142,11 @@ cat /proc/sys/kernel/yama/ptrace_scope   # 检查当前 ptrace_scope
 sudo uv run python -m pyprobe <pid> --native   # root 可绕过所有限制
 ```
 
-## C 实现与 Python 实现对比
+## C 参考实现与 Python 实现对比
 
-| 特性 | C 版本 | Python 版本 |
+> C 版本为开发辅助参考实现，不对外交付；仅用于与 Python 实现交叉校验。
+
+| 特性 | C 参考实现 | Python 实现 |
 |------|--------|-------------|
 | Python 栈转储 | `build/pyprobe <pid>` | `python -m pyprobe <pid>` |
 | Native 栈转储 | `build/pyprobe <pid> --native` | `python -m pyprobe <pid> --native` |

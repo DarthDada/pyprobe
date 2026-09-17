@@ -1,6 +1,6 @@
 # Build
 - Python env: `uv sync`
-- C tool: `make -C native/c` or `scripts/build.sh`
+- C reference impl: `make -C reference/c` or `scripts/build.sh`
 - Offsets: `scripts/gen_offsets.sh` (生成 `pyprobe/offsets.json`)
 - Wheel: `uv build --wheel` (默认 `linux_x86_64`)；两个架构用 `scripts/build_wheels.sh` (产出 `py312-none-linux_{x86_64,aarch64}.whl`)
   - 无 uv 时改用 pip: `python3 -m pip wheel . --no-deps -w dist` (默认 `linux_x86_64`)；aarch64 加 `--config-settings=--build-option=--plat-name=linux_aarch64`
@@ -12,7 +12,7 @@
 - Sample app: `uv run python examples/fastapi_app.py` (FastAPI on :8000)
 - Python stack dump: `uv run python -m pyprobe <pid>`
 - Native stack dump: `uv run python -m pyprobe <pid> --native`
-- C version: `build/pyprobe <pid> [--native]`
+- C version (reference impl): `build/pyprobe <pid> [--native]`
 
 # Test
 - `uv run python -m pytest tests/`
@@ -31,7 +31,8 @@
   - `stack_dump.py` — Python 栈转储主逻辑
   - `native_dump.py` — Native 栈转储 (ctypes + libdw.so)
   - `offsets.py` / `offsets.json` — CPython 结构体偏移量
-- `native/c/` — C 实现（py_stack_dump.c, gen_offsets.c, Makefile）
+- `tools/` — 构建期工具（gen_offsets.c，生成 pyprobe/offsets.json）
+- `reference/c/` — C 参考实现（py_stack_dump.c, Makefile；非交付，仅供交叉校验）
 - `examples/` — 示例目标进程
 - `tests/` — 测试
 - `scripts/` — 辅助脚本（build.sh, gen_offsets.sh）

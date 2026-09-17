@@ -26,9 +26,9 @@ pyprobe/cli.py
 
 `setup.cfg` 指定 `python_tag = py312`，`pyproject.toml` 声明 `requires-python = ">=3.12"`。但 pyprobe 本身是纯 Python，**可以在任何 Python 版本下运行**去探测一个 3.12 目标进程。`py312` 标签会让 pip 拒绝在 3.11 或 3.13 宿主上安装，而 `>=3.12` 又允许 3.13 安装 sdist——两者矛盾。纯 Python 包应使用 `py3` 标签。
 
-### 3. C 实现未纳入 wheel 分发
+### 3. C 实现未纳入 wheel 分发（非问题 / by design）
 
-README 宣传 C 和 Python 两种实现，但 wheel 只包含 Python 版本。whl 用户无法使用 `build/pyprobe` 的 C 二进制。
+C 代码为开发辅助参考实现，不对外交付，不打包进 wheel 是设计预期。此前 README 将 C 版本呈现为与 Python 对等的交付物，造成认知错位——该问题已在 README 调整中修正（C 降格为"参考实现"）。
 
 ### 4. 无运行时 CPython 版本校验
 
@@ -136,7 +136,7 @@ return 1
 | P1 | #9 无异常类型 | 库调用方无法处理错误 |
 | P2 | #6 无 argparse | CLI 不可扩展、无帮助 |
 | P2 | #11 测试缺失 | 可靠性无保障 |
-| P2 | #3 C 实现未打包 | whl 用户无法用 C 版本 |
+| ~~P2~~ | ~~#3 C 实现未打包~~ | 非问题（by design，C 为参考实现不交付） |
 | P3 | #12 双数据源 | 维护混淆 |
 | P3 | #13 单版本支持 | 适用范围窄 |
 | P3 | #14 无 CI | 无质量门禁 |
