@@ -9,5 +9,8 @@ wheels/
 # Virtual environments
 .venv
 
+# uv lockfile
+uv.lock
+
 # C build artifacts
 build/

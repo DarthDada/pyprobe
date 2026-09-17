@@ -14,7 +14,7 @@ packages = ["pyprobe"]
 [tool.uv]
 package = true
 
-[dependency-groups]
+[project.optional-dependencies]
 dev = [
     "fastapi[standard]>=0.141.1",
     "numpy>=2.5.3",
