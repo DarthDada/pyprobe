@@ -1,8 +1,11 @@
 """pyprobe CLI entry point.
 
 Usage:
-  python -m pyprobe <pid>            Python stack dump
-  python -m pyprobe <pid> --native   Native stack dump (gdb-style)
+  python -m pyprobe stack -p <pid>            Python stack dump
+  python -m pyprobe stack -p <pid> --native   Native stack dump (gdb-style)
+
+The top-level command dispatches to subcommands. The ``stack`` subcommand
+analyses the thread call stacks of a target CPython process.
 """
 
 import argparse
@@ -18,12 +21,27 @@ def build_parser():
         prog="pyprobe",
         description="CPython out-of-process stack inspection tool.",
     )
-    parser.add_argument("pid", type=int, help="target process PID")
-    parser.add_argument(
-        "--native", action="store_true",
-        help="dump native (C) stacks via ptrace + libdwfl instead of Python stacks")
     parser.add_argument(
         "--version", action="version", version=f"pyprobe {__version__}")
+    subparsers = parser.add_subparsers(
+        dest="command", required=True, metavar="<command>")
+
+    stack = subparsers.add_parser(
+        "stack",
+        help="dump thread call stacks of a target process",
+        description=(
+            "Dump Python or native (C) call stacks of the threads of a "
+            "target CPython process. By default Python stacks are dumped; "
+            "pass --native for gdb-style native stacks via ptrace + libdwfl."
+        ),
+    )
+    stack.add_argument(
+        "-p", "--pid", type=int, required=True, metavar="<pid>",
+        help="target process PID")
+    stack.add_argument(
+        "--native", action="store_true",
+        help="dump native (C) stacks via ptrace + libdwfl instead of Python stacks")
+
     return parser
 
 
@@ -34,9 +52,12 @@ def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if args.native:
-        return dump_native(args.pid)
-    return dump_python(args.pid)
+    if args.command == "stack":
+        if args.native:
+            return dump_native(args.pid)
+        return dump_python(args.pid)
+
+    return 1
 
 
 if __name__ == "__main__":

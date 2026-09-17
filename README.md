@@ -54,8 +54,8 @@ pgrep -f fastapi_app                     # 获取 PID，例如 14695
 ### Python 栈转储
 
 ```bash
-uv run python -m pyprobe 14695      # Python 实现
-./build/pyprobe 14695               # C 参考实现
+uv run python -m pyprobe stack -p 14695      # Python 实现
+./build/pyprobe 14695                         # C 参考实现
 ```
 
 输出示例：
@@ -79,8 +79,8 @@ Thread 14701
 ### Native 栈转储
 
 ```bash
-uv run python -m pyprobe 14695 --native   # Python 实现
-./build/pyprobe 14695 --native            # C 参考实现
+uv run python -m pyprobe stack -p 14695 --native   # Python 实现
+./build/pyprobe 14695 --native                      # C 参考实现
 ```
 
 输出示例：
@@ -99,13 +99,14 @@ Thread 1 (Thread 0x0000000000000000 (LWP 14701) "python3"):
 ## 命令行用法
 
 ```
-pyprobe <pid>            Python 调用栈转储
-pyprobe <pid> --native   原生调用栈转储（gdb 风格）
+pyprobe stack -p <pid>            Python 调用栈转储
+pyprobe stack -p <pid> --native   原生调用栈转储（gdb 风格）
 ```
 
 | 参数 | 说明 |
 |------|------|
-| `<pid>` | 目标进程的 PID |
+| `stack` | 子命令：转储线程调用栈 |
+| `-p`, `--pid <pid>` | 目标进程的 PID |
 | `--native` | 转储原生（C）调用栈而非 Python 调用栈 |
 
 ## 权限要求
@@ -139,7 +140,7 @@ cat /proc/sys/kernel/yama/ptrace_scope   # 检查当前 ptrace_scope
 > **注意**：uvicorn / FastAPI 运行时会将 `dumpable` 设为 0，导致 native 模式在非 root 下无法 attach。Python 栈模式不受此限制。
 
 ```bash
-sudo uv run python -m pyprobe <pid> --native   # root 可绕过所有限制
+sudo uv run python -m pyprobe stack -p <pid> --native   # root 可绕过所有限制
 ```
 
 ## C 参考实现与 Python 实现对比
@@ -148,8 +149,8 @@ sudo uv run python -m pyprobe <pid> --native   # root 可绕过所有限制
 
 | 特性 | C 参考实现 | Python 实现 |
 |------|--------|-------------|
-| Python 栈转储 | `build/pyprobe <pid>` | `python -m pyprobe <pid>` |
-| Native 栈转储 | `build/pyprobe <pid> --native` | `python -m pyprobe <pid> --native` |
+| Python 栈转储 | `build/pyprobe <pid>` | `python -m pyprobe stack -p <pid>` |
+| Native 栈转储 | `build/pyprobe <pid> --native` | `python -m pyprobe stack -p <pid> --native` |
 | 运行时依赖 | libdw.so、libelf.so、libz | libdw.so.1（仅 native 模式） |
 | 编译需求 | 需要 C 编译器 + CPython 头文件 | 仅生成偏移量时需要 |
 | 外部 Python 包 | 无 | 无（全部使用标准库 ctypes/struct） |

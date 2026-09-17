@@ -10,9 +10,15 @@
 
 # Run
 - Sample app: `uv run python examples/fastapi_app.py` (FastAPI on :8000)
-- Python stack dump: `uv run python -m pyprobe <pid>`
-- Native stack dump: `uv run python -m pyprobe <pid> --native`
+- Python stack dump: `uv run python -m pyprobe stack -p <pid>`
+- Native stack dump: `uv run python -m pyprobe stack -p <pid> --native`
 - C version (reference impl): `build/pyprobe <pid> [--native]`
+
+## Manual probing — target process setup
+- 手动端到端验证 `pyprobe stack` 时，必须用 `subprocess.Popen` 派生子进程并通过其 stdout 获取真实 PID（复用 `tests/conftest.py:target_pid` 的模式）；`try/finally` 中 `terminate()` + `wait(timeout=5)` 确保子进程被回收
+- **禁止** 用 shell `&` 后台启动 + `$!`/`pgrep` 获取 PID：`uv run` 包装器会导致 `$!` 指向 `uv`/`bash` 而非 Python 解释器；`pgrep -f <pattern>` 会匹配到 `/bin/bash -c ...` 命令行。对非 Python 进程探测 `_PyRuntime` 必然失败
+- **禁止** 在持久 shell 里裸用 `&` 跑长驻进程：后台子进程继承管道，不退出时管道不关闭，会导致整个 shell 会话卡死（连后续 `pkill` 都无法返回）
+- `process_vm_readv` 要求目标进程是当前进程的后代（`ptrace_scope=1` 默认下）；`Popen` 子进程天然满足此条件，shell `&` 后台进程则不一定
 
 # Test
 - All tests: `uv run python -m pytest tests/` 或 `scripts/run_tests.sh`
