@@ -2,7 +2,7 @@
 - Python env: `uv sync`
 - C reference impl: `make -C reference/c` or `scripts/build.sh`
 - Offsets: `scripts/gen_offsets.sh` (生成 `pyprobe/offsets.json`)
-- Wheel: `uv build --wheel` (默认 `linux_x86_64`)；两个架构用 `scripts/build_wheels.sh` (产出 `py312-none-linux_{x86_64,aarch64}.whl`)
+- Wheel: `uv build --wheel` (默认 `linux_x86_64`)；两个架构用 `scripts/build_wheels.sh` (产出 `py3-none-linux_{x86_64,aarch64}.whl`)
   - 无 uv 时改用 pip: `python3 -m pip wheel . --no-deps -w dist` (默认 `linux_x86_64`)；aarch64 加 `--config-settings=--build-option=--plat-name=linux_aarch64`
   - 离线环境:先建 venv 并预装构建依赖 (`python3 -m venv venv && . venv/bin/activate && pip install setuptools wheel`)，再 `pip wheel . --no-deps -w dist --no-build-isolation`（aarch64 同样加 `--config-settings`）
     - 预装列表以 `pyproject.toml` 的 `[build-system].requires` 为准，改构建依赖时同步更新
@@ -30,7 +30,7 @@
   - `thread_names.py` — threading._active 线程名查找
   - `stack_dump.py` — Python 栈转储主逻辑
   - `native_dump.py` — Native 栈转储 (ctypes + libdw.so)
-  - `offsets.py` / `offsets.json` — CPython 结构体偏移量
+  - `offsets.py` / `offsets.json` — CPython 结构体偏移量（多版本验证表，`offsets.py` 为单一数据源，`offsets.json` 为开发期覆盖）
 - `tools/` — 构建期工具（gen_offsets.c，生成 pyprobe/offsets.json）
 - `reference/c/` — C 参考实现（py_stack_dump.c, Makefile；非交付，仅供交叉校验）
 - `examples/` — 示例目标进程

@@ -21,7 +21,7 @@ make -C reference/c          # 编译 C 参考实现（可选）
 
 ### 构建 Wheel
 
-Wheel 标签为 `py312-none-linux_{x86_64,aarch64}`（仅支持 CPython 3.12 + Linux）。
+Wheel 标签为 `py3-none-linux_{x86_64,aarch64}`（纯 Python，支持 Python 3.8+ 宿主，仅 Linux）。
 
 **在线环境（有 uv）**
 
@@ -154,13 +154,25 @@ sudo uv run python -m pyprobe <pid> --native   # root 可绕过所有限制
 | 编译需求 | 需要 C 编译器 + CPython 头文件 | 仅生成偏移量时需要 |
 | 外部 Python 包 | 无 | 无（全部使用标准库 ctypes/struct） |
 | 架构支持 | x86-64、aarch64 | x86-64（aarch64 需重新生成偏移量） |
-| CPython 版本 | 编译时绑定 | 运行时通过 offsets.json 适配 |
+| CPython 版本 | 编译时绑定 | 运行时按版本自动选择偏移量 |
+
+## 支持的 CPython 版本
+
+| CPython 版本 | 架构 | 状态 |
+|-------------|------|------|
+| 3.12.x | x86-64 | 已验证 |
+| 3.12.x | aarch64 | 未验证（偏移量理论上与 x86-64 相同，待实际验证） |
+| 3.11.x | x86-64, aarch64 | 未验证（回退 3.12 偏移量，输出可能不正确） |
+| 3.13.x | x86-64, aarch64 | 未验证（回退 3.12 偏移量，输出可能不正确） |
+
+> 对未验证版本，pyprobe 会在 stderr 输出告警并使用 3.12 偏移量作为默认回退。
+> 可通过 `scripts/gen_offsets.sh` 为目标 CPython 生成偏移量，验证后编入 `pyprobe/offsets.py`。
 
 ## 限制
 
-- 仅支持 **CPython 3.12**（其他版本需重新生成偏移量）
+- **CPython 版本**：已验证 3.12.x (x86-64)；其他版本/架构回退 3.12 偏移量并告警
 - 仅支持 **Linux**（依赖 `/proc`、`process_vm_readv`、`ptrace`）
-- 仅支持 **x86-64**（aarch64 需重新生成偏移量并验证）
+- 已验证 **x86-64**；aarch64 偏移量理论上相同（均为 64 位 LP64）但未实际验证
 - Native 模式在非 root 下受 `ptrace_scope` 和 `dumpable` 限制
 
 ## 许可证

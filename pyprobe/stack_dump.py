@@ -1,6 +1,7 @@
 """Python stack dump: walk _PyRuntime -> interp -> threads -> frames."""
 
 import os
+import sys
 
 from .memory import RemoteReader, PTR_SIZE, MAX_STR_LEN
 from . import offsets
@@ -148,6 +149,14 @@ def dump_python(pid):
     py_version = read_const(exe_path, "Py_Version", 8)
     if py_version is not None:
         version_str = decode_py_version(int.from_bytes(py_version, "little"))
+
+    if version_str != "?":
+        offsets.configure(version_str)
+    else:
+        offsets.configure(offsets._DEFAULT_VERSION)
+        print("[!] Warning: cannot determine target CPython version, "
+              "using default offsets — output may be incorrect.",
+              file=sys.stderr)
 
     cmdline = read_cmdline(pid)
     if cmdline:
