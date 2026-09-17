@@ -16,18 +16,33 @@ MAX_THREADS = 256
 
 def dump_frames(reader, frame_addr, trampoline_addr):
     idx = 0
+
+    fc_off = offsets.get("InterpreterFrame.f_code")
+    prev_off = offsets.get("InterpreterFrame.previous")
+    pi_off = offsets.get("InterpreterFrame.prev_instr")
+    frame_sz = pi_off + PTR_SIZE
+
+    co_firstlineno = offsets.get("CodeObject.co_firstlineno")
+    co_qualname = offsets.get("CodeObject.co_qualname")
+    co_filename = offsets.get("CodeObject.co_filename")
+    co_name = offsets.get("CodeObject.co_name")
+    co_code_adaptive = offsets.get("CodeObject.co_code_adaptive")
+
+    co_lo = min(co_firstlineno, co_qualname)
+    co_hi = max(co_firstlineno, co_qualname) + PTR_SIZE
+    co_span = co_hi - co_lo
+
     for _ in range(MAX_FRAMES):
         if frame_addr == 0:
             break
 
-        frame_sz = (offsets.get("InterpreterFrame.prev_instr") + PTR_SIZE)
         raw = reader.read(frame_addr, frame_sz)
         if raw is None:
             break
 
-        f_code = int.from_bytes(raw[0:8], "little")
-        previous = int.from_bytes(raw[8:16], "little")
-        prev_instr = int.from_bytes(raw[56:64], "little")
+        f_code = int.from_bytes(raw[fc_off:fc_off + PTR_SIZE], "little")
+        previous = int.from_bytes(raw[prev_off:prev_off + PTR_SIZE], "little")
+        prev_instr = int.from_bytes(raw[pi_off:pi_off + PTR_SIZE], "little")
 
         if f_code == 0:
             frame_addr = previous
@@ -37,37 +52,28 @@ def dump_frames(reader, frame_addr, trampoline_addr):
             frame_addr = previous
             continue
 
-        co_lo = min(offsets.get("CodeObject.co_firstlineno"),
-                    offsets.get("CodeObject.co_qualname"))
-        co_hi = max(offsets.get("CodeObject.co_firstlineno"),
-                    offsets.get("CodeObject.co_qualname")) + PTR_SIZE
-        co_span = co_hi - co_lo
         co_buf = reader.read(f_code + co_lo, co_span)
         if co_buf is None:
             break
 
         firstlineno = int.from_bytes(
-            co_buf[offsets.get("CodeObject.co_firstlineno") - co_lo:
-                   offsets.get("CodeObject.co_firstlineno") - co_lo + 4],
+            co_buf[co_firstlineno - co_lo:co_firstlineno - co_lo + 4],
             "little", signed=True)
         co_qualname_addr = int.from_bytes(
-            co_buf[offsets.get("CodeObject.co_qualname") - co_lo:
-                   offsets.get("CodeObject.co_qualname") - co_lo + 8],
+            co_buf[co_qualname - co_lo:co_qualname - co_lo + PTR_SIZE],
             "little")
         co_filename_addr = int.from_bytes(
-            co_buf[offsets.get("CodeObject.co_filename") - co_lo:
-                   offsets.get("CodeObject.co_filename") - co_lo + 8],
+            co_buf[co_filename - co_lo:co_filename - co_lo + PTR_SIZE],
             "little")
         co_name_addr = int.from_bytes(
-            co_buf[offsets.get("CodeObject.co_name") - co_lo:
-                   offsets.get("CodeObject.co_name") - co_lo + 8],
+            co_buf[co_name - co_lo:co_name - co_lo + PTR_SIZE],
             "little")
 
         qualname = read_pyunicode(reader, co_qualname_addr) if co_qualname_addr else None
         filename = read_pyunicode(reader, co_filename_addr) if co_filename_addr else None
         name = read_pyunicode(reader, co_name_addr) if co_name_addr else None
 
-        code_base = f_code + offsets.get("CodeObject.co_code_adaptive")
+        code_base = f_code + co_code_adaptive
         lasti = prev_instr - code_base
         if lasti < 0:
             lasti = 0

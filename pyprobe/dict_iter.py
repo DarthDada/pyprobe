@@ -74,10 +74,7 @@ class DictIter:
                 return None
 
             base = idx * self.entry_size
-            if self.kind == 0:
-                k, v = struct.unpack_from("<QQ", self.entries, base)
-            else:
-                k, v = struct.unpack_from("<QQ", self.entries, base)
+            k, v = struct.unpack_from("<QQ", self.entries, base)
 
             if k == 0:
                 continue

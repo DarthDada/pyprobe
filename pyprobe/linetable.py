@@ -1,9 +1,10 @@
 """PEP 626 line-table resolution."""
 
+from . import offsets
+from .pyobject import read_pybytes
+
 
 def addr2line(reader, code_addr, lasti, firstlineno):
-    from . import offsets
-    from .pyobject import read_pybytes
 
     lt_addr = reader.read_ptr(code_addr + offsets.get("CodeObject.co_linetable"))
     if lt_addr is None:

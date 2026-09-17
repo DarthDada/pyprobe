@@ -1,8 +1,15 @@
 """ELF symbol lookup — manual ELF64 parsing with struct module (no deps)."""
 
+import os
 import struct
+from collections import namedtuple
 
 from .memory import RemoteReader
+
+
+_SHDR_FMT = "<IIQQQQIIQQ"
+_SHDR_SIZE = 64
+_SYM_FMT = "<IBBHQQ"
 
 
 def _read_ehdr(f):
@@ -20,41 +27,60 @@ def _read_ehdr(f):
     return e_shoff, e_shnum, e_shstrndx, e_type
 
 
-_SHDR_FMT = "<IIQQQQIIQQ"
-_SHDR_SIZE = 64
-_SYM_FMT = "<IBBHQQ"
-_SYM_SIZE = 24
+_ELFInfo = namedtuple("_ELFInfo", [
+    "e_type", "shdr_table", "shstrtab", "symtab_idx", "dynsym_idx",
+])
+
+_elf_cache = {}
 
 
-def _read_shdr(f, shoff, idx):
-    f.seek(shoff + idx * _SHDR_SIZE)
-    return struct.unpack(_SHDR_FMT, f.read(_SHDR_SIZE))
+def _get_elf_info(exe_path):
+    """Parse ELF once; cache by (path, mtime). Shared by find_symbol
+    and read_const so the section header table is read + decoded once.
+    load_base is pid-dependent and computed separately in find_symbol."""
+    try:
+        mtime = os.stat(exe_path).st_mtime
+    except OSError:
+        mtime = 0
+    key = (exe_path, mtime)
+    info = _elf_cache.get(key)
+    if info is not None:
+        return info
+
+    with open(exe_path, "rb") as f:
+        e_shoff, e_shnum, e_shstrndx, e_type = _read_ehdr(f)
+
+        # read the entire section header table in one shot
+        f.seek(e_shoff)
+        shdr_table = f.read(e_shnum * _SHDR_SIZE)
+
+        # parse shstrtab (section name string table)
+        shstr_hdr = struct.unpack_from(_SHDR_FMT, shdr_table,
+                                       e_shstrndx * _SHDR_SIZE)
+        f.seek(shstr_hdr[4])
+        shstrtab = f.read(shstr_hdr[5])
+
+        symtab_idx = None
+        dynsym_idx = None
+        for i, s in enumerate(struct.iter_unpack(_SHDR_FMT, shdr_table)):
+            name = shstrtab[s[0]:].split(b"\x00")[0]
+            if s[1] == 2 and name == b".symtab":
+                symtab_idx = i
+            elif s[1] == 11 and name == b".dynsym":
+                dynsym_idx = i
+
+    info = _ELFInfo(e_type, shdr_table, shstrtab, symtab_idx, dynsym_idx)
+    _elf_cache[key] = info
+    return info
 
 
-def _find_symtables(f, e_shoff, e_shnum, e_shstrndx):
-    shdr = _read_shdr(f, e_shoff, e_shstrndx)
-    f.seek(shdr[4])
-    shstrtab = f.read(shdr[5])
-
-    symtab_idx = None
-    dynsym_idx = None
-    for i in range(e_shnum):
-        s = _read_shdr(f, e_shoff, i)
-        name = shstrtab[s[0]:].split(b"\x00")[0]
-        if s[1] == 2 and name == b".symtab":
-            symtab_idx = i
-        elif s[1] == 11 and name == b".dynsym":
-            dynsym_idx = i
-    return symtab_idx, dynsym_idx
-
-
-def _search_symbols(f, shdr_idx, e_shoff, symname_bytes):
-    s = _read_shdr(f, e_shoff, shdr_idx)
+def _search_symbols(f, info, shdr_idx, symname_bytes):
+    s = struct.unpack_from(_SHDR_FMT, info.shdr_table, shdr_idx * _SHDR_SIZE)
     sh_offset = s[4]
     sh_size = s[5]
     sh_link = s[6]
 
-    str_s = _read_shdr(f, e_shoff, sh_link)
+    str_s = struct.unpack_from(_SHDR_FMT, info.shdr_table, sh_link * _SHDR_SIZE)
     f.seek(str_s[4])
     strtab = f.read(str_s[5])
 
@@ -75,19 +101,17 @@ def _search_symbols(f, shdr_idx, e_shoff, symname_bytes):
 
 def find_symbol(exe_path, symname, pid):
     symname_b = symname.encode()
+    info = _get_elf_info(exe_path)
+
+    load_base = 0
+    if info.e_type == 3:
+        load_base = _get_load_base(pid, exe_path)
+
     with open(exe_path, "rb") as f:
-        e_shoff, e_shnum, e_shstrndx, e_type = _read_ehdr(f)
-
-        load_base = 0
-        if e_type == 3:
-            load_base = _get_load_base(pid, exe_path)
-
-        symtab_idx, dynsym_idx = _find_symtables(f, e_shoff, e_shnum, e_shstrndx)
-
-        for idx in (symtab_idx, dynsym_idx):
+        for idx in (info.symtab_idx, info.dynsym_idx):
             if idx is None:
                 continue
-            found = _search_symbols(f, idx, e_shoff, symname_b)
+            found = _search_symbols(f, info, idx, symname_b)
             if found:
                 return found[0] + load_base
     return 0
@@ -95,18 +119,17 @@ def find_symbol(exe_path, symname, pid):
 
 def read_const(exe_path, symname, length):
     symname_b = symname.encode()
+    info = _get_elf_info(exe_path)
+
     with open(exe_path, "rb") as f:
-        e_shoff, e_shnum, e_shstrndx, e_type = _read_ehdr(f)
-
-        symtab_idx, dynsym_idx = _find_symtables(f, e_shoff, e_shnum, e_shstrndx)
-
-        for idx in (symtab_idx, dynsym_idx):
+        for idx in (info.symtab_idx, info.dynsym_idx):
             if idx is None:
                 continue
-            found = _search_symbols(f, idx, e_shoff, symname_b)
+            found = _search_symbols(f, info, idx, symname_b)
             if found:
                 st_value, st_shndx = found
-                sec = _read_shdr(f, e_shoff, st_shndx)
+                sec = struct.unpack_from(_SHDR_FMT, info.shdr_table,
+                                         st_shndx * _SHDR_SIZE)
                 file_off = st_value - sec[3] + sec[4]
                 f.seek(file_off)
                 data = f.read(length)

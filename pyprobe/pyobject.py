@@ -5,6 +5,23 @@ import struct
 from .memory import RemoteReader, PTR_SIZE, MAX_STR_LEN
 from . import offsets
 
+_UNICODE_KINDS = {
+    1: ("latin-1", 1),
+    2: ("utf-16-le", 2),
+    4: ("utf-32-le", 4),
+}
+
+
+def _decode_unicode_body(reader, data_addr, kind, length):
+    info = _UNICODE_KINDS.get(kind)
+    if info is None:
+        return None
+    encoding, unit = info
+    data = reader.read(data_addr, length * unit)
+    if data is None:
+        return None
+    return data.decode(encoding, "replace")
+
 
 def read_pylong(reader, addr):
     tag = reader.read_u64(addr + offsets.get("LongObject.long_value.lv_tag"))
@@ -65,24 +82,8 @@ def read_pyunicode(reader, addr):
     if compact:
         compact_sz = offsets.get("PyCompactUnicodeObject_size")
         data_addr = addr + compact_sz
-        if kind == 1:
-            data = reader.read(data_addr, length)
-            if data is None:
-                return None
-            return data.decode("latin-1", "replace")
-        elif kind == 2:
-            data = reader.read(data_addr, length * 2)
-            if data is None:
-                return None
-            return data.decode("utf-16-le", "replace")
-        elif kind == 4:
-            data = reader.read(data_addr, length * 4)
-            if data is None:
-                return None
-            return data.decode("utf-32-le", "replace")
-        return None
+        return _decode_unicode_body(reader, data_addr, kind, length)
 
-    full_sz = offsets.get("PyCompactUnicodeObject_size")
     raw_full = reader.read(addr, offsets.get("PyUnicodeObject.data_any") + PTR_SIZE)
     if raw_full is None:
         return None
@@ -90,19 +91,4 @@ def read_pyunicode(reader, addr):
                                   offsets.get("PyUnicodeObject.data_any"))[0]
     if data_ptr == 0:
         return None
-    if kind == 1:
-        data = reader.read(data_ptr, length)
-        if data is None:
-            return None
-        return data.decode("latin-1", "replace")
-    elif kind == 2:
-        data = reader.read(data_ptr, length * 2)
-        if data is None:
-            return None
-        return data.decode("utf-16-le", "replace")
-    elif kind == 4:
-        data = reader.read(data_ptr, length * 4)
-        if data is None:
-            return None
-        return data.decode("utf-32-le", "replace")
-    return None
+    return _decode_unicode_body(reader, data_ptr, kind, length)

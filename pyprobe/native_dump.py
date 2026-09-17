@@ -207,7 +207,7 @@ def _do_dump(pid):
         results.sort(key=lambda r: r[0], reverse=True)
 
         for i, (tid, comm, frames, unwind_err) in enumerate(results):
-            print(f'Thread {i + 1} (Thread 0x{0:016x} (LWP {tid}) "{comm}"):')
+            print(f'Thread {i + 1} (LWP {tid}) "{comm}":')
             if not frames and unwind_err:
                 print("  Backtrace stopped: Cannot access memory at address 0x0")
             else:
