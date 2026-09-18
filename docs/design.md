@@ -26,7 +26,7 @@ pyprobe/                  纯 Python 实现（入口 pyprobe.cli:main）
 ├── memory.py             process_vm_readv 远程内存读取 (ctypes) + 页级 LRU 缓存
 ├── elf.py                ELF64 符号查找 (struct, 零依赖) + PIE load base
 ├── pyobject.py           PyLong / PyUnicode / PyBytes 远程读取
-├── dict_iter.py          CPython 3.12 Dict 迭代器（combined/unicode/split/managed）
+├── dict_iter.py          CPython 3.11–3.13 Dict 迭代器（combined/unicode/split/managed）
 ├── linetable.py          PEP 626 行号表解析（addr2line）
 ├── thread_names.py       threading._active 线程名查找
 ├── stack_dump.py         Python 栈转储主逻辑（collect/format/dump 三层）
@@ -171,9 +171,9 @@ CLI 输出对齐 py-spy 的颜色语义，零依赖自实现（不引 rich/color
 `configure(version_str)` 在 `collect_python` 中被调用（传入目标进程的 CPython 版本）：
 - 已验证版本 → 加载对应偏移量表。
 - 未验证版本 → stderr 告警 + 回退到 `_DEFAULT_VERSION`（"3.12"）偏移量（输出可能不正确）。
-- 开发期覆盖：若 `offsets.json` 存在，其值覆盖验证表（用于在提升到 `_VERIFIED_OFFSETS` 前测试新生成的偏移量）。
+- 开发期覆盖：若 `offsets.json` 存在，仅当其 `_version` 键与目标进程 major.minor 一同时才覆盖验证表（用于在提升到 `_VERIFIED_OFFSETS` 前测试新生成的偏移量，避免跨版本污染）。
 
-`get(name)` 惰性初始化（未 configure 时用默认版本），返回偏移量值。
+`get(name)` 惰性初始化（未 configure 时用默认版本），返回偏移量值。`get_or(name, default)` 对该版本不存在的键返回 `default`——字段在版本间缺失（如 3.11 无 `InterpreterState.imports`、3.13 无 `ThreadState.cframe`）时消费者据此分支。
 
 ### 6.3 生成工具
 
@@ -191,31 +191,32 @@ find_symbol(_PyRuntime)
   → RuntimeState.interpreters + pyinterpreters.main  [fallback: pyinterpreters.head]
     → InterpreterState.threads + pythreads.head      (PyThreadState 链表)
       → ThreadState.cframe → CFrame.current_frame     (_PyInterpreterFrame 链 via ->previous)
+        （3.13 省略 cframe 间接层，直接 ThreadState.current_frame）
         → InterpreterFrame.f_code                     (PyCodeObject)
           → CodeObject.co_name / co_filename / co_firstlineno / co_linetable / co_code_adaptive
 ```
 
 关键逻辑：
-- **InterpreterFrame 遍历**（`collect_frames`）：沿 `previous` 链走，最多 `MAX_FRAMES=100` 帧。跳过 `f_code == 0` 的帧和 `interpreter_trampoline` 帧。
+- **InterpreterFrame 遍历**（`collect_frames`）：沿 `previous` 链走，最多 `MAX_FRAMES=100` 帧。跳过 `f_code == 0` 的帧和 `interpreter_trampoline` 帧（仅 3.12 存在该键）；`co_name` 与 `co_filename` 均为 NULL 的尾部陈旧帧（3.13 datastack 残留）终止遍历。
 - **行号计算**：`lasti = prev_instr - (f_code + co_code_adaptive)`，传入 `addr2line` 解析行号表。
 - **线程链遍历**（`_read_thread_chain`）：沿 `ThreadState.next` 链走，最多 `MAX_THREADS=256`。批量读取每条 tstate 的 `next`/`thread_id`/`native_tid` 字段（单次读取覆盖最小跨度区间）。
-- **线程名查找**（`thread_names.py`）：遍历 `InterpreterState.imports → modules` 字典找到 `threading` 模块，读其 `_active` 字典，匹配 `thread_id → _name`。
+- **线程名查找**（`thread_names.py`）：定位 `sys.modules`（3.12 经 `InterpreterState.imports → modules` 直达；3.11/3.13 遍历 `sysdict` 字典找 `"modules"` 键），找到 `threading` 模块，读其 `_active` 字典，匹配 `thread_id → _name`。
 - **空闲线程检测**（`_is_thread_idle`）：两种启发式——读 `/proc/<pid>/task/<tid>/stat` 状态非 `R`，或顶层帧匹配已知空闲惯用语（`threading.wait`、`selectors.select` 等）。
 - `reader` 参数为鸭子类型（任何提供 `read`/`read_ptr` 的对象），便于单元测试注入 `FakeReader`。
 
 ### 7.2 字典迭代器（dict_iter.py）
 
-`DictIter` 支持 CPython 3.12 字典的所有变体：
+`DictIter` 支持 CPython 3.11–3.13 字典的所有变体（各版本 `_dictkeysobject`/entries 布局一致）：
 - **combined**（`kind=0`）：`PyDictKeyEntry`（key + hash + value），key 偏移为 8。
 - **unicode**（`kind=1`）：`PyDictUnicodeEntry`（key + value），key 偏移为 0。
 - **split**：values 数组独立存储，从 `DictObject.ma_values` 读取。
-- **managed dict**：通过 `Py_TPFLAGS_MANAGED_DICT` 标志检测，从 `obj - 3*PTR_SIZE` 读取 tagged pointer，区分 managed values 与普通 dict。
+- **managed dict**：通过 `Py_TPFLAGS_MANAGED_DICT` 标志检测。实例 pre-header 槽位（`obj - 3*PTR_SIZE`）各版本约定不同：3.11 为独立两槽——dict 指针（未物化为 NULL）+ `obj-4` 的 untagged `PyDictValues*`（`PyObject.pre_values` 键，仅 3.11 表存在）；3.12 合并为单槽 tagged 指针（bit0=1 时为 `ptr-1` 的 values 数组）；3.13 单槽 untagged，NULL 表示 values 内嵌在对象内（`PyObject_size + dictvalues_header` 起始）。
 
 `from_dict(dict_addr)` 从 `DictObject.ma_keys` / `ma_values` 初始化；`from_managed_values(values_addr, type_addr)` 从 `HeapTypeObject.ht_cached_keys` 初始化。
 
 ### 7.3 Python 对象读取（pyobject.py）
 
-- **PyLong**（`read_pylong`）：读 `lv_tag`，`size = tag >> 3`；支持 0/1/2 位 digit（每位 30 位），>2 位返回 None。
+- **PyLong**（`read_pylong`）：3.12+ 读 `lv_tag`，`size = tag >> 3`；3.11 读 `ob_size`（有符号位数计数，负整数以超大无符号值读出后落到 None，即仅解析非负小整数）。支持 0/1/2 位 digit（每位 30 位），>2 位返回 None。
 - **PyBytes**（`read_pybytes`）：读 `ob_size`，从 `ob_sval` 读数据；超 `MAX_STR_LEN` 返回 None。
 - **PyUnicode**（`read_pyunicode`）：读 `PyASCIIObject` 头，解析 state byte（compact/is_ascii/kind）；compact+ascii 直接读内联数据；compact 非 ascii 从 `PyCompactUnicodeObject_size` 读；非 compact 从 `data_any` 指针读。支持 latin-1/utf-16-le/utf-32-le 三种编码。
 
@@ -225,7 +226,7 @@ find_symbol(_PyRuntime)
 
 ### 7.5 线程名查找（thread_names.py）
 
-`get_thread_names(reader, interp_addr)` 返回 `{thread_id: name}` 字典。链路：`modules dict → "threading" 模块 → _active dict → {tid: Thread 实例} → 实例 dict → "_name"`。实例字典读取需处理 managed dict（`Py_TPFLAGS_MANAGED_DICT`）与普通 dict 两种情况（`_get_instance_dict_iter`）。
+`get_thread_names(reader, interp_addr)` 返回 `{thread_id: name}` 字典。链路：`sys.modules → "threading" 模块 → _active dict → {tid: Thread 实例} → 实例 dict → "_name"`。实例字典读取需处理 managed dict（`Py_TPFLAGS_MANAGED_DICT`，各版本 pre-header 槽位约定见 §7.2）与普通 dict 两种情况（`_get_instance_dict_iter`）。
 
 ---
 
@@ -288,16 +289,18 @@ sudo python -m pyprobe stack -p <pid> --native   # root 可绕过所有限制
 
 | CPython 版本 | 架构 | 状态 |
 |-------------|------|------|
+| 3.11.x | x86-64 | 已验证 |
+| 3.11.x | aarch64 | 未验证（偏移量理论上与 x86-64 相同，待实际验证） |
 | 3.12.x | x86-64 | 已验证 |
 | 3.12.x | aarch64 | 未验证（偏移量理论上与 x86-64 相同，待实际验证） |
-| 3.11.x | x86-64, aarch64 | 未验证（回退 3.12 偏移量，输出可能不正确） |
-| 3.13.x | x86-64, aarch64 | 未验证（回退 3.12 偏移量，输出可能不正确） |
+| 3.13.x | x86-64 | 已验证 |
+| 3.13.x | aarch64 | 未验证（偏移量理论上与 x86-64 相同，待实际验证） |
 
 对未验证版本，pyprobe 会在 stderr 输出告警并使用 3.12 偏移量作为默认回退。可通过 `scripts/gen_offsets.sh` 为目标 CPython 生成偏移量，验证后编入 `pyprobe/offsets.py` 的 `_VERIFIED_OFFSETS`。
 
 ### 限制
 
-- 已验证 3.12.x (x86-64)；其他版本/架构回退 3.12 偏移量并告警。
+- 已验证 3.11.x / 3.12.x / 3.13.x（x86-64）；其他版本回退 3.12 偏移量并告警。
 - 仅支持 **Linux**（依赖 `/proc`、`process_vm_readv`、`ptrace`）。
 - 已验证 **x86-64**；aarch64 偏移量理论上相同（均为 64 位 LP64）但未实际验证。
 - Native 模式在非 root 下受 `ptrace_scope` 和 `dumpable` 限制。
@@ -374,7 +377,7 @@ else:
 
 端到端验证 `collect_python` / `format_process` / `dump_python` / `collect_native`。
 
-- `target_pid` session fixture（`conftest.py`）：`subprocess.Popen` 派生 `tests/targets/target_app.py`（主线程 + bg-worker 线程），通过 stdout 获取真实 PID。子进程是 pytest 后代，`process_vm_readv` 在 `ptrace_scope=1` 默认下可用。
+- `target_pid` session fixture（`conftest.py`）：`subprocess.Popen` 派生 `tests/targets/target_app.py`（主线程 + bg-worker 线程），通过 stdout 获取真实 PID。子进程是 pytest 后代，`process_vm_readv` 在 `ptrace_scope=1` 默认下可用。目标解释器默认为 `sys.executable`，可经 `TARGET_PYTHON` 环境变量指定其他版本（如 3.11/3.13）做跨版本端到端验证。
 - 非 Linux 自动 skip；Native dump 在 ptrace 权限不足时自动 skip。
 
 ### 13.3 手动探测约束

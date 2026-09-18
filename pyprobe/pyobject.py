@@ -24,18 +24,26 @@ def _decode_unicode_body(reader, data_addr, kind, length):
 
 
 def read_pylong(reader, addr):
-    tag = reader.read_u64(addr + offsets.get("LongObject.long_value.lv_tag"))
-    if tag is None:
-        return None
-    size = tag >> 3
+    digit_off = offsets.get_or("LongObject.long_value.ob_digit",
+                               offsets.get_or("LongObject.ob_digit"))
+    lv_tag_off = offsets.get_or("LongObject.long_value.lv_tag")
+    if lv_tag_off is not None:
+        # 3.12+: lv_tag packs the digit count in the high bits, sign in low
+        tag = reader.read_u64(addr + lv_tag_off)
+        if tag is None:
+            return None
+        size = tag >> 3
+    else:
+        # 3.11: ob_size is a plain signed digit count (sign = int sign)
+        size = reader.read_u64(addr + offsets.get("LongObject.ob_size"))
+        if size is None:
+            return None
     if size == 0:
         return 0
     if size == 1:
-        digit_off = offsets.get("LongObject.long_value.ob_digit")
         d = reader.read_u32(addr + digit_off)
         return d
     if size == 2:
-        digit_off = offsets.get("LongObject.long_value.ob_digit")
         digit_sz = offsets.get("digit_size")
         d0 = reader.read_u32(addr + digit_off)
         d1 = reader.read_u32(addr + digit_off + digit_sz)

@@ -102,6 +102,11 @@ def collect_frames(reader, frame_addr, trampoline_addr):
 
         line = addr2line(reader, f_code, lasti, firstlineno)
 
+        if name is None and filename is None:
+            # Stale entry at the end of the frame chain (e.g. 3.13 datastack
+            # leftovers whose f_executable points at a recycled code object).
+            break
+
         frames.append(FrameInfo(name=name, filename=filename, line=line))
         frame_addr = previous
 
@@ -159,10 +164,17 @@ def _is_thread_idle(pid, native_tid, frames):
 
 def collect_thread(reader, pid, tstate_addr, native_tid, name, trampoline_addr):
     """Build a ThreadInfo from a remote tstate address (no printing)."""
-    cframe_addr = reader.read_ptr(tstate_addr + offsets.get("ThreadState.cframe"))
+    # 3.13 removed the cframe indirection: current_frame is a direct field.
     current_frame = 0
-    if cframe_addr:
-        current_frame = reader.read_ptr(cframe_addr + offsets.get("CFrame.current_frame"))
+    cf_direct = offsets.get_or("ThreadState.current_frame")
+    if cf_direct is not None:
+        current_frame = reader.read_ptr(tstate_addr + cf_direct)
+    else:
+        cframe_addr = reader.read_ptr(
+            tstate_addr + offsets.get("ThreadState.cframe"))
+        if cframe_addr:
+            current_frame = reader.read_ptr(
+                cframe_addr + offsets.get("CFrame.current_frame"))
 
     frames = collect_frames(reader, current_frame, trampoline_addr) if current_frame else []
     idle = _is_thread_idle(pid, native_tid, frames)
@@ -263,10 +275,14 @@ def collect_python(pid):
     if interp_addr is None or interp_addr == 0:
         raise NoInterpreterState()
 
-    trampoline_addr = reader.read_ptr(
-        interp_addr + offsets.get("InterpreterState.interpreter_trampoline"))
-    if trampoline_addr is None:
-        trampoline_addr = 0
+    # The interpreter trampoline only exists in 3.12 (introduced there,
+    # removed in 3.13); when absent there are no trampoline frames to skip.
+    trampoline_addr = 0
+    tramp_off = offsets.get_or("InterpreterState.interpreter_trampoline")
+    if tramp_off is not None:
+        trampoline_addr = reader.read_ptr(interp_addr + tramp_off)
+        if trampoline_addr is None:
+            trampoline_addr = 0
 
     raw_threads = _read_thread_chain(reader, interp_addr)
 

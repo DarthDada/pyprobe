@@ -4,8 +4,7 @@
 
 1. [采用 TDD 开发前需补齐的基础设施](#1-采用-tdd-开发前需补齐的基础设施)
 2. [调用栈输出路径缩短](#2-调用栈输出路径缩短)
-3. [CPython 版本支持](#3-cpython-版本支持)
-4. [native 栈输出对齐 gdb](#4-native-栈输出对齐-gdb)
+3. [native 栈输出对齐 gdb](#3-native-栈输出对齐-gdb)
 
 ## 1. 采用 TDD 开发前需补齐的基础设施
 
@@ -72,11 +71,7 @@
 - 单元测试用裸文件名（`bar.py`、`x.py`）≤2 级 → 输出不变
 - `collect_*` / `format_*` 分层契约不变：缩短仅在 format 显示层
 
-## 3. CPython 版本支持
-
-- [ ] 1. 实测 x86-64 下 CPython 3.11/3.13：用对应版本解释器跑 `scripts/gen_offsets.sh` 生成偏移量，子进程端到端验证后编入 `_VERIFIED_OFFSETS`，同步更新 design.md §10 版本支持表（当前均回退 3.12 偏移量并告警）
-
-## 4. native 栈输出对齐 gdb
+## 3. native 栈输出对齐 gdb
 
 > 背景：`pyprobe stack --native` 与 gdb `thread apply all bt` 对比（2026-09 实测），已修复 `GElf_Word` 32 位截断致全 `??`（1fbb785）与线程降序两问题；以下为剩余差异的落地计划，全部基于现有技术栈（ctypes + libdw/libdwfl，无新依赖）。
 

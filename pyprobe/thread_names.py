@@ -6,14 +6,44 @@ from .dict_iter import DictIter
 from .pyobject import read_pylong, read_pyunicode
 
 
+def _find_sys_modules(reader, interp_addr):
+    """Locate sys.modules via the sys module's __dict__ (3.11/3.13).
+
+    3.12 exposes it directly as ``imports._import_state.modules``; elsewhere
+    we walk the sysdict dict looking for the "modules" key.
+    """
+    sysdict = reader.read_ptr(
+        interp_addr + offsets.get("InterpreterState.sysdict"))
+    if sysdict is None or sysdict == 0:
+        return None
+
+    it = DictIter(reader)
+    if not it.from_dict(sysdict):
+        return None
+
+    while True:
+        pair = it.next()
+        if pair is None:
+            return None
+        key, value = pair
+        if read_pyunicode(reader, key) == "modules":
+            return value
+
+
 def get_thread_names(reader, interp_addr):
     names = {}
 
-    mod_off = (offsets.get("InterpreterState.imports")
-               + offsets.get("_import_state.modules"))
-    modules_addr = reader.read_ptr(interp_addr + mod_off)
-    if modules_addr is None or modules_addr == 0:
-        return names
+    imports_off = offsets.get_or("InterpreterState.imports")
+    if imports_off is not None:
+        # 3.12: direct pointer to the sys.modules dict
+        mod_off = imports_off + offsets.get("_import_state.modules")
+        modules_addr = reader.read_ptr(interp_addr + mod_off)
+        if modules_addr is None or modules_addr == 0:
+            return names
+    else:
+        modules_addr = _find_sys_modules(reader, interp_addr)
+        if modules_addr is None or modules_addr == 0:
+            return names
 
     mod_it = DictIter(reader)
     if not mod_it.from_dict(modules_addr):
@@ -96,12 +126,32 @@ def _get_instance_dict_iter(it, reader, obj_addr):
 
     if flags & offsets.get("Py_TPFLAGS_MANAGED_DICT"):
         tagged = reader.read_ptr(obj_addr - 3 * PTR_SIZE)
-        if tagged is None or tagged == 0:
+        if tagged is None:
             return False
+        pre_values = offsets.get_or("PyObject.pre_values")
+        if pre_values is not None:
+            # 3.11: two separate pre-header slots — the dict pointer at
+            # obj-3 (NULL until the dict is materialized) and an untagged
+            # PyDictValues* at obj-4.
+            if tagged:
+                return it.from_dict(tagged)
+            values = reader.read_ptr(obj_addr + pre_values)
+            if values is None or values == 0:
+                return False
+            return it.from_managed_values(values, type_addr)
         if tagged & 1:
+            # 3.12: bit0 set marks an inline PyDictValues (bare array)
             return it.from_managed_values(tagged + 1, type_addr)
-        else:
-            return it.from_dict(tagged)
+        if tagged == 0:
+            # 3.13: untagged pointer; NULL means the values are embedded in
+            # the object, after the PyObject header and the 3.13-only
+            # PyDictValues header. On 3.12 NULL means an empty dict.
+            header = offsets.get("dictvalues_header")
+            if not header:
+                return False
+            off = offsets.get("PyObject_size") + header
+            return it.from_managed_values(obj_addr + off, type_addr)
+        return it.from_dict(tagged)
 
     dictoffset = reader.read_u64(type_addr + offsets.get("TypeObject.tp_dictoffset"))
     if dictoffset is None or dictoffset == 0:

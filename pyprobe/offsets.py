@@ -18,6 +18,60 @@ import os
 import sys
 
 _VERIFIED_OFFSETS = {
+    # Generated per-version on x86-64 by tools/gen_offsets.c via
+    # scripts/gen_offsets.sh (LP64: x86-64 and aarch64 share these values).
+    # Keys whose struct field does not exist in a version are omitted there;
+    # consumers branch with offsets.get_or(). See the header of gen_offsets.c
+    # for the full per-version compatibility notes.
+    "3.11": {
+        "pointer_size": 8,
+        "int_size": 4,
+        "RuntimeState.interpreters": 32,
+        "pyinterpreters.main": 16,
+        "pyinterpreters.head": 8,
+        "InterpreterState.threads": 8,
+        "pythreads.head": 8,
+        "InterpreterState.sysdict": 904,
+        "ThreadState.next": 8,
+        "ThreadState.cframe": 56,
+        "ThreadState.thread_id": 152,
+        "ThreadState.native_thread_id": 160,
+        "CFrame.current_frame": 8,
+        "InterpreterFrame.f_code": 32,
+        "InterpreterFrame.previous": 48,
+        "InterpreterFrame.prev_instr": 56,
+        "CodeObject.co_firstlineno": 72,
+        "CodeObject.co_qualname": 128,
+        "CodeObject.co_filename": 112,
+        "CodeObject.co_name": 120,
+        "CodeObject.co_linetable": 136,
+        "CodeObject.co_code_adaptive": 184,
+        "LongObject.ob_size": 16,
+        "LongObject.ob_digit": 24,
+        "digit_size": 4,
+        "PyObject_size": 16,
+        "Object.ob_type": 8,
+        "TypeObject.tp_flags": 168,
+        "TypeObject.tp_dictoffset": 288,
+        "Py_TPFLAGS_MANAGED_DICT": 16,
+        "PyObject.pre_values": -32,
+        "HeapTypeObject.ht_cached_keys": 872,
+        "DictObject.ma_keys": 32,
+        "DictObject.ma_values": 40,
+        "dictkeysobject_size": 32,
+        "dictkeysobject.dk_log2_index_bytes": 9,
+        "dictkeysobject.dk_kind": 10,
+        "dictkeysobject.dk_nentries": 24,
+        "dictvalues_header": 0,
+        "PyDictKeyEntry_size": 24,
+        "PyDictUnicodeEntry_size": 16,
+        "BytesObject.ob_sval": 32,
+        "VarObject.ob_size": 16,
+        "PyASCIIObject_size": 48,
+        "PyCompactUnicodeObject_size": 72,
+        "PyUnicodeObject.data_any": 72,
+        "_Py_CODEUNIT_size": 2,
+    },
     "3.12": {
         "pointer_size": 8,
         "int_size": 4,
@@ -26,6 +80,7 @@ _VERIFIED_OFFSETS = {
         "pyinterpreters.head": 8,
         "InterpreterState.threads": 64,
         "pythreads.head": 8,
+        "InterpreterState.sysdict": 352,
         "InterpreterState.imports": 944,
         "_import_state.modules": 0,
         "InterpreterState.interpreter_trampoline": 381736,
@@ -46,6 +101,7 @@ _VERIFIED_OFFSETS = {
         "LongObject.long_value.lv_tag": 16,
         "LongObject.long_value.ob_digit": 24,
         "digit_size": 4,
+        "PyObject_size": 16,
         "Object.ob_type": 8,
         "TypeObject.tp_flags": 168,
         "TypeObject.tp_dictoffset": 288,
@@ -57,6 +113,54 @@ _VERIFIED_OFFSETS = {
         "dictkeysobject.dk_log2_index_bytes": 9,
         "dictkeysobject.dk_kind": 10,
         "dictkeysobject.dk_nentries": 24,
+        "dictvalues_header": 0,
+        "PyDictKeyEntry_size": 24,
+        "PyDictUnicodeEntry_size": 16,
+        "BytesObject.ob_sval": 32,
+        "VarObject.ob_size": 16,
+        "PyASCIIObject_size": 40,
+        "PyCompactUnicodeObject_size": 56,
+        "PyUnicodeObject.data_any": 56,
+        "_Py_CODEUNIT_size": 2,
+    },
+    "3.13": {
+        "pointer_size": 8,
+        "int_size": 4,
+        "RuntimeState.interpreters": 624,
+        "pyinterpreters.main": 16,
+        "pyinterpreters.head": 8,
+        "InterpreterState.threads": 7336,
+        "pythreads.head": 8,
+        "InterpreterState.sysdict": 7640,
+        "ThreadState.next": 8,
+        "ThreadState.current_frame": 72,
+        "ThreadState.thread_id": 152,
+        "ThreadState.native_thread_id": 160,
+        "InterpreterFrame.f_code": 0,
+        "InterpreterFrame.previous": 8,
+        "InterpreterFrame.prev_instr": 56,
+        "CodeObject.co_firstlineno": 68,
+        "CodeObject.co_qualname": 128,
+        "CodeObject.co_filename": 112,
+        "CodeObject.co_name": 120,
+        "CodeObject.co_linetable": 136,
+        "CodeObject.co_code_adaptive": 200,
+        "LongObject.long_value.lv_tag": 16,
+        "LongObject.long_value.ob_digit": 24,
+        "digit_size": 4,
+        "PyObject_size": 16,
+        "Object.ob_type": 8,
+        "TypeObject.tp_flags": 168,
+        "TypeObject.tp_dictoffset": 288,
+        "Py_TPFLAGS_MANAGED_DICT": 16,
+        "HeapTypeObject.ht_cached_keys": 880,
+        "DictObject.ma_keys": 32,
+        "DictObject.ma_values": 40,
+        "dictkeysobject_size": 32,
+        "dictkeysobject.dk_log2_index_bytes": 9,
+        "dictkeysobject.dk_kind": 10,
+        "dictkeysobject.dk_nentries": 24,
+        "dictvalues_header": 8,
         "PyDictKeyEntry_size": 24,
         "PyDictUnicodeEntry_size": 16,
         "BytesObject.ob_sval": 32,
@@ -97,13 +201,28 @@ def configure(version_str):
         )
         _active = dict(_VERIFIED_OFFSETS[_DEFAULT_VERSION])
 
+    # Development-time override: offsets.json is only applied when it was
+    # generated for the same major.minor version as the target process.
     path = os.path.join(os.path.dirname(__file__), "offsets.json")
     if os.path.exists(path):
         with open(path) as f:
-            _active.update(json.load(f))
+            data = json.load(f)
+        if data.pop("_version", None) == key:
+            _active.update(data)
 
 
 def get(name):
     if _active is None:
         configure(_DEFAULT_VERSION)
     return _active[name]
+
+
+def get_or(name, default=None):
+    """Like get(), but returns ``default`` for keys absent in this version.
+
+    Keys whose struct field does not exist in a CPython version are omitted
+    from that version's table; callers use this to branch on availability.
+    """
+    if _active is None:
+        configure(_DEFAULT_VERSION)
+    return _active.get(name, default)

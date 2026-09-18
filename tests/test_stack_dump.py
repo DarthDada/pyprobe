@@ -115,13 +115,30 @@ class TestCollectFrames:
         reader = FakeReader()
         lt_addr = 0x3000
         build_pybytes(reader, lt_addr, linetable_no_line(4))
-        build_code_object(reader, 0x2000, 0, 0, 10, lt_addr)
+        build_pyunicode(reader, 0x4000, "foo.py")
+        build_code_object(reader, 0x2000, 0, 0x4000, 10, lt_addr)
         build_frame(reader, 0x1000, 0x2000, 0,
                     0x2000 + CODE_ADAPTIVE)
         frames = collect_frames(reader, 0x1000, 0)
         assert len(frames) == 1
         assert frames[0].name is None
-        assert frames[0].filename is None
+        assert frames[0].filename == "foo.py"
+
+    def test_stale_tail_frame_filtered(self):
+        """A frame whose code reads as garbage (name and filename both
+        unreadable) terminates the chain instead of being collected.
+
+        Seen on 3.13: the frame chain can end with a stale datastack entry
+        whose f_executable points at recycled memory.
+        """
+        reader = FakeReader()
+        lt_addr = 0x3000
+        build_pybytes(reader, lt_addr, linetable_no_line(4))
+        # name/filename point at addresses that were never written
+        build_code_object(reader, 0x2000, 0x4000, 0x5000, 10, lt_addr)
+        build_frame(reader, 0x1000, 0x2000, 0, 0x2000 + CODE_ADAPTIVE)
+        frames = collect_frames(reader, 0x1000, 0)
+        assert frames == []
 
 
 class TestIsThreadIdleByFrames:

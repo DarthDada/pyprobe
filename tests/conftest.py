@@ -37,9 +37,13 @@ def target_pid():
     if not _can_read_descendant():
         pytest.skip("integration tests require Linux process_vm_readv")
 
+    # TARGET_PYTHON selects the interpreter of the *target* process (pyprobe
+    # itself keeps running on the venv interpreter); used to verify other
+    # CPython versions, e.g. TARGET_PYTHON=/usr/bin/python3.13
+    interpreter = os.environ.get("TARGET_PYTHON") or sys.executable
     target_script = os.path.join(os.path.dirname(__file__), "targets", "target_app.py")
     child = subprocess.Popen(
-        [sys.executable, target_script],
+        [interpreter, target_script],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     try:
         line = child.stdout.readline()

@@ -20,8 +20,9 @@ class TestVersionKey:
 
 
 class TestSupportedVersions:
-    def test_contains_312(self):
-        assert "3.12" in offsets.supported_versions()
+    @pytest.mark.parametrize("version", ["3.11", "3.12", "3.13"])
+    def test_contains_version(self, version):
+        assert version in offsets.supported_versions()
 
     def test_sorted(self):
         versions = offsets.supported_versions()
