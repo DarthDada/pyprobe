@@ -26,6 +26,7 @@ Dwfl_Thread = ctypes.c_void_p
 Dwfl_Frame = ctypes.c_void_p
 Elf = ctypes.c_void_p
 GElf_Word = ctypes.c_uint32
+GElf_Addr = ctypes.c_uint64
 
 _find_elf_t = ctypes.CFUNCTYPE(
     ctypes.c_int, Dwfl_Module, ctypes.POINTER(ctypes.c_void_p),
@@ -90,7 +91,7 @@ def _init_libs():
     libdw.dwfl_addrmodule.restype = ctypes.POINTER(Dwfl_Module)
     libdw.dwfl_addrmodule.argtypes = [ctypes.POINTER(Dwfl), Dwarf_Addr]
     libdw.dwfl_module_addrname.restype = ctypes.c_char_p
-    libdw.dwfl_module_addrname.argtypes = [ctypes.POINTER(Dwfl_Module), GElf_Word]
+    libdw.dwfl_module_addrname.argtypes = [ctypes.POINTER(Dwfl_Module), GElf_Addr]
     libdw.dwfl_module_info.restype = ctypes.c_char_p
     libdw.dwfl_module_info.argtypes = [
         ctypes.POINTER(Dwfl_Module),
@@ -215,7 +216,7 @@ def _collect_frames(pid):
 
         libdw.dwfl_getthreads(dwfl, thread_cb, None)
 
-        results.sort(key=lambda r: r.tid, reverse=True)
+        results.sort(key=lambda r: r.tid)
         return results
     finally:
         libdw.dwfl_end(dwfl)
