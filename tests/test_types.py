@@ -23,6 +23,13 @@ class TestFrameInfo:
         f = FrameInfo(name="foo", filename=None, line=1)
         assert f.format(0) == "  #0 foo (?:1)"
 
+    def test_format_color(self):
+        f = FrameInfo(name="foo", filename="bar.py", line=10)
+        assert f.format(0, color=True) == (
+            "  #0 \x1b[32mfoo\x1b[0m "
+            "(\x1b[36mbar.py\x1b[0m:\x1b[2m10\x1b[0m)"
+        )
+
 
 class TestThreadInfo:
     def test_format_with_frames(self):
@@ -54,6 +61,17 @@ class TestThreadInfo:
         t = ThreadInfo(native_tid=1, name="my-thread")
         assert 'Thread 1: "my-thread"' in t.format()
 
+    def test_format_color(self):
+        t = ThreadInfo(native_tid=100, name="worker",
+                       frames=[FrameInfo("f1", "a.py", 1)])
+        out = t.format(color=True)
+        assert 'Thread \x1b[1m\x1b[33m100\x1b[0m: "worker"' in out
+        assert "  #0 \x1b[32mf1\x1b[0m (\x1b[36ma.py\x1b[0m:\x1b[2m1\x1b[0m)" in out
+
+    def test_format_color_idle(self):
+        t = ThreadInfo(native_tid=5, idle=True)
+        assert "Thread \x1b[1m\x1b[33m5\x1b[0m \x1b[2m(idle)\x1b[0m" in t.format(color=True)
+
 
 class TestProcessInfo:
     def test_format_header(self):
@@ -61,6 +79,13 @@ class TestProcessInfo:
                         python_version="3.12.13")
         out = p.format_header()
         assert "Process 123: python app.py" in out
+        assert "Python v3.12.13 (/usr/bin/python3.12)" in out
+
+    def test_format_header_color(self):
+        p = ProcessInfo(pid=123, cmdline="python app.py", exe_path="/usr/bin/python3.12",
+                        python_version="3.12.13")
+        out = p.format_header(color=True)
+        assert "Process \x1b[1m\x1b[33m123\x1b[0m: python app.py" in out
         assert "Python v3.12.13 (/usr/bin/python3.12)" in out
 
 
@@ -85,3 +110,21 @@ class TestNativeFrame:
         t = NativeThreadInfo(tid=5, comm="x", frames=[], unwind_failed=False)
         out = t.format(1)
         assert 'Thread 1 (LWP 5) "x"' in out
+
+    def test_thread_format_color(self):
+        t = NativeThreadInfo(
+            tid=100, comm="python3",
+            frames=[NativeFrame(pc=0x1000, symbol="foo", module="/lib/libc.so"),
+                     NativeFrame(pc=0x2000, symbol="bar", module=None)],
+        )
+        out = t.format(1, color=True)
+        assert 'Thread 1 (LWP \x1b[1m\x1b[33m100\x1b[0m) "python3"' in out
+        assert ("#0  \x1b[2m0x0000000000001000\x1b[0m in \x1b[32mfoo\x1b[0m () "
+                "from \x1b[36m/lib/libc.so\x1b[0m") in out
+        assert "#1  \x1b[2m0x0000000000002000\x1b[0m in \x1b[32mbar\x1b[0m ()" in out
+
+    def test_thread_format_color_unwind_failed(self):
+        t = NativeThreadInfo(tid=5, comm="x", frames=[], unwind_failed=True)
+        out = t.format(1, color=True)
+        assert ("\x1b[31m  Backtrace stopped: Cannot access memory at address 0x0"
+                "\x1b[0m") in out

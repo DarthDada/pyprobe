@@ -11,6 +11,8 @@ The library API is split into two layers:
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from .colors import cyan, dim, green, red, yellow_bold
+
 
 @dataclass
 class FrameInfo:
@@ -20,8 +22,11 @@ class FrameInfo:
     filename: Optional[str]
     line: int
 
-    def format(self, index: int) -> str:
-        return f"  #{index} {self.name or '?'} ({self.filename or '?'}:{self.line})"
+    def format(self, index: int, *, color: bool = False) -> str:
+        return (
+            f"  #{index} {green(self.name or '?', color)} "
+            f"({cyan(self.filename or '?', color)}:{dim(str(self.line), color)})"
+        )
 
 
 @dataclass
@@ -34,16 +39,16 @@ class ThreadInfo:
     frames: List[FrameInfo] = field(default_factory=list)
     idle: bool = False
 
-    def format(self) -> str:
-        status = " (idle)" if self.idle else ""
-        header = f"Thread {self.native_tid}{status}"
+    def format(self, *, color: bool = False) -> str:
+        status = f" {dim('(idle)', color)}" if self.idle else ""
+        header = f"Thread {yellow_bold(str(self.native_tid), color)}{status}"
         if self.name:
             header += f': "{self.name}"'
 
         if not self.frames:
             body = "  (no Python frame — thread may be in C code or idle)"
         else:
-            body = "\n".join(f.format(i) for i, f in enumerate(self.frames))
+            body = "\n".join(f.format(i, color=color) for i, f in enumerate(self.frames))
 
         return header + "\n" + body if body else header
 
@@ -57,8 +62,11 @@ class ProcessInfo:
     exe_path: str
     python_version: str = "?"
 
-    def format_header(self) -> str:
-        return f"Process {self.pid}: {self.cmdline}\nPython v{self.python_version} ({self.exe_path})\n"
+    def format_header(self, *, color: bool = False) -> str:
+        return (
+            f"Process {yellow_bold(str(self.pid), color)}: {self.cmdline}\n"
+            f"Python v{self.python_version} ({self.exe_path})\n"
+        )
 
 
 @dataclass
@@ -79,19 +87,27 @@ class NativeThreadInfo:
     frames: List[NativeFrame] = field(default_factory=list)
     unwind_failed: bool = False
 
-    def format(self, index: int) -> str:
-        header = f'Thread {index} (LWP {self.tid}) "{self.comm}":'
+    def format(self, index: int, *, color: bool = False) -> str:
+        header = (
+            f'Thread {index} (LWP {yellow_bold(str(self.tid), color)}) '
+            f'"{self.comm}":'
+        )
         if not self.frames and self.unwind_failed:
-            body = "  Backtrace stopped: Cannot access memory at address 0x0"
+            body = red(
+                "  Backtrace stopped: Cannot access memory at address 0x0",
+                color)
         elif not self.frames:
             body = ""
         else:
             lines = []
             for j, f in enumerate(self.frames):
+                pc = dim(f"0x{f.pc:016x}", color)
+                symbol = green(f.symbol, color)
                 if f.module:
                     lines.append(
-                        f"  #{j}  0x{f.pc:016x} in {f.symbol} () from {f.module}")
+                        f"  #{j}  {pc} in {symbol} () "
+                        f"from {cyan(f.module, color)}")
                 else:
-                    lines.append(f"  #{j}  0x{f.pc:016x} in {f.symbol} ()")
+                    lines.append(f"  #{j}  {pc} in {symbol} ()")
             body = "\n".join(lines)
         return header + "\n" + body if body else header

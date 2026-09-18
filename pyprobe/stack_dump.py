@@ -16,9 +16,11 @@ mock ``RemoteReader``.
 
 import os
 import sys
+from typing import Optional
 
 from .memory import RemoteReader, PTR_SIZE, MAX_STR_LEN
 from . import offsets
+from .colors import red, should_color
 from .elf import find_symbol, read_const, read_cmdline, decode_py_version
 from .pyobject import read_pyunicode
 from .linetable import addr2line
@@ -239,8 +241,9 @@ def collect_python(pid):
         offsets.configure(version_str)
     else:
         offsets.configure(offsets._DEFAULT_VERSION)
-        print("[!] Warning: cannot determine target CPython version, "
-              "using default offsets — output may be incorrect.",
+        print(red("[!] Warning: cannot determine target CPython version, "
+                  "using default offsets — output may be incorrect.",
+                  should_color(sys.stderr)),
               file=sys.stderr)
 
     cmdline = read_cmdline(pid) or exe_path
@@ -282,34 +285,29 @@ def collect_python(pid):
     return proc_info, threads
 
 
-def format_process(proc_info, threads):
+def format_process(proc_info, threads, *, color: bool = False):
     """Render collected data as the human-readable CLI output string."""
-    parts = [proc_info.format_header()]
+    parts = [proc_info.format_header(color=color)]
     for t in threads:
-        parts.append(t.format())
+        parts.append(t.format(color=color))
         parts.append("")
     return "\n".join(parts)
 
 
-def dump_python(pid):
-    """CLI entry point: collect + format + print. Returns exit code."""
+def dump_python(pid, color: Optional[bool] = None):
+    """CLI entry point: collect + format + print. Returns exit code.
+
+    ``color``: None (default) auto-detect per stream via clicolors rules;
+    True/False force color on/off for both stdout and stderr.
+    """
+    use_color = should_color(sys.stdout) if color is None else color
+    err_color = should_color(sys.stderr) if color is None else color
     try:
         proc_info, threads = collect_python(pid)
-    except ProcessNotFound as e:
-        print(f"[!] {e}", file=sys.stderr)
-        return 1
-    except SymbolNotFound as e:
-        print(f"[!] {e}", file=sys.stderr)
-        return 1
-    except NoInterpreterState as e:
-        print(f"[!] {e}", file=sys.stderr)
-        return 1
-    except NoThreadState as e:
-        print(f"[!] {e}", file=sys.stderr)
-        return 1
-    except OSError as e:
-        print(f"[!] {e}", file=sys.stderr)
+    except (ProcessNotFound, SymbolNotFound,
+            NoInterpreterState, NoThreadState, OSError) as e:
+        print(red(f"[!] {e}", err_color), file=sys.stderr)
         return 1
 
-    print(format_process(proc_info, threads))
+    print(format_process(proc_info, threads, color=use_color))
     return 0

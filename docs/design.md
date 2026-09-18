@@ -33,6 +33,7 @@ pyprobe/                  纯 Python 实现（入口 pyprobe.cli:main）
 ├── native_dump.py        Native 栈转储 (ctypes + libdwfl，惰性加载)
 ├── types.py              结构化数据类型（FrameInfo/ThreadInfo/ProcessInfo/...）
 ├── errors.py             异常层级（PyProbeError 基类 + 子类）
+├── colors.py             ANSI 颜色帮助 + clicolors 检测（零依赖）
 ├── offsets.py            CPython 结构体偏移量（多版本验证表，单一数据源）
 └── offsets.json          开发期偏移量覆盖（生成于 tools/gen_offsets.c）
 
@@ -60,10 +61,10 @@ tests/                    测试
 |----|------|------|-----------|
 | 采集 | `collect_python(pid)` | 纯数据采集 | `(ProcessInfo, list[ThreadInfo])`，抛 `PyProbeError` 子类 |
 | 采集 | `collect_native(pid)` | ptrace attach + DWARF unwind | `list[NativeThreadInfo]`，抛 `AttachFailed` |
-| 格式化 | `format_process(proc_info, threads)` | 结构化数据 → CLI 风格字符串 | `str` |
-| 格式化 | `format_native(cmdline, threads)` | 同上（native） | `str` |
-| CLI 封装 | `dump_python(pid)` | collect + format + print | 退出码 `int`，异常转 stderr |
-| CLI 封装 | `dump_native(pid)` | 同上（native） | 退出码 `int` |
+| 格式化 | `format_process(proc_info, threads, *, color=False)` | 结构化数据 → CLI 风格字符串 | `str`（`color=True` 时含 ANSI 码） |
+| 格式化 | `format_native(cmdline, threads, *, color=False)` | 同上（native） | `str` |
+| CLI 封装 | `dump_python(pid, color=None)` | collect + format + print | 退出码 `int`，异常转 stderr |
+| CLI 封装 | `dump_native(pid, color=None)` | 同上（native） | 退出码 `int` |
 
 设计要点：
 - `collect_*` **不打印**，返回结构化 dataclass，调用方可程序化使用（序列化、后处理）。
@@ -99,6 +100,28 @@ PyProbeError                      基类（库调用方可统一 catch）
 ```
 
 `collect_*` 抛出具体异常；`dump_*` 捕获后转 stderr + 退出码。库调用方可 catch `PyProbeError` 统一处理或 catch 子类区分失败模式。
+
+### 3.3 颜色基础设施（colors.py）
+
+CLI 输出对齐 py-spy 的颜色语义，零依赖自实现（不引 rich/colorama）：
+
+| 输出元素 | 颜色 |
+|----------|------|
+| pid / tid / LWP tid | bold + yellow（`\x1b[1m\x1b[33m`） |
+| 函数名 / native symbol | green |
+| 文件名 / native module | cyan |
+| 行号 / pc / (idle) 标记 | dim |
+| `[!]` 错误行 / Backtrace stopped | red |
+| cmdline / 版本行 / 线程名 / 帧号 | 不着色 |
+
+检测逻辑 `should_color(stream)` 遵循 [clicolors spec](https://bixense.com/clicolors/)（与 py-spy 依赖的 console crate 一致），优先级短路：`CLICOLOR_FORCE != "0"` 无条件强制（胜过 NO_COLOR）→ `NO_COLOR` 非空禁用 → 非 tty 禁用 → `TERM=dumb` 禁用 → `CLICOLOR == "0"` 禁用 → 否则启用。stdout/stderr 独立检测。
+
+无回归不变式（由测试守护）：
+- **I1**：`colors.py` 所有帮助函数在 `color=False` 时恒等返回原文。
+- **I2**：所有 format 方法缺省调用输出与引入颜色前逐字节一致。
+- **I3**：`dump_*` 缺省（`color=None`）在非 tty（管道/重定向/capsys）下等价于 `color=False`。
+
+决策记录：**不提供全局开关**（如 `set_colors_enabled`）。颜色经显式 `color` 参数传递——format 层 keyword-only 缺省 `False`（保持纯函数，库用户默认拿到纯文本），dump 层 `Optional[bool] = None`（None = 按流自动检测），CLI `--color {auto,always,never}` 映射为 `None/True/False`。理由：全局可变状态会破坏 `format_*` 纯函数契约、需要 conftest 重置 fixture，且嵌入宿主程序时存在"宿主 tty 泄漏 ANSI 码进日志"的风险。
 
 ---
 
@@ -345,7 +368,7 @@ else:
 - 对象构造器：`build_pyunicode` / `build_pybytes` / `build_pylong` / `build_code_object` / `build_frame` — 按配置偏移量写入字节。
 - `FakeRemoteReader`：子类化真实 `RemoteReader`，stub `_read_syscall` 提供罐头页数据，测试真实页缓存逻辑（LRU 淘汰、跨页、旁路）。
 
-覆盖模块：offsets（版本键/configure/get/fallback）、types（格式化）、errors（异常层级）、linetable（PEP 626 全 code 类型）、pyobject（PyLong/PyBytes/PyUnicode 各变体）、dict_iter（combined/unicode/split/managed）、memory（页缓存）、elf（decode_py_version/read_cmdline/find_symbol/read_const 真实 ELF）、stack_dump（collect_frames/`_is_thread_idle`/collect_thread/format_process/错误路径）。
+覆盖模块：offsets（版本键/configure/get/fallback）、types（格式化 + `color=True` 精确 ANSI 断言）、errors（异常层级）、colors（帮助函数恒等性/包裹 + `should_color` 环境矩阵）、linetable（PEP 626 全 code 类型）、pyobject（PyLong/PyBytes/PyUnicode 各变体）、dict_iter（combined/unicode/split/managed）、memory（页缓存）、elf（decode_py_version/read_cmdline/find_symbol/read_const 真实 ELF）、stack_dump（collect_frames/`_is_thread_idle`/collect_thread/format_process/错误路径/dump CLI 颜色）、cli（参数解析/分发/`--color` 传递）。
 
 ### 13.2 集成测试（`@pytest.mark.integration`）
 

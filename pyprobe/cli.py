@@ -41,8 +41,14 @@ def build_parser():
     stack.add_argument(
         "--native", action="store_true",
         help="dump native (C) stacks via ptrace + libdwfl instead of Python stacks")
+    stack.add_argument(
+        "--color", choices=["auto", "always", "never"], default="auto",
+        help="colorize output (default: auto-detect tty)")
 
     return parser
+
+
+_COLOR_MAP = {"auto": None, "always": True, "never": False}
 
 
 def main(argv=None):
@@ -53,9 +59,10 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     if args.command == "stack":
+        color = _COLOR_MAP[args.color]
         if args.native:
-            return dump_native(args.pid)
-        return dump_python(args.pid)
+            return dump_native(args.pid, color=color)
+        return dump_python(args.pid, color=color)
 
     return 1
 

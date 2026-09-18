@@ -245,6 +245,16 @@ class TestFormatProcess:
         out = format_process(proc, [])
         assert "Process 1" in out
 
+    def test_color(self):
+        proc = ProcessInfo(pid=123, cmdline="python app.py",
+                           exe_path="/usr/bin/python3", python_version="3.12.1")
+        threads = [ThreadInfo(native_tid=123, name="MainThread",
+                              frames=[FrameInfo("main", "app.py", 10)])]
+        out = format_process(proc, threads, color=True)
+        assert "Process \x1b[1m\x1b[33m123\x1b[0m: python app.py" in out
+        assert "Thread \x1b[1m\x1b[33m123\x1b[0m" in out
+        assert "#0 \x1b[32mmain\x1b[0m (\x1b[36mapp.py\x1b[0m:\x1b[2m10\x1b[0m)" in out
+
 
 class TestCollectPythonErrors:
     def test_process_not_found(self):
@@ -265,3 +275,70 @@ class TestDumpPythonCli:
         assert rc == 1
         captured = capsys.readouterr()
         assert "not found" in captured.err.lower() or "not found" in captured.out.lower()
+
+    def _fake_collect(self, monkeypatch):
+        """Stub collect_python to return canned data; no real process needed."""
+        proc = ProcessInfo(pid=123, cmdline="python app.py",
+                           exe_path="/usr/bin/python3", python_version="3.12.1")
+        threads = [ThreadInfo(native_tid=123, name="MainThread",
+                              frames=[FrameInfo("main", "app.py", 10)])]
+        monkeypatch.setattr("pyprobe.stack_dump.collect_python",
+                            lambda pid: (proc, threads))
+
+    def test_no_color_when_not_a_tty(self, monkeypatch, capsys):
+        """I3: default (color=None) must emit plain text when stdout is not a tty."""
+        self._fake_collect(monkeypatch)
+        rc = dump_python(123)
+        assert rc == 0
+        captured = capsys.readouterr()
+        assert "\x1b" not in captured.out
+
+    def test_color_true_prints_ansi(self, monkeypatch, capsys):
+        self._fake_collect(monkeypatch)
+        rc = dump_python(123, color=True)
+        assert rc == 0
+        captured = capsys.readouterr()
+        assert "\x1b[32m" in captured.out
+        assert "\x1b[1m\x1b[33m123\x1b[0m" in captured.out
+
+    def test_color_false_no_ansi_even_on_error(self, capsys):
+        rc = dump_python(0xFFFFFFF, color=False)
+        assert rc == 1
+        captured = capsys.readouterr()
+        assert "\x1b" not in captured.err
+
+    def test_color_true_error_is_red(self, capsys):
+        rc = dump_python(0xFFFFFFF, color=True)
+        assert rc == 1
+        captured = capsys.readouterr()
+        assert "\x1b[31m[!]" in captured.err
+
+
+class TestDumpNativeCli:
+    def _stub_native(self, monkeypatch, exc):
+        monkeypatch.setattr("pyprobe.native_dump._init_libs", lambda: None)
+        monkeypatch.setattr("pyprobe.native_dump.read_cmdline", lambda pid: "python3 x.py")
+        def fake_collect(pid):
+            raise exc
+        monkeypatch.setattr("pyprobe.native_dump.collect_native", fake_collect)
+
+    def test_error_goes_to_stderr_with_red(self, monkeypatch, capsys):
+        from pyprobe.errors import AttachFailed
+        self._stub_native(monkeypatch, AttachFailed("attach denied"))
+        from pyprobe.native_dump import dump_native
+        rc = dump_native(999, color=True)
+        assert rc == 1
+        captured = capsys.readouterr()
+        assert "\x1b[31m[!]" in captured.err
+        assert captured.out == (
+            "Process \x1b[1m\x1b[33m999\x1b[0m: python3 x.py\n\n")
+
+    def test_error_plain_when_not_a_tty(self, monkeypatch, capsys):
+        from pyprobe.errors import AttachFailed
+        self._stub_native(monkeypatch, AttachFailed("attach denied"))
+        from pyprobe.native_dump import dump_native
+        rc = dump_native(999)
+        assert rc == 1
+        captured = capsys.readouterr()
+        assert "\x1b" not in captured.out
+        assert "\x1b" not in captured.err

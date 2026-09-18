@@ -8,7 +8,8 @@ Data collection (returns structured data, raises ``PyProbeError`` on failure):
 * :func:`collect_python`  → ``(ProcessInfo, list[ThreadInfo])``
 * :func:`collect_native`  → ``list[NativeThreadInfo]``
 
-Formatting (turns structured data into the CLI-style string):
+Formatting (turns structured data into the CLI-style string; pass
+``color=True`` for ANSI-colored output):
 
 * :func:`format_process`  — Python stacks
 * :func:`format_native`   — native stacks
@@ -52,6 +53,7 @@ from .native_dump import (
     collect_native, format_native, dump_native,
 )
 from . import offsets
+from . import colors
 
 __all__ = [
     # data types
@@ -67,6 +69,7 @@ __all__ = [
     "collect_native", "format_native", "dump_native",
     # submodules
     "offsets",
+    "colors",
 ]
 
 __version__ = "0.1.0"

@@ -10,7 +10,10 @@ Layered design (issue #8):
 
 import ctypes
 import os
+import sys
+from typing import Optional
 
+from .colors import red, should_color, yellow_bold
 from .elf import read_cmdline
 from .types import NativeFrame, NativeThreadInfo
 from .errors import AttachFailed
@@ -237,29 +240,32 @@ def collect_native(pid):
         _detach_all(attached)
 
 
-def format_native(cmdline, threads):
+def format_native(cmdline, threads, *, color: bool = False):
     """Render collected native stacks as the human-readable CLI output."""
     parts = [f"Process: {cmdline}\n"] if cmdline is not None else []
     for i, t in enumerate(threads):
-        parts.append(t.format(i + 1))
+        parts.append(t.format(i + 1, color=color))
         parts.append("")
     return "\n".join(parts)
 
 
-def dump_native(pid):
-    """CLI entry point: collect + format + print. Returns exit code."""
+def dump_native(pid, color: Optional[bool] = None):
+    """CLI entry point: collect + format + print. Returns exit code.
+
+    ``color``: None (default) auto-detect per stream via clicolors rules;
+    True/False force color on/off for both stdout and stderr.
+    """
+    use_color = should_color(sys.stdout) if color is None else color
+    err_color = should_color(sys.stderr) if color is None else color
     _init_libs()
     cmdline = read_cmdline(pid) or ""
-    print(f"Process {pid}: {cmdline}\n")
+    print(f"Process {yellow_bold(str(pid), use_color)}: {cmdline}\n")
 
     try:
         threads = collect_native(pid)
-    except AttachFailed as e:
-        print(f"[!] {e}")
-        return 1
-    except OSError as e:
-        print(f"[!] {e}")
+    except (AttachFailed, OSError) as e:
+        print(red(f"[!] {e}", err_color), file=sys.stderr)
         return 1
 
-    print(format_native(cmdline, threads))
+    print(format_native(cmdline, threads, color=use_color))
     return 0
