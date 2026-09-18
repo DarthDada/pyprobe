@@ -272,6 +272,23 @@ class TestFormatProcess:
         assert "Thread \x1b[1m\x1b[33m123\x1b[0m" in out
         assert "#0 \x1b[32mmain\x1b[0m (\x1b[36mapp.py\x1b[0m:\x1b[2m10\x1b[0m)" in out
 
+    def test_verbose_keeps_full_paths(self):
+        proc = ProcessInfo(pid=123, cmdline="python app.py",
+                           exe_path="/usr/bin/python3", python_version="3.12.1")
+        threads = [ThreadInfo(native_tid=123, name="MainThread",
+                              frames=[FrameInfo("run", "/a/b/c/server.py", 86)])]
+        out = format_process(proc, threads, verbose=True)
+        assert "#0 run (/a/b/c/server.py:86)" in out
+
+    def test_default_shortens_long_paths(self):
+        proc = ProcessInfo(pid=123, cmdline="python app.py",
+                           exe_path="/usr/bin/python3", python_version="3.12.1")
+        threads = [ThreadInfo(native_tid=123, name="MainThread",
+                              frames=[FrameInfo("run", "/a/b/c/server.py", 86)])]
+        out = format_process(proc, threads)
+        assert "#0 run (c/server.py:86)" in out
+        assert "/a/b/c/server.py" not in out
+
 
 class TestCollectPythonErrors:
     def test_process_not_found(self):

@@ -14,12 +14,12 @@ from pyprobe import cli
 def stub_dumps(monkeypatch):
     calls = {"python": [], "native": []}
 
-    def fake_dump_python(pid, color=None):
-        calls["python"].append((pid, color))
+    def fake_dump_python(pid, color=None, verbose=False):
+        calls["python"].append((pid, color, verbose))
         return 0
 
-    def fake_dump_native(pid, color=None):
-        calls["native"].append((pid, color))
+    def fake_dump_native(pid, color=None, verbose=False):
+        calls["native"].append((pid, color, verbose))
         return 0
 
     monkeypatch.setattr(cli, "dump_python", fake_dump_python)
@@ -31,48 +31,67 @@ class TestStackDispatch:
     def test_python_stack_default(self, stub_dumps):
         rc = cli.main(["stack", "-p", "1234"])
         assert rc == 0
-        assert stub_dumps["python"] == [(1234, None)]
+        assert stub_dumps["python"] == [(1234, None, False)]
         assert stub_dumps["native"] == []
 
     def test_pid_long_option(self, stub_dumps):
         cli.main(["stack", "--pid", "42"])
-        assert stub_dumps["python"] == [(42, None)]
+        assert stub_dumps["python"] == [(42, None, False)]
 
     def test_native_stack(self, stub_dumps):
         rc = cli.main(["stack", "-p", "7", "--native"])
         assert rc == 0
-        assert stub_dumps["native"] == [(7, None)]
+        assert stub_dumps["native"] == [(7, None, False)]
         assert stub_dumps["python"] == []
 
     def test_native_flag_before_pid(self, stub_dumps):
         cli.main(["stack", "--native", "-p", "7"])
-        assert stub_dumps["native"] == [(7, None)]
+        assert stub_dumps["native"] == [(7, None, False)]
 
     def test_pid_equals_form(self, stub_dumps):
         cli.main(["stack", "--pid=99"])
-        assert stub_dumps["python"] == [(99, None)]
+        assert stub_dumps["python"] == [(99, None, False)]
 
     def test_short_pid_attached(self, stub_dumps):
         cli.main(["stack", "-p1234"])
-        assert stub_dumps["python"] == [(1234, None)]
+        assert stub_dumps["python"] == [(1234, None, False)]
+
+
+class TestVerboseOption:
+    def test_verbose_short_flag(self, stub_dumps):
+        rc = cli.main(["stack", "-p", "1", "-v"])
+        assert rc == 0
+        assert stub_dumps["python"] == [(1, None, True)]
+
+    def test_verbose_long_flag(self, stub_dumps):
+        cli.main(["stack", "-p", "1", "--verbose"])
+        assert stub_dumps["python"] == [(1, None, True)]
+
+    def test_verbose_native(self, stub_dumps):
+        cli.main(["stack", "-p", "1", "--native", "--verbose"])
+        assert stub_dumps["native"] == [(1, None, True)]
+
+    def test_default_not_verbose(self, stub_dumps):
+        cli.main(["stack", "-p", "1"])
+        assert stub_dumps["python"] == [(1, None, False)]
 
 
 class TestColorOption:
     def test_default_is_auto(self, stub_dumps):
         cli.main(["stack", "-p", "1"])
-        assert stub_dumps["python"] == [(1, None)]
+        assert stub_dumps["python"] == [(1, None, False)]
 
     def test_color_always(self, stub_dumps):
         cli.main(["stack", "-p", "1", "--color", "always"])
-        assert stub_dumps["python"] == [(1, True)]
+        assert stub_dumps["python"] == [(1, True, False)]
 
     def test_color_never(self, stub_dumps):
         cli.main(["stack", "-p", "1", "--color=never"])
-        assert stub_dumps["python"] == [(1, False)]
+        assert stub_dumps["python"] == [(1, False, False)]
 
     def test_color_native_always(self, stub_dumps):
         cli.main(["stack", "-p", "1", "--native", "--color=always"])
-        assert stub_dumps["native"] == [(1, True)]
+        assert stub_dumps["native"] == [(1, True, False)]
 
     def test_color_invalid_value(self, capsys):
         with pytest.raises(SystemExit):

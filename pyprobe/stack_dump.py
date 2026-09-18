@@ -301,20 +301,26 @@ def collect_python(pid):
     return proc_info, threads
 
 
-def format_process(proc_info, threads, *, color: bool = False):
-    """Render collected data as the human-readable CLI output string."""
+def format_process(proc_info, threads, *, color: bool = False,
+                   verbose: bool = False):
+    """Render collected data as the human-readable CLI output string.
+
+    ``verbose=False`` shorts frame filenames to their last two components;
+    ``verbose=True`` keeps full paths.
+    """
     parts = [proc_info.format_header(color=color)]
     for t in threads:
-        parts.append(t.format(color=color))
+        parts.append(t.format(color=color, verbose=verbose))
         parts.append("")
     return "\n".join(parts)
 
 
-def dump_python(pid, color: Optional[bool] = None):
+def dump_python(pid, color: Optional[bool] = None, verbose: bool = False):
     """CLI entry point: collect + format + print. Returns exit code.
 
     ``color``: None (default) auto-detect per stream via clicolors rules;
     True/False force color on/off for both stdout and stderr.
+    ``verbose``: keep full frame filename paths instead of shortened ones.
     """
     use_color = should_color(sys.stdout) if color is None else color
     err_color = should_color(sys.stderr) if color is None else color
@@ -325,5 +331,5 @@ def dump_python(pid, color: Optional[bool] = None):
         print(red(f"[!] {e}", err_color), file=sys.stderr)
         return 1
 
-    print(format_process(proc_info, threads, color=use_color))
+    print(format_process(proc_info, threads, color=use_color, verbose=verbose))
     return 0

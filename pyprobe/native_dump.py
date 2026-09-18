@@ -241,20 +241,26 @@ def collect_native(pid):
         _detach_all(attached)
 
 
-def format_native(cmdline, threads, *, color: bool = False):
-    """Render collected native stacks as the human-readable CLI output."""
+def format_native(cmdline, threads, *, color: bool = False,
+                  verbose: bool = False):
+    """Render collected native stacks as the human-readable CLI output.
+
+    ``verbose=False`` shorts frame modules to their basename;
+    ``verbose=True`` keeps full paths.
+    """
     parts = [f"Process: {cmdline}\n"] if cmdline is not None else []
     for i, t in enumerate(threads):
-        parts.append(t.format(i + 1, color=color))
+        parts.append(t.format(i + 1, color=color, verbose=verbose))
         parts.append("")
     return "\n".join(parts)
 
 
-def dump_native(pid, color: Optional[bool] = None):
+def dump_native(pid, color: Optional[bool] = None, verbose: bool = False):
     """CLI entry point: collect + format + print. Returns exit code.
 
     ``color``: None (default) auto-detect per stream via clicolors rules;
     True/False force color on/off for both stdout and stderr.
+    ``verbose``: keep full frame module paths instead of basenames.
     """
     use_color = should_color(sys.stdout) if color is None else color
     err_color = should_color(sys.stderr) if color is None else color
@@ -268,5 +274,5 @@ def dump_native(pid, color: Optional[bool] = None):
         print(red(f"[!] {e}", err_color), file=sys.stderr)
         return 1
 
-    print(format_native(cmdline, threads, color=use_color))
+    print(format_native(cmdline, threads, color=use_color, verbose=verbose))
     return 0

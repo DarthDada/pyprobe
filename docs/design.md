@@ -61,10 +61,10 @@ tests/                    测试
 |----|------|------|-----------|
 | 采集 | `collect_python(pid)` | 纯数据采集 | `(ProcessInfo, list[ThreadInfo])`，抛 `PyProbeError` 子类 |
 | 采集 | `collect_native(pid)` | ptrace attach + DWARF unwind | `list[NativeThreadInfo]`，抛 `AttachFailed` |
-| 格式化 | `format_process(proc_info, threads, *, color=False)` | 结构化数据 → CLI 风格字符串 | `str`（`color=True` 时含 ANSI 码） |
-| 格式化 | `format_native(cmdline, threads, *, color=False)` | 同上（native） | `str` |
-| CLI 封装 | `dump_python(pid, color=None)` | collect + format + print | 退出码 `int`，异常转 stderr |
-| CLI 封装 | `dump_native(pid, color=None)` | 同上（native） | 退出码 `int` |
+| 格式化 | `format_process(proc_info, threads, *, color=False, verbose=False)` | 结构化数据 → CLI 风格字符串 | `str`（`color=True` 时含 ANSI 码） |
+| 格式化 | `format_native(cmdline, threads, *, color=False, verbose=False)` | 同上（native） | `str` |
+| CLI 封装 | `dump_python(pid, color=None, verbose=False)` | collect + format + print | 退出码 `int`，异常转 stderr |
+| CLI 封装 | `dump_native(pid, color=None, verbose=False)` | 同上（native） | 退出码 `int` |
 
 设计要点：
 - `collect_*` **不打印**，返回结构化 dataclass，调用方可程序化使用（序列化、后处理）。
@@ -85,6 +85,8 @@ NativeThreadInfo(tid, comm, frames, unwind_failed)    # native 线程 + 帧列�
 ```
 
 每个 dataclass 自带 `format()` / `format_header()` 方法，`format_*` 函数组合调用它们生成输出。
+
+**路径缩短**（显示层约定）：`FrameInfo.filename` / `NativeFrame.module` 数据字段始终保存完整路径（`collect_*` 层契约不变）；format 层缺省（`verbose=False`）缩短显示——Python 帧取路径**末 2 级**（`uvicorn/server.py`，对齐 py-spy），native module 取 **basename**（`python3.12`，对齐 `perf report`；实测单线程 17 帧中 13 帧重复完整 python3.12 路径）。`verbose=True`（CLI `-v/--verbose`）保持完整路径。缩短仅发生在 format 显示层，空闲检测等消费原始字段的逻辑不受影响。
 
 ### 3.2 异常层级（errors.py）
 

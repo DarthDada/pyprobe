@@ -58,11 +58,13 @@
 
 ### 修改建议
 
-- [ ] 1. Python 模式：`FrameInfo.format()` 显示层将路径缩短为**末 2 级**（`os.sep` 分割取 `[-2:]`，不足 2 级原样返回），对齐 py-spy 惯例。dataclass 字段 `FrameInfo.filename` 保持完整路径不变（`collect_*` 层契约不变）
-- [ ] 2. Native 模式：`NativeThreadInfo.format()` 显示层将 module 缩短为 **basename**（`os.path.basename`），对齐 `perf report` / `addr2line` 惯例（`.so` basename 天然唯一）。`NativeFrame.module` 数据字段保持完整路径不变
-- [ ] 3. 共用 `_shorten_path(path, depth=2)` 辅助函数（`types.py` 私有），Python 模式传 `depth=2`，Native 模式传 `depth=1`
-- [ ] 4. 同步更新 `tests/test_types.py`：`/lib/libc.so`（Python 模式末 2 级仍为 `lib/libc.so`；Native 模式 basename 为 `libc.so`）等断言
-- [ ] 5. 同步更新 `docs/design.md` §3.3 颜色表注或 §3.1 数据类型说明，记录 format 层路径缩短策略
+- [x] 1. Python 模式：`FrameInfo.format()` 显示层将路径缩短为**末 2 级**（`os.sep` 分割取 `[-2:]`，不足 2 级原样返回），对齐 py-spy 惯例。dataclass 字段 `FrameInfo.filename` 保持完整路径不变（`collect_*` 层契约不变）
+- [x] 2. Native 模式：`NativeThreadInfo.format()` 显示层将 module 缩短为 **basename**（`os.path.basename`），对齐 `perf report` / `addr2line` 惯例（`.so` basename 天然唯一）。`NativeFrame.module` 数据字段保持完整路径不变
+- [x] 3. 共用 `_shorten_path(path, depth=2)` 辅助函数（`types.py` 私有），Python 模式传 `depth=2`，Native 模式传 `depth=1`
+- [x] 4. 同步更新 `tests/test_types.py`：`/lib/libc.so`（Python 模式末 2 级仍为 `lib/libc.so`；Native 模式 basename 为 `libc.so`）等断言
+- [x] 5. 同步更新 `docs/design.md` §3.3 颜色表注或 §3.1 数据类型说明，记录 format 层路径缩短策略
+
+> 实现调整（相对原建议）：新增 CLI `-v/--verbose` 开关控制详细程度——缺省输出缩短路径，`-v` 显示完整路径。`verbose` 参数经 CLI → `dump_*` → `format_*` → dataclass `format()` 三层透传（与 `--color` 同模式）。Native 模式经 `os.path.basename` 实现而非 `_shorten_path(depth=1)`，语义等价。
 
 ### 影响面（无回归）
 

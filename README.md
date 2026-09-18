@@ -101,6 +101,7 @@ pyprobe stack -p <pid> --native   原生调用栈转储（gdb 风格）
 | `stack` | 子命令：转储线程调用栈 |
 | `-p`, `--pid <pid>` | 目标进程的 PID |
 | `--native` | 转储原生（C）调用栈而非 Python 调用栈 |
+| `-v`, `--verbose` | 显示完整源文件/模块路径（缺省缩短：Python 帧取末 2 级，native 模块取 basename） |
 | `--color {auto,always,never}` | 彩色输出，缺省 `auto`（检测 tty） |
 
 输出到终端时自动着色（pid 黄、函数名绿、文件名青、行号暗淡、错误红）；管道/重定向或设置 `NO_COLOR` 时自动纯文本，`--color=always` 可强制。
