@@ -3,9 +3,8 @@
 ## 目录
 
 1. [采用 TDD 开发前需补齐的基础设施](#1-采用-tdd-开发前需补齐的基础设施)
-2. [调用栈输出路径缩短](#2-调用栈输出路径缩短)
-3. [native 栈输出对齐 gdb](#3-native-栈输出对齐-gdb)
-4. [strace 子命令：系统调用追踪](#4-strace-子命令系统调用追踪)
+2. [native 栈输出对齐 gdb](#2-native-栈输出对齐-gdb)
+3. [strace 子命令：系统调用追踪](#3-strace-子命令系统调用追踪)
 
 ## 1. 采用 TDD 开发前需补齐的基础设施
 
@@ -32,49 +31,7 @@
 - [ ] 11. 属性测试（hypothesis）：`linetable` / `dict_iter` / `pyobject` 解析器代码的典型受益者
 - [ ] 12. 多版本偏移量测试 fixture 化：`TestOffsetsTable`（tests/test_offsets.py）仍硬编码 3.12；参数化覆盖 `_VERIFIED_OFFSETS` 全部版本（key fixture 分共享 key + 版本特有 key，如 3.11 `PyObject.pre_values`、3.13 `ThreadState.current_frame`），使未来新版本支持可 TDD 式开发（先写目标版本偏移量的失败测试，再编入表）
 
-## 2. 调用栈输出路径缩短
-
-> 背景：`pyprobe stack` 输出中每个帧后的源文件路径过长且信息熵低，影响分析效率（2026-09 实测）。问题根因：format 层直接输出 `FrameInfo.filename` / `NativeFrame.module` 的完整路径，未做缩短。
-
-### 问题分析
-
-**Python 模式**（`types.py:25` `FrameInfo.format`）
-
-实测 FastAPI 目标进程，路径可达 90+ 字符，有效信息仅末 2 级：
-
-```
-#0 run (/home/admin/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/asyncio/runners.py:118)
-#2 run (/home/admin/projects/pyprobe/.venv/lib/python3.12/site-packages/uvicorn/server.py:86)
-```
-
-**Native 模式**（`types.py:107` `NativeThreadInfo.format`）
-
-单线程内同一路径重复 N 次（实测 17 帧中 13 帧重复 python3.12 路径），噪声更严重：
-
-```
-#3  0x...1999945 in time_sleep () from /home/admin/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/bin/python3.12
-#4  0x...18056e8 in cfunction_vectorcall_O.llvm... () from /home/admin/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/bin/python3.12
-...（重复 11 次）
-```
-
-### 修改建议
-
-- [x] 1. Python 模式：`FrameInfo.format()` 显示层将路径缩短为**末 2 级**（`os.sep` 分割取 `[-2:]`，不足 2 级原样返回），对齐 py-spy 惯例。dataclass 字段 `FrameInfo.filename` 保持完整路径不变（`collect_*` 层契约不变）
-- [x] 2. Native 模式：`NativeThreadInfo.format()` 显示层将 module 缩短为 **basename**（`os.path.basename`），对齐 `perf report` / `addr2line` 惯例（`.so` basename 天然唯一）。`NativeFrame.module` 数据字段保持完整路径不变
-- [x] 3. 共用 `_shorten_path(path, depth=2)` 辅助函数（`types.py` 私有），Python 模式传 `depth=2`，Native 模式传 `depth=1`
-- [x] 4. 同步更新 `tests/test_types.py`：`/lib/libc.so`（Python 模式末 2 级仍为 `lib/libc.so`；Native 模式 basename 为 `libc.so`）等断言
-- [x] 5. 同步更新 `docs/design.md` §3.3 颜色表注或 §3.1 数据类型说明，记录 format 层路径缩短策略
-
-> 实现调整（相对原建议）：新增 CLI `-v/--verbose` 开关控制详细程度——缺省输出缩短路径，`-v` 显示完整路径。`verbose` 参数经 CLI → `dump_*` → `format_*` → dataclass `format()` 三层透传（与 `--color` 同模式）。Native 模式经 `os.path.basename` 实现而非 `_shorten_path(depth=1)`，语义等价。
-
-### 影响面（无回归）
-
-- 空闲检测 `_is_thread_idle_by_frames` 用 `filename.endswith()` 操作原始字段，不经 format → 不受影响
-- 集成测试 `test_frames_reference_target_app` 检查 `f.filename`（原始字段）→ 不受影响
-- 单元测试用裸文件名（`bar.py`、`x.py`）≤2 级 → 输出不变
-- `collect_*` / `format_*` 分层契约不变：缩短仅在 format 显示层
-
-## 3. native 栈输出对齐 gdb
+## 2. native 栈输出对齐 gdb
 
 > 背景：`pyprobe stack --native` 与 gdb `thread apply all bt` 对比（2026-09 实测），已修复 `GElf_Word` 32 位截断致全 `??`（1fbb785）与线程降序两问题；以下为剩余差异的落地计划，全部基于现有技术栈（ctypes + libdw/libdwfl，无新依赖）。
 
@@ -96,7 +53,7 @@
 - [ ] 8. 参数名：subprogram DIE 遍历 `DW_TAG_formal_parameter` 取 `DW_AT_name`
 - [ ] 9. 参数值（最难，可只做子集）：`dwarf_cfi_addrframe` + `dwarf_frame_register` 求 CFI，`dwarf_getlocation` 位置表达式解释器（`DW_OP_fbreg`/`DW_OP_regN`/`DW_OP_addr` 等），远程读内存复用 `RemoteReader`；`@entry` 依赖 `DW_AT_call_site`/GNU 扩展，视成本取舍
 
-## 4. strace 子命令：系统调用追踪
+## 3. strace 子命令：系统调用追踪
 
 > 背景：新增 `pyprobe strace -p <pid>` 子命令，实时监控目标进程**所有线程**的系统调用（类似 strace），含统计汇总模式 `--summary`（strace -c 等价）。已确认范围：全线程 + TRACECLONE 跟随新线程；strace 风格参数解码（常用 ~50 syscall，其余裸数字）；仅 x86-64。
 >
