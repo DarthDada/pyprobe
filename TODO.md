@@ -24,3 +24,7 @@
 - [ ] 引入 lint/typecheck（当前 AGENTS.md 明确"无"）：重构安全网 = 测试 + 静态检查，二者缺一
 - [ ] 属性测试（hypothesis）：`linetable` / `dict_iter` / `pyobject` 解析器代码的典型受益者
 - [ ] 多版本偏移量 fixture 化：为 3.11/3.13 支持做 TDD 式开发（先写目标版本偏移量的失败测试）
+
+## CPython 版本支持
+
+- [ ] 实测 x86-64 下 CPython 3.11/3.13：用对应版本解释器跑 `scripts/gen_offsets.sh` 生成偏移量，子进程端到端验证后编入 `_VERIFIED_OFFSETS`，同步更新 design.md §10 版本支持表（当前均回退 3.12 偏移量并告警）
