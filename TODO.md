@@ -29,7 +29,7 @@
 - [ ] 9. 变异测试（mutmut）：解析二进制内存布局的代码测试"看似覆盖但抓不住错位偏移"风险高，用变异测试验证测试有效性
 - [ ] 10. 引入 lint/typecheck（当前 AGENTS.md 明确"无"）：重构安全网 = 测试 + 静态检查，二者缺一
 - [ ] 11. 属性测试（hypothesis）：`linetable` / `dict_iter` / `pyobject` 解析器代码的典型受益者
-- [ ] 12. 多版本偏移量 fixture 化：为 3.11/3.13 支持做 TDD 式开发（先写目标版本偏移量的失败测试）
+- [ ] 12. 多版本偏移量测试 fixture 化：`TestOffsetsTable`（tests/test_offsets.py）仍硬编码 3.12；参数化覆盖 `_VERIFIED_OFFSETS` 全部版本（key fixture 分共享 key + 版本特有 key，如 3.11 `PyObject.pre_values`、3.13 `ThreadState.current_frame`），使未来新版本支持可 TDD 式开发（先写目标版本偏移量的失败测试，再编入表）
 
 ## 2. 调用栈输出路径缩短
 
