@@ -15,6 +15,34 @@ from typing import List, Optional
 
 from .colors import cyan, dim, green, red, yellow_bold
 
+_ERRNO_NAMES = {
+    1: "EPERM", 2: "ENOENT", 3: "ESRCH", 4: "EINTR", 5: "EIO", 9: "EBADF",
+    11: "EAGAIN", 12: "ENOMEM", 13: "EACCES", 16: "EBUSY", 17: "EEXIST",
+    20: "ENOTDIR", 21: "EISDIR", 22: "EINVAL", 24: "EMFILE",
+    28: "ENOSPC", 32: "EPIPE", 36: "ENAMETOOLONG", 39: "ENOTEMPTY",
+    40: "ELOOP", 61: "ENODATA", 75: "EOVERFLOW", 84: "EILSEQ",
+    98: "EADDRINUSE", 99: "EADDRNOTAVAIL", 104: "ECONNRESET",
+    110: "ETIMEDOUT", 111: "ECONNREFUSED", 115: "EINPROGRESS",
+}
+
+_ERRNO_DESCS = {
+    1: "Operation not permitted", 2: "No such file or directory",
+    3: "No such process", 4: "Interrupted system call",
+    5: "Input/output error", 9: "Bad file descriptor",
+    11: "Resource temporarily unavailable", 12: "Cannot allocate memory",
+    13: "Permission denied", 16: "Device or resource busy",
+    17: "File exists", 20: "Not a directory", 21: "Is a directory",
+    22: "Invalid argument", 24: "Too many open files",
+    28: "No space left on device", 32: "Broken pipe",
+    36: "File name too long", 39: "Directory not empty",
+    40: "Too many levels of symbolic links", 61: "No data available",
+    75: "Value too large for defined data type",
+    84: "Invalid or incomplete multibyte or wide character",
+    98: "Address already in use", 99: "Cannot assign requested address",
+    104: "Connection reset by peer", 110: "Connection timed out",
+    111: "Connection refused", 115: "Operation now in progress",
+}
+
 
 def _shorten_path(path: str, depth: int = 2) -> str:
     """Return the last ``depth`` components of ``path``.
@@ -132,3 +160,42 @@ class NativeThreadInfo:
                     lines.append(f"  #{j}  {pc} in {symbol} ()")
             body = "\n".join(lines)
         return header + "\n" + body if body else header
+
+
+@dataclass
+class SyscallEvent:
+    """A single completed syscall observation (entry + exit paired).
+
+    ``rendered`` holds the pre-rendered argument string (built by
+    ``syscall_trace._decode_args`` / ``_fill_out_args``) so ``format()``
+    stays a pure data -> string step.
+    """
+
+    tid: int
+    nr: int
+    name: str
+    args: List[int] = field(default_factory=list)
+    rendered: str = ""
+    ret: int = 0
+    error: Optional[int] = None    # errno when the syscall failed (-1 return)
+    elapsed: float = 0.0           # seconds between entry and exit stop
+
+    def format(self, *, color: bool = False) -> str:
+        """Render one strace-style event line.
+
+        Success:  ``1234  openat(AT_FDCWD, "/tmp/x") = 3``
+        Failure:  ``1234  openat(...) = -1 ENOENT (No such file or directory)``
+        Slow syscalls get a trailing ``<0.000123>`` like strace -T.
+        """
+        tid = yellow_bold(str(self.tid), color)
+        name = green(self.name, color)
+        if self.error is not None:
+            ename = _ERRNO_NAMES.get(self.error, f"ERRNO_{self.error}")
+            edesc = _ERRNO_DESCS.get(self.error, "Unknown error")
+            ret = red(f"= -1 {ename} ({edesc})", color)
+        else:
+            ret = f"= {self.ret}"
+        line = f"{tid}  {name}({self.rendered}) {ret}"
+        if self.elapsed:
+            line += f" {dim(f'<{self.elapsed:.6f}>', color)}"
+        return line

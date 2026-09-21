@@ -44,6 +44,7 @@ from .types import (
 from .errors import (
     PyProbeError, ProcessNotFound, PermissionDenied, SymbolNotFound,
     NoInterpreterState, NoThreadState, VersionNotSupported, AttachFailed,
+    UnsupportedArchitecture,
 )
 from .stack_dump import (
     collect_python, format_process, dump_python,
@@ -52,6 +53,10 @@ from .stack_dump import (
 from .native_dump import (
     collect_native, format_native, dump_native,
 )
+from .syscall_trace import (
+    collect_syscalls, dump_syscalls, format_summary,
+    TraceFilter, SyscallStat,
+)
 from . import offsets
 from . import colors
 
@@ -59,14 +64,19 @@ __all__ = [
     # data types
     "FrameInfo", "ThreadInfo", "ProcessInfo",
     "NativeFrame", "NativeThreadInfo",
+    "SyscallEvent",
     # exceptions
     "PyProbeError", "ProcessNotFound", "PermissionDenied", "SymbolNotFound",
     "NoInterpreterState", "NoThreadState", "VersionNotSupported", "AttachFailed",
+    "UnsupportedArchitecture",
     # python stack API
     "collect_python", "format_process", "dump_python",
     "collect_frames", "collect_thread",
     # native stack API
     "collect_native", "format_native", "dump_native",
+    # syscall tracing API
+    "collect_syscalls", "dump_syscalls", "format_summary",
+    "TraceFilter", "SyscallStat",
     # submodules
     "offsets",
     "colors",

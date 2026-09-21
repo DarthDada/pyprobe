@@ -94,6 +94,7 @@ Thread 1 (Thread 0x0000000000000000 (LWP 14701) "python3"):
 ```
 pyprobe stack -p <pid>            Python 调用栈转储
 pyprobe stack -p <pid> --native   原生调用栈转储（gdb 风格）
+pyprobe syscall -p <pid>          系统调用追踪（strace 风格）
 ```
 
 | 参数 | 说明 |
@@ -105,6 +106,47 @@ pyprobe stack -p <pid> --native   原生调用栈转储（gdb 风格）
 | `--color {auto,always,never}` | 彩色输出，缺省 `auto`（检测 tty） |
 
 输出到终端时自动着色（pid 黄、函数名绿、文件名青、行号暗淡、错误红）；管道/重定向或设置 `NO_COLOR` 时自动纯文本，`--color=always` 可强制。
+
+## 系统调用追踪
+
+```bash
+pyprobe syscall -p 14695                       # 实时流式输出（Ctrl-C 结束）
+pyprobe syscall -p 14695 --max-events 30       # 收满 30 个事件后停止
+pyprobe syscall -p 14695 --summary --max-events 200   # strace -c 风格汇总
+pyprobe syscall -p 14695 -e trace=file         # 只看文件类系统调用
+pyprobe syscall -p 14695 -e trace=read,write   # 只看指定系统调用
+pyprobe syscall -p 14695 -e trace=!futex       # 排除某系统调用
+```
+
+| 参数 | 说明 |
+|------|------|
+| `-e, --trace <expr>` | 过滤表达式：类组名（`file`/`network`/`process`/`memory`/`signal`/`desc`）、逗号分隔的系统调用名，或 `!` 前缀排除 |
+| `--max-events <n>` | 捕获 n 个事件后停止（缺省直到 Ctrl-C） |
+| `--summary` | 输出 `strace -c` 风格统计表而非逐事件流 |
+| `-v`, `--verbose` | 字符串参数不截断（缺省 32 字符 + `...`） |
+
+流式输出示例：
+
+```
+14701  clock_nanosleep(1, 1, {6928, 190163573}, 0, 0x0, 0x0) = 0 <1.000455>
+14701  clock_nanosleep(1, 1, {6929, 190245273}, 0, 0x0, 0x0) = 0 <1.000544>
+14695  openat(AT_FDCWD, "/etc/hosts", O_RDONLY|O_CLOEXEC) = 4 <0.000021>
+```
+
+汇总示例：
+
+```
+syscall                   calls     errors       total     total/s         per-call
+----------------------------------------------------------------------------------
+clock_nanosleep              50          0  66.012166  66.012166      1.320243
+----------------------------------------------------------------------------------
+total                        50          0  66.012166  66.012166
+```
+
+- 追踪**所有线程**（含追踪期间新建线程，PTRACE_O_TRACECLONE），事件带线程 ID 前缀
+- 常用 ~50 个系统调用按 strace 风格解码参数（路径字符串、`O_*`/`MAP_*`/`PROT_*` 标志、timespec、read/write 缓冲区内容），其余显示裸数值
+- 基于寄存器的返回值错误自动解码为 `= -1 ENOENT (No such file or directory)` 风格
+- 仅支持 x86-64（其他架构报 `UnsupportedArchitecture`）
 
 ## 开发脚本
 
@@ -148,6 +190,7 @@ scripts/run_tests.sh -- -x        # -- 之后的参数透传给 pytest
 
 - **Python 栈模式**（默认）：使用 `process_vm_readv(2)`，**不需要 ptrace attach**。`ptrace_scope=1`（默认）下仅可读取子进程；root 可读取任意进程。
 - **Native 模式**（`--native`）：使用 `ptrace(2)` attach 所有线程。`dumpable=0` 的进程（如 uvicorn/FastAPI）在非 root 下不可用。
+- **Syscall 追踪**（`syscall` 子命令）：使用 `ptrace(2)`（PTRACE_SEIZE + PTRACE_SYSCALL），权限要求同 native 模式。仅 x86-64；结束时自动 detach，不会挂死目标进程。
 
 ```bash
 cat /proc/sys/kernel/yama/ptrace_scope   # 检查当前 ptrace_scope

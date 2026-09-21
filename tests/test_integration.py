@@ -179,3 +179,77 @@ class TestNativeDump:
             pytest.skip("ptrace attach not permitted in this environment")
         assert isinstance(threads, list)
         assert len(threads) >= 1
+
+
+class TestSyscall:
+    """Verify syscall tracing against the child (skip if ptrace denied)."""
+
+    def _collect(self, target_pid, **kw):
+        from pyprobe import collect_syscalls, AttachFailed
+        try:
+            return collect_syscalls(target_pid, **kw)
+        except AttachFailed:
+            pytest.skip("ptrace attach not permitted in this environment")
+
+    def test_collect_returns_events(self, target_pid):
+        events = self._collect(target_pid, max_events=6)
+        assert isinstance(events, list)
+        assert len(events) == 6
+
+    def test_clock_nanosleep_captured(self, target_pid):
+        events = self._collect(target_pid, max_events=6)
+        names = {e.name for e in events}
+        assert "clock_nanosleep" in names  # target_app is a sleep loop
+
+    def test_multiple_tids(self, target_pid):
+        events = self._collect(target_pid, max_events=6)
+        tids = {e.tid for e in events}
+        assert len(tids) >= 2  # main thread + bg-worker
+
+    def test_elapsed_recorded(self, target_pid):
+        events = self._collect(target_pid, max_events=6)
+        assert all(e.elapsed >= 0.0 for e in events)
+        assert any(e.elapsed > 0.1 for e in events)  # sleeps >= 1s
+
+    def test_event_format_renders(self, target_pid):
+        events = self._collect(target_pid, max_events=4)
+        for ev in events:
+            line = ev.format()
+            assert str(ev.tid) in line
+            assert ev.name in line
+            assert "= " in line
+
+    def test_target_survives_tracing(self, target_pid, capsys):
+        self._collect(target_pid, max_events=4)
+        # tracing must not kill or hang the target
+        from pyprobe import collect_python
+        proc_info, threads = collect_python(target_pid)
+        assert proc_info.pid == target_pid
+
+    def test_dump_output(self, target_pid, capsys):
+        from pyprobe import dump_syscalls, AttachFailed
+        try:
+            rc = dump_syscalls(target_pid, color=False, max_events=4)
+        except AttachFailed:
+            pytest.skip("ptrace attach not permitted in this environment")
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "clock_nanosleep" in out
+
+    def test_summary_table(self, target_pid, capsys):
+        from pyprobe import dump_syscalls, AttachFailed
+        try:
+            rc = dump_syscalls(target_pid, color=False, max_events=4,
+                               summary=True)
+        except AttachFailed:
+            pytest.skip("ptrace attach not permitted in this environment")
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "syscall" in out
+        assert "calls" in out
+        assert "total" in out
+
+    def test_nonexistent_pid_raises(self):
+        from pyprobe import collect_syscalls, PyProbeError
+        with pytest.raises(PyProbeError):
+            collect_syscalls(999999, max_events=1)

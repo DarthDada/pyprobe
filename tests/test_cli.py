@@ -27,6 +27,23 @@ def stub_dumps(monkeypatch):
     return calls
 
 
+@pytest.fixture
+def stub_syscall(monkeypatch):
+    calls = []
+
+    def fake_dump_syscalls(pid, color=None, verbose=False, trace="",
+                           max_events=None, summary=False):
+        calls.append({
+            "pid": pid, "color": color, "verbose": verbose,
+            "trace": trace, "max_events": max_events,
+            "summary": summary,
+        })
+        return 0
+
+    monkeypatch.setattr(cli, "dump_syscalls", fake_dump_syscalls)
+    return calls
+
+
 class TestStackDispatch:
     def test_python_stack_default(self, stub_dumps):
         rc = cli.main(["stack", "-p", "1234"])
@@ -133,3 +150,63 @@ class TestVersion:
         assert exc.value.code == 0
         out = capsys.readouterr().out
         assert "pyprobe" in out
+
+
+class TestSyscallDispatch:
+    def test_basic_dispatch(self, stub_syscall):
+        rc = cli.main(["syscall", "-p", "1234"])
+        assert rc == 0
+        assert len(stub_syscall) == 1
+        call = stub_syscall[0]
+        assert call["pid"] == 1234
+        assert call["color"] is None
+        assert call["verbose"] is False
+        assert call["trace"] == ""
+        assert call["max_events"] is None
+        assert call["summary"] is False
+
+    def test_trace_filter(self, stub_syscall):
+        cli.main(["syscall", "-p", "1", "-e", "trace=file"])
+        assert stub_syscall[0]["trace"] == "file"
+
+    def test_trace_filter_short_form(self, stub_syscall):
+        cli.main(["syscall", "-p", "1", "-e", "network"])
+        assert stub_syscall[0]["trace"] == "network"
+
+    def test_trace_filter_names(self, stub_syscall):
+        cli.main(["syscall", "-p", "1", "--trace", "read,write"])
+        assert stub_syscall[0]["trace"] == "read,write"
+
+    def test_max_events(self, stub_syscall):
+        cli.main(["syscall", "-p", "1", "--max-events", "30"])
+        assert stub_syscall[0]["max_events"] == 30
+
+    def test_summary(self, stub_syscall):
+        cli.main(["syscall", "-p", "1", "--summary"])
+        assert stub_syscall[0]["summary"] is True
+
+    def test_verbose(self, stub_syscall):
+        cli.main(["syscall", "-p", "1", "-v"])
+        assert stub_syscall[0]["verbose"] is True
+
+    def test_color_always(self, stub_syscall):
+        cli.main(["syscall", "-p", "1", "--color", "always"])
+        assert stub_syscall[0]["color"] is True
+
+    def test_summary_with_max_events(self, stub_syscall):
+        cli.main(["syscall", "-p", "1", "--summary", "--max-events", "200"])
+        call = stub_syscall[0]
+        assert call["summary"] is True
+        assert call["max_events"] == 200
+
+    def test_missing_pid(self, capsys):
+        with pytest.raises(SystemExit):
+            cli.main(["syscall"])
+        err = capsys.readouterr().err
+        assert "pid" in err.lower()
+
+    def test_pid_not_integer(self, capsys):
+        with pytest.raises(SystemExit):
+            cli.main(["syscall", "-p", "abc"])
+        err = capsys.readouterr().err
+        assert "invalid" in err.lower() or "pid" in err.lower()

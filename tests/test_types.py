@@ -167,3 +167,58 @@ class TestNativeFrame:
         out = t.format(1, color=True)
         assert ("\x1b[31m  Backtrace stopped: Cannot access memory at address 0x0"
                 "\x1b[0m") in out
+
+
+class TestSyscallEvent:
+    def _event(self, **kw):
+        from pyprobe.types import SyscallEvent
+        defaults = dict(tid=1234, nr=257, name="openat",
+                        rendered='AT_FDCWD, "/tmp/x", O_RDONLY', ret=3)
+        defaults.update(kw)
+        return SyscallEvent(**defaults)
+
+    def test_format_success(self):
+        ev = self._event()
+        assert ev.format() == \
+            '1234  openat(AT_FDCWD, "/tmp/x", O_RDONLY) = 3'
+
+    def test_format_error(self):
+        ev = self._event(error=2, ret=-1)
+        out = ev.format()
+        assert "= -1 ENOENT (No such file or directory)" in out
+
+    def test_format_unknown_errno(self):
+        ev = self._event(error=999, ret=-1)
+        out = ev.format()
+        assert "ERRNO_999" in out
+        assert "Unknown error" in out
+
+    def test_format_elapsed(self):
+        ev = self._event(elapsed=0.000123)
+        assert ev.format().endswith("<0.000123>")
+
+    def test_format_no_elapsed(self):
+        assert "<" not in self._event().format()
+
+    def test_format_error_and_elapsed(self):
+        ev = self._event(error=13, ret=-1, elapsed=0.5)
+        out = ev.format()
+        assert "= -1 EACCES (Permission denied) " in out
+        assert out.endswith("<0.500000>")
+
+    def test_format_color(self):
+        ev = self._event()
+        out = ev.format(color=True)
+        assert "\x1b[1m\x1b[33m1234\x1b[0m" in out   # tid
+        assert "\x1b[32mopenat\x1b[0m" in out   # syscall name
+
+    def test_format_error_color(self):
+        ev = self._event(error=2, ret=-1)
+        out = ev.format(color=True)
+        assert "\x1b[31m= -1 ENOENT" in out     # red error
+
+    def test_defaults(self):
+        from pyprobe.types import SyscallEvent
+        ev = SyscallEvent(tid=1, nr=0, name="read")
+        assert ev.args == [] and ev.rendered == "" and ev.ret == 0
+        assert ev.error is None and ev.elapsed == 0.0

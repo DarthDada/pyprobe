@@ -65,3 +65,19 @@ def test_can_catch_all_as_base():
     for exc_cls in SUBCLASSES:
         with pytest.raises(PyProbeError):
             raise exc_cls.__new__(exc_cls)
+
+
+class TestUnsupportedArchitecture:
+    def test_subclass_of_pyprobe_error(self):
+        from pyprobe.errors import UnsupportedArchitecture
+        assert issubclass(UnsupportedArchitecture, PyProbeError)
+
+    def test_message_and_attributes(self):
+        from pyprobe.errors import UnsupportedArchitecture
+        e = UnsupportedArchitecture("syscall tracing", "aarch64")
+        assert e.feature == "syscall tracing"
+        assert e.arch == "aarch64"
+        assert e.supported == "x86-64"
+        assert "syscall tracing" in str(e)
+        assert "aarch64" in str(e)
+        assert "x86-64" in str(e)

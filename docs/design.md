@@ -7,10 +7,11 @@
 
 ## 1. 概述
 
-pyprobe 是 CPython 进程外检查工具，无需 ptrace attach 即可获取运行中 Python 进程的调用栈。提供两种工作模式：
+pyprobe 是 CPython 进程外检查工具，无需 ptrace attach 即可获取运行中 Python 进程的调用栈。提供三种工作模式：
 
 - **Python 栈转储**（默认）— 遍历 `_PyRuntime → interpreter → threads → frames`，输出 py-spy 风格的 Python 调用栈（函数名、文件、行号、qualname）。使用 `process_vm_readv(2)` 读取目标进程内存，**不需要 ptrace attach**。
 - **Native 栈转储**（`--native`）— 通过 elfutils libdwfl 对所有线程进行 DWARF 回溯展开，输出 gdb `thread apply all bt` 风格的原生调用栈。使用 `ptrace(2)` attach 所有线程。
+- **Syscall 追踪**（`syscall` 子命令）— ptrace SEIZE + SYSCALL 实时追踪所有线程的系统调用，输出 strace 风格事件流 / `strace -c` 风格统计（详见 §14）。
 
 主交付物为**纯 Python 实现**（`pyprobe/` 包，仅依赖标准库 ctypes/struct），另附 C 参考实现用于开发期交叉校验（不对外交付）。
 
@@ -22,7 +23,7 @@ pyprobe 是 CPython 进程外检查工具，无需 ptrace attach 即可获取运
 pyprobe/                  纯 Python 实现（入口 pyprobe.cli:main）
 ├── __init__.py           公共 API 导出（__all__）
 ├── __main__.py           python -m pyprobe 入口
-├── cli.py                argparse CLI（stack 子命令）
+├── cli.py                argparse CLI（stack / syscall 子命令）
 ├── memory.py             process_vm_readv 远程内存读取 (ctypes) + 页级 LRU 缓存
 ├── elf.py                ELF64 符号查找 (struct, 零依赖) + PIE load base
 ├── pyobject.py           PyLong / PyUnicode / PyBytes 远程读取
@@ -31,7 +32,9 @@ pyprobe/                  纯 Python 实现（入口 pyprobe.cli:main）
 ├── thread_names.py       threading._active 线程名查找
 ├── stack_dump.py         Python 栈转储主逻辑（collect/format/dump 三层）
 ├── native_dump.py        Native 栈转储 (ctypes + libdwfl，惰性加载)
-├── types.py              结构化数据类型（FrameInfo/ThreadInfo/ProcessInfo/...）
+├── syscall_trace.py      系统调用追踪（ptrace 引擎 + 纯函数解码 + summary）
+├── syscall_table.py      x86-64 syscall 号→名表 + 参数解码元数据 + flag 常量
+├── types.py              结构化数据类型（FrameInfo/ThreadInfo/ProcessInfo/.../SyscallEvent）
 ├── errors.py             异常层级（PyProbeError 基类 + 子类）
 ├── colors.py             ANSI 颜色帮助 + clicolors 检测（零依赖）
 ├── offsets.py            CPython 结构体偏移量（多版本验证表，单一数据源）
@@ -61,10 +64,13 @@ tests/                    测试
 |----|------|------|-----------|
 | 采集 | `collect_python(pid)` | 纯数据采集 | `(ProcessInfo, list[ThreadInfo])`，抛 `PyProbeError` 子类 |
 | 采集 | `collect_native(pid)` | ptrace attach + DWARF unwind | `list[NativeThreadInfo]`，抛 `AttachFailed` |
+| 采集 | `collect_syscalls(pid, *, trace, max_events, verbose)` | ptrace SEIZE + SYSCALL 全线程追踪 | `list[SyscallEvent]`，抛 `AttachFailed` / `ProcessNotFound` / `UnsupportedArchitecture` |
 | 格式化 | `format_process(proc_info, threads, *, color=False, verbose=False)` | 结构化数据 → CLI 风格字符串 | `str`（`color=True` 时含 ANSI 码） |
 | 格式化 | `format_native(cmdline, threads, *, color=False, verbose=False)` | 同上（native） | `str` |
+| 格式化 | `format_summary(events, *, color=False)` | 事件列表 → strace -c 风格统计表 | `str` |
 | CLI 封装 | `dump_python(pid, color=None, verbose=False)` | collect + format + print | 退出码 `int`，异常转 stderr |
 | CLI 封装 | `dump_native(pid, color=None, verbose=False)` | 同上（native） | 退出码 `int` |
+| CLI 封装 | `dump_syscalls(pid, *, color, verbose, trace, max_events, summary)` | collect + 流式打印或 summary | 退出码 `int`，KeyboardInterrupt 优雅 detach |
 
 设计要点：
 - `collect_*` **不打印**，返回结构化 dataclass，调用方可程序化使用（序列化、后处理）。
@@ -82,6 +88,7 @@ ThreadInfo(native_tid, thread_id, name, frames, idle)  # 线程 + 帧列表
 ProcessInfo(pid, cmdline, exe_path, python_version)    # 进程元数据
 NativeFrame(pc, symbol, module)              # 单个 native 栈帧
 NativeThreadInfo(tid, comm, frames, unwind_failed)    # native 线程 + 帧列表
+SyscallEvent(tid, nr, name, args, rendered, ret, error, elapsed)  # 单次系统调用观测
 ```
 
 每个 dataclass 自带 `format()` / `format_header()` 方法，`format_*` 函数组合调用它们生成输出。
@@ -98,7 +105,8 @@ PyProbeError                      基类（库调用方可统一 catch）
 ├── NoInterpreterState            无法读取 interpreter state
 ├── NoThreadState                 无法读取 thread state 链
 ├── VersionNotSupported           CPython 版本未验证（带 fallback 版本信息）
-└── AttachFailed                  ptrace attach 失败（native 模式）
+├── AttachFailed                  ptrace attach 失败（native 模式）
+└── UnsupportedArchitecture       架构不支持（syscall 追踪仅 x86-64）
 ```
 
 `collect_*` 抛出具体异常；`dump_*` 捕获后转 stderr + 退出码。库调用方可 catch `PyProbeError` 统一处理或 catch 子类区分失败模式。
@@ -278,6 +286,17 @@ find_symbol(_PyRuntime)
 
 > uvicorn / FastAPI 运行时会将 `dumpable` 设为 0，导致 native 模式在非 root 下无法 attach。Python 栈模式不受此限制。
 
+### 9.3 Syscall 追踪模式（`syscall` 子命令）
+
+使用 `ptrace(2)`（PTRACE_SEIZE + PTRACE_SYSCALL），权限要求同 native 模式（§9.2 表格），另有两条：
+
+| 条件 | 是否可用 |
+|------|----------|
+| 非 x86-64 架构 | **不可用**（`UnsupportedArchitecture`） |
+| 目标含分离后的线程 | 仅追踪 attach 时刻已存在 + TRACECLONE 捕获的线程 |
+
+结束时自动 PTRACE_INTERRUPT + PTRACE_DETACH 全部线程，目标进程恢复运行（不会挂死）。
+
 ```bash
 cat /proc/sys/kernel/yama/ptrace_scope   # 检查当前 ptrace_scope
 sudo python -m pyprobe stack -p <pid> --native   # root 可绕过所有限制
@@ -373,14 +392,15 @@ else:
 - 对象构造器：`build_pyunicode` / `build_pybytes` / `build_pylong` / `build_code_object` / `build_frame` — 按配置偏移量写入字节。
 - `FakeRemoteReader`：子类化真实 `RemoteReader`，stub `_read_syscall` 提供罐头页数据，测试真实页缓存逻辑（LRU 淘汰、跨页、旁路）。
 
-覆盖模块：offsets（版本键/configure/get/fallback）、types（格式化 + `color=True` 精确 ANSI 断言）、errors（异常层级）、colors（帮助函数恒等性/包裹 + `should_color` 环境矩阵）、linetable（PEP 626 全 code 类型）、pyobject（PyLong/PyBytes/PyUnicode 各变体）、dict_iter（combined/unicode/split/managed）、memory（页缓存）、elf（decode_py_version/read_cmdline/find_symbol/read_const 真实 ELF）、stack_dump（collect_frames/`_is_thread_idle`/collect_thread/format_process/错误路径/dump CLI 颜色）、cli（参数解析/分发/`--color` 传递）。
+覆盖模块：offsets（版本键/configure/get/fallback）、types（格式化 + `color=True` 精确 ANSI 断言）、errors（异常层级）、colors（帮助函数恒等性/包裹 + `should_color` 环境矩阵）、linetable（PEP 626 全 code 类型）、pyobject（PyLong/PyBytes/PyUnicode 各变体）、dict_iter（combined/unicode/split/managed）、memory（页缓存）、elf（decode_py_version/read_cmdline/find_symbol/read_const 真实 ELF）、stack_dump（collect_frames/`_is_thread_idle`/collect_thread/format_process/错误路径/dump CLI 颜色）、cli（参数解析/分发/`--color` 传递）、syscall_table（号↔名表抽查/flag 解码）、syscall_trace（字符串转义截断/`_read_cstr`/`_read_timespec`/`_decode_args`/`_fill_out_args`/`TraceFilter`/`format_summary` 纯函数 FakeReader 注入；attach/detach/主循环 monkeypatch stub）。
 
 ### 13.2 集成测试（`@pytest.mark.integration`）
 
-端到端验证 `collect_python` / `format_process` / `dump_python` / `collect_native`。
+端到端验证 `collect_python` / `format_process` / `dump_python` / `collect_native` / `collect_syscalls`。
 
 - `target_pid` session fixture（`conftest.py`）：`subprocess.Popen` 派生 `tests/targets/target_app.py`（主线程 + bg-worker 线程），通过 stdout 获取真实 PID。子进程是 pytest 后代，`process_vm_readv` 在 `ptrace_scope=1` 默认下可用。目标解释器默认为 `sys.executable`，可经 `TARGET_PYTHON` 环境变量指定其他版本（如 3.11/3.13）做跨版本端到端验证。
-- 非 Linux 自动 skip；Native dump 在 ptrace 权限不足时自动 skip。
+- 非 Linux 自动 skip；Native dump 与 syscall 追踪在 ptrace 权限不足时自动 skip（`AttachFailed`）。
+- Syscall（`TestSyscall`）：collect 断言 `clock_nanosleep` 事件 + 多 tid + elapsed > 0；dump 输出流式断言；`--summary` 表头断言；trace 后目标进程仍存活（干净 detach 验证）。
 
 ### 13.3 手动探测约束
 
@@ -388,3 +408,48 @@ else:
 - **必须**用 `subprocess.Popen` 派生子进程并通过 stdout 获取真实 PID（复用 `conftest.py:target_pid` 模式）；`try/finally` 中 `terminate()` + `wait(timeout=5)` 确保回收。
 - **禁止**用 shell `&` 后台启动 + `$!`/`pgrep` 获取 PID：`uv run` 包装器导致 `$!` 指向 `uv`/`bash` 而非 Python 解释器；`pgrep -f` 会匹配 `/bin/bash -c ...` 命令行。对非 Python 进程探测 `_PyRuntime` 必然失败。
 - **禁止**在持久 shell 里裸用 `&` 跑长驻进程：后台子进程继承管道，不退出时管道不关闭，会导致整个 shell 会话卡死。
+
+---
+
+## 14. Syscall 追踪架构（syscall_trace.py / syscall_table.py）
+
+`pyprobe syscall -p <pid>` 实时追踪目标进程**所有线程**的系统调用（strace 风格），含 `--summary` 统计（strace -c 等价）。纯 Python + ctypes 调 `libc.ptrace`，零第三方依赖；仅 x86-64。
+
+### 14.1 syscall_table.py（静态数据，无逻辑）
+
+- `SYSCALL_NAMES`：x86-64 syscall 号→名（~362 条，一次性从 `asm/unistd_64.h` 提取编入）+ 逆表 `SYSCALL_NRS`。
+- `DECODE`：~50 常用 syscall 的逐参数类别元数据（`path`/`buf_in`/`buf_out`/`open_flags`/`mode`/`fd`/`timespec`/`signal`/`prot`/`map_flags` 等）；无条目的 syscall 参数显示裸 hex。
+- `TRACE_GROUPS`：`-e trace=` 类组（file/network/process/memory/signal/desc）→ syscall 名集合。
+- `OPEN_FLAGS` / `MAP_FLAGS` / `PROT_FLAGS`：flags 位→名表，OR 解码（`O_RDONLY|O_CLOEXEC` 风格）。
+
+### 14.2 ptrace 引擎（SyscallTracer）
+
+**SEIZE 而非 ATTACH**：options 随 SEIZE 传入（`TRACESYSGOOD | TRACECLONE | TRACEEXEC`）且新线程自动继承；中断的 tracee 总能干净 DETACH（ATTACH 无法 DETACH 处于运行态的 tracee，提前结束会把目标挂死）。
+
+- **attach**：`_list_tids` 扫 `/proc/<pid>/task` 逐线程 SEIZE + 循环 re-scan（捕获扫描间隙新建的线程）→ 全部 INTERRUPT → `waitpid` 收 stop → 逐线程进入 `PTRACE_SYSCALL`。任一 SEIZE 失败回滚已 seize 线程并抛 `AttachFailed`。
+- **run 主循环**：`waitpid(-1, __WALL)` 单点收 stop，按状态分派（状态机）：
+  - `SIGTRAP|0x80`（TRACESYSGOOD syscall stop）：GETREGS，entry 暂存 `(nr, 6 args, 时间戳)` 到 `stash[tid]`，exit 弹出暂存并 emit 事件（相位隐含在 stash 有无）；
+  - `PTRACE_EVENT_STOP`：group-stop，吞掉继续；
+  - `PTRACE_EVENT_CLONE`：父线程继续，新线程随后的 SIGSTOP delivery-stop 吞掉并纳入追踪（TRACECLONE 跟随新线程）;
+  - `PTRACE_EVENT_EXEC`：execve 无常规 exit stop，补 emit（ret=0）+ 相位重置（寄存器 ABI 可能已变）；
+  - 其余信号 delivery-stop：原样转发（保证目标行为不变）。
+- **参数读取时机**：entry 时读 path/timespec（寄存器存活）；`buf_in`/`buf_out` exit 时读内容（read(2) 缓冲区由内核在 exit 前填充），args 来自 entry 暂存（exit 时寄存器已破坏）。`ret ∈ (-4096, 0)` 解码为 `-1 errno`。
+- **内存读取**：`_UncachedReader` 包装 `RemoteReader.read_uncached` 绕过页缓存——追踪是长时运行且目标内存持续变化（如 timespec 结构复用），快照缓存会读到过期数据。
+- **detach（幂等）**：逐线程 INTERRUPT → `waitpid(WNOHANG)` 收 stop（有界重试）→ DETACH，目标恢复运行。
+
+### 14.3 解码与输出（纯函数，reader 注入）
+
+- `escape_bytes` / `truncate_escaped` / `render_str_arg`：strace 风格字符串（非可见 ASCII 转 `\NNN` 八进制，非 verbose 截断 32 字符 + `...`）。
+- `_read_cstr`：NUL 终止字符串读取，完全不可读时回退裸地址（对齐 strace）；`_read_available` 二分探测短映射可读长度。
+- `_decode_args`（entry 渲染）+ `_fill_out_args`（exit 后拼接缓冲区内容 `0xaddr/"..."`）。
+- `TraceFilter`：`-e trace=` 表达式编译（类组名/逗号分隔 syscall 名/`!` 排除）。
+- `format_summary` + `SyscallStat`：strace -c 风格统计表（calls/errors/total/total/s/per-call，按总耗时降序）。
+- `SyscallEvent.format()`：单事件行 `tid  name(args) = ret <elapsed>`，项目颜色语义（tid 黄、syscall 名绿、错误红）。
+
+### 14.4 已知坑位
+
+- `orig_rax` 可能符号扩展为 `-1`，取低 32 位恢复 nr。
+- x86-64 返回值错误判定用无符号比较（`ret > 0xFFFFFFFF00000000`）后再转有符号。
+- clone 事件里新线程 tid 需从 `waitid`/事件数据取，此处依赖随后 SIGSTOP delivery-stop 的 wpid（`tid not in self.tids` 分支）。
+- `waitpid` 可能被信号打断（`InterruptedError`），循环内 continue 重试；`KeyboardInterrupt` 时 `dump_syscalls` 仍 detach 并打印已收集 summary。
+

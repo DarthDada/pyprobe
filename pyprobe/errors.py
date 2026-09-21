@@ -75,3 +75,19 @@ class AttachFailed(PyProbeError):
             msg += f": {detail}"
         super().__init__(msg)
         self.pid = pid
+
+
+class UnsupportedArchitecture(PyProbeError):
+    """The current CPU architecture is not supported by this feature.
+
+    ptrace register layouts and syscall numbers are architecture-specific;
+    features like syscall tracing are only implemented on x86-64.
+    """
+
+    def __init__(self, feature: str, arch: str, supported: str = "x86-64"):
+        super().__init__(
+            f"{feature} is not supported on {arch} "
+            f"(supported: {supported})")
+        self.feature = feature
+        self.arch = arch
+        self.supported = supported

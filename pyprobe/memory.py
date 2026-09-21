@@ -105,6 +105,16 @@ class RemoteReader:
             self._cache.popitem(last=False)
         return data
 
+    def read_uncached(self, addr, length):
+        """Read bypassing the page cache (fresh syscall every time).
+
+        For long-running observation (syscall tracing) where the target
+        mutates the same memory between observations (e.g. a timespec
+        struct reused by successive sleep calls), the snapshot cache
+        would return stale data.
+        """
+        return self._read_syscall(addr, length)
+
     def read(self, addr, length):
         if length == 0:
             return b""

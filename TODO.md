@@ -4,7 +4,6 @@
 
 1. [采用 TDD 开发前需补齐的基础设施](#1-采用-tdd-开发前需补齐的基础设施)
 2. [native 栈输出对齐 gdb](#2-native-栈输出对齐-gdb)
-3. [strace 子命令：系统调用追踪](#3-strace-子命令系统调用追踪)
 
 ## 1. 采用 TDD 开发前需补齐的基础设施
 
@@ -52,17 +51,3 @@
 - [ ] 7. 内联帧展开：`dwarf_getscopes` 作用域链上每个 `DW_TAG_inlined_subroutine` DIE 展开为逻辑帧，`DW_AT_abstract_origin` 回溯取函数名，`DW_AT_call_file`/`call_line` 取调用点
 - [ ] 8. 参数名：subprogram DIE 遍历 `DW_TAG_formal_parameter` 取 `DW_AT_name`
 - [ ] 9. 参数值（最难，可只做子集）：`dwarf_cfi_addrframe` + `dwarf_frame_register` 求 CFI，`dwarf_getlocation` 位置表达式解释器（`DW_OP_fbreg`/`DW_OP_regN`/`DW_OP_addr` 等），远程读内存复用 `RemoteReader`；`@entry` 依赖 `DW_AT_call_site`/GNU 扩展，视成本取舍
-
-## 3. strace 子命令：系统调用追踪
-
-> 背景：新增 `pyprobe strace -p <pid>` 子命令，实时监控目标进程**所有线程**的系统调用（类似 strace），含统计汇总模式 `--summary`（strace -c 等价）。已确认范围：全线程 + TRACECLONE 跟随新线程；strace 风格参数解码（常用 ~50 syscall，其余裸数字）；仅 x86-64。
->
-> 技术方案：纯 Python + ctypes 调 `libc.ptrace`（零第三方依赖）。核心 **PTRACE_SEIZE + PTRACE_SYSCALL**（SEIZE 而非 ATTACH 的原因：提前结束时 tracee 处于运行态，ATTACH 无法 DETACH 会把目标进程挂死；SEIZE 可 INTERRUPT 后 DETACH，且 options 随 SEIZE 传入、新线程自动继承）。完整设计见会话计划（PTRACE 状态机、坑位清单）。
-
-- [ ] 1. 新增 `pyprobe/syscall_table.py`：x86-64 syscall 号→名表（~362 条，从 `/usr/include/x86_64-linux-gnu/asm/unistd_64.h` 一次性提取编入）+ `DECODE` 参数类别元数据（~50 常用 syscall：path/buf_in/buf_out/open_flags/timespec 等）+ `TRACE_GROUPS`（file/network/process 类组）+ O_*/MAP_*/PROT_* flags 常量表；表抽查单测（read=0/write=1/openat=257）
-- [ ] 2. `pyprobe/types.py` 新增 `SyscallEvent` dataclass（tid/name/nr/args/rendered/ret/error/elapsed + `format()`，strace 风格输出 + 项目颜色语义）；`pyprobe/errors.py` 新增 `UnsupportedArchitecture`；format/异常单测
-- [ ] 3. `pyprobe/strace.py` 纯函数部分：字符串转义（strace 风格 `\NNN` 八进制）、截断（非 verbose 32 字符）、`_read_cstr`/`_read_timespec`/`_decode_args`/`_fill_out_args`（FakeReader 注入单测）、`TraceFilter`（`-e trace=file|network|read,write` 解析）、`format_summary` + `SyscallStat`（strace -c 风格表格）
-- [ ] 4. `pyprobe/strace.py` ptrace 引擎：`_UserRegs`（x86-64 user_regs_struct）、attach（SEIZE + re-scan + INTERRUPT）/detach（幂等，INTERRUPT + WNOHANG 收 stop + DETACH）、events() 主循环状态机（`waitpid(-1, __WALL)` 分派：syscall stop 相位跟踪、EVENT_CLONE 新线程激活、EVENT_EXEC 补事件+相位重置、group-stop 吞掉、信号转发）、entry 暂存 6 参数 + buf_out exit 读、elapsed 时间戳、`Stracer`/`collect_strace`/`dump_strace`（含 summary 路径，KeyboardInterrupt 优雅 detach）；monkeypatch stub 单测
-- [ ] 5. CLI 接入：`cli.py` 加 strace 子命令（`-e trace=`/`--max-events`/`--summary`/`--color`/`-v`）；`__init__.py` 导出新 API；`test_cli.py` 加 stub 分发测试
-- [ ] 6. 集成测试 + 端到端：`test_integration.py` 加 `TestStrace`（collect 断言 clock_nanosleep/多 tid/elapsed；dump 输出断言；summary 表头断言；AttachFailed → skip；trace 后目标进程仍存活）；`scripts/run_tests.sh integration`；手动端到端（Popen 派生 target_app 取 PID，验证 `strace --max-events 30` 与 `--summary --max-events 200`）
-- [ ] 7. 文档：README（CLI 用法、输出/汇总示例、权限说明）；`docs/design.md` §2/§3/§9/§13 更新 + 末尾新增 §14（锚点不重编号）
