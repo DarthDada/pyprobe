@@ -232,6 +232,38 @@ class TestCollectThread:
         ti = collect_thread(reader, 0, tstate_addr, 100, "", 0)
         assert ti.frames == []
 
+    def test_idle_hint_skips_frame_walk(self):
+        """idle_hint=True: no frame traversal, empty frames + idle=True.
+
+        The reader has no frame memory at all — a full walk would return
+        no frames anyway, but the point is the tstate/cframe fields are
+        never read (pruning happens before any address dereference).
+        """
+        reader = FakeReader()
+        tstate_addr = 0x10000
+        ti = collect_thread(reader, 0, tstate_addr, 100, "w", 0,
+                            idle_hint=True)
+        assert isinstance(ti, ThreadInfo)
+        assert ti.native_tid == 100
+        assert ti.name == "w"
+        assert ti.frames == []
+        assert ti.idle is True
+
+    def test_idle_hint_false_walks_frames(self):
+        """idle_hint=False (default): full walk — original behavior."""
+        reader = FakeReader()
+        tstate_addr = 0x10000
+        cframe_addr = 0x20000
+        frame_addr = 0x30000
+        code_addr = 0x40000
+        reader.add_ptr(tstate_addr + offsets.get("ThreadState.cframe"), cframe_addr)
+        reader.add_ptr(cframe_addr, frame_addr)
+        _make_simple_frame(reader, frame_addr, code_addr, "worker", "w.py",
+                           firstlineno=5, previous=0)
+        ti = collect_thread(reader, 0, tstate_addr, 100, "worker", 0,
+                            idle_hint=False)
+        assert len(ti.frames) == 1
+
 
 class TestFormatProcess:
     def test_basic(self):

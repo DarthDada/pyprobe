@@ -11,7 +11,7 @@ The library API is split into two layers:
 import os
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from .colors import cyan, dim, green, red, yellow_bold
 
@@ -199,3 +199,20 @@ class SyscallEvent:
         if self.elapsed:
             line += f" {dim(f'<{self.elapsed:.6f}>', color)}"
         return line
+
+
+@dataclass
+class ProfileData:
+    """Aggregated sampling result of a ``record`` run.
+
+    ``counts`` maps a folded-stack key (``"<thread>";root;...;leaf``) to
+    the number of samples that observed exactly that stack.  ``samples``
+    counts active (non-idle) thread observations; ``idle_samples`` the
+    ones excluded by idle detection.
+    """
+
+    proc_info: ProcessInfo
+    counts: Dict[str, int] = field(default_factory=dict)
+    samples: int = 0
+    idle_samples: int = 0
+    elapsed: float = 0.0

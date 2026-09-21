@@ -40,23 +40,27 @@ Example
 from .types import (
     FrameInfo, ThreadInfo, ProcessInfo,
     NativeFrame, NativeThreadInfo,
+    SyscallEvent, ProfileData,
 )
 from .errors import (
     PyProbeError, ProcessNotFound, PermissionDenied, SymbolNotFound,
     NoInterpreterState, NoThreadState, VersionNotSupported, AttachFailed,
-    UnsupportedArchitecture,
+    UnsupportedArchitecture, ProcessExited,
 )
 from .stack_dump import (
     collect_python, format_process, dump_python,
-    collect_frames, collect_thread,
+    collect_frames, collect_thread, format_process_json,
 )
 from .native_dump import (
-    collect_native, format_native, dump_native,
+    collect_native, format_native, dump_native, format_native_json,
 )
 from .syscall_trace import (
     collect_syscalls, dump_syscalls, format_summary,
     TraceFilter, SyscallStat,
 )
+from .sampler import Sampler
+from .record import collect_profile, format_folded, dump_record
+from .top import dump_top, TopStats
 from . import offsets
 from . import colors
 
@@ -64,19 +68,26 @@ __all__ = [
     # data types
     "FrameInfo", "ThreadInfo", "ProcessInfo",
     "NativeFrame", "NativeThreadInfo",
-    "SyscallEvent",
+    "SyscallEvent", "ProfileData",
     # exceptions
     "PyProbeError", "ProcessNotFound", "PermissionDenied", "SymbolNotFound",
     "NoInterpreterState", "NoThreadState", "VersionNotSupported", "AttachFailed",
-    "UnsupportedArchitecture",
+    "UnsupportedArchitecture", "ProcessExited",
     # python stack API
     "collect_python", "format_process", "dump_python",
-    "collect_frames", "collect_thread",
+    "collect_frames", "collect_thread", "format_process_json",
     # native stack API
     "collect_native", "format_native", "dump_native",
+    "format_native_json",
     # syscall tracing API
     "collect_syscalls", "dump_syscalls", "format_summary",
     "TraceFilter", "SyscallStat",
+    # sampling engine
+    "Sampler",
+    # profiling API (record)
+    "collect_profile", "format_folded", "dump_record",
+    # live view API (top)
+    "dump_top", "TopStats",
     # submodules
     "offsets",
     "colors",

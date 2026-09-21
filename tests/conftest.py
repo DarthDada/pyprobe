@@ -59,3 +59,35 @@ def target_pid():
         except subprocess.TimeoutExpired:
             child.kill()
             child.wait()
+
+
+@pytest.fixture(scope="session")
+def spin_pid():
+    """Same as ``target_pid`` but runs the CPU-bound variant (spin_app).
+
+    The spin-worker thread stays in a pure-Python busy loop, so sampling
+    (record/top) always has an 'R'-state thread with a ``burn`` frame to
+    observe — the sleep-only target_app cannot guarantee that.
+    """
+    if not _can_read_descendant():
+        pytest.skip("integration tests require Linux process_vm_readv")
+
+    interpreter = os.environ.get("TARGET_PYTHON") or sys.executable
+    target_script = os.path.join(os.path.dirname(__file__), "targets", "spin_app.py")
+    child = subprocess.Popen(
+        [interpreter, target_script],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    try:
+        line = child.stdout.readline()
+        if not line:
+            pytest.skip("spin target process failed to start")
+        pid = int(line.split(":")[-1].strip())
+        time.sleep(0.5)  # let the worker spin up
+        yield pid
+    finally:
+        child.terminate()
+        try:
+            child.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait()

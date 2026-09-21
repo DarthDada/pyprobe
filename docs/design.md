@@ -7,11 +7,12 @@
 
 ## 1. 概述
 
-pyprobe 是 CPython 进程外检查工具，无需 ptrace attach 即可获取运行中 Python 进程的调用栈。提供三种工作模式：
+pyprobe 是 CPython 进程外检查工具，无需 ptrace attach 即可获取运行中 Python 进程的调用栈。提供四种工作模式：
 
 - **Python 栈转储**（默认）— 遍历 `_PyRuntime → interpreter → threads → frames`，输出 py-spy 风格的 Python 调用栈（函数名、文件、行号、qualname）。使用 `process_vm_readv(2)` 读取目标进程内存，**不需要 ptrace attach**。
 - **Native 栈转储**（`--native`）— 通过 elfutils libdwfl 对所有线程进行 DWARF 回溯展开，输出 gdb `thread apply all bt` 风格的原生调用栈。使用 `ptrace(2)` attach 所有线程。
 - **Syscall 追踪**（`syscall` 子命令）— ptrace SEIZE + SYSCALL 实时追踪所有线程的系统调用，输出 strace 风格事件流 / `strace -c` 风格统计（详见 §14）。
+- **采样与性能分析**（`record` / `top` 子命令）— 周期性采样 Python 调用栈：`record` 聚合为 folded stacks（flamegraph.pl / inferno-flamegraph 输入格式），`top` 终端实时刷新各线程当前帧与热点函数排行。共享 `Sampler` 采样引擎（详见 §15），使用 `process_vm_readv(2)`，**不需要 ptrace attach**。
 
 主交付物为**纯 Python 实现**（`pyprobe/` 包，仅依赖标准库 ctypes/struct），另附 C 参考实现用于开发期交叉校验（不对外交付）。
 
@@ -23,18 +24,21 @@ pyprobe 是 CPython 进程外检查工具，无需 ptrace attach 即可获取运
 pyprobe/                  纯 Python 实现（入口 pyprobe.cli:main）
 ├── __init__.py           公共 API 导出（__all__）
 ├── __main__.py           python -m pyprobe 入口
-├── cli.py                argparse CLI（stack / syscall 子命令）
+├── cli.py                argparse CLI（stack / syscall / record / top 子命令）
 ├── memory.py             process_vm_readv 远程内存读取 (ctypes) + 页级 LRU 缓存
 ├── elf.py                ELF64 符号查找 (struct, 零依赖) + PIE load base
 ├── pyobject.py           PyLong / PyUnicode / PyBytes 远程读取
 ├── dict_iter.py          CPython 3.11–3.13 Dict 迭代器（combined/unicode/split/managed）
 ├── linetable.py          PEP 626 行号表解析（addr2line）
 ├── thread_names.py       threading._active 线程名查找
-├── stack_dump.py         Python 栈转储主逻辑（collect/format/dump 三层）
-├── native_dump.py        Native 栈转储 (ctypes + libdwfl，惰性加载)
+├── stack_dump.py         Python 栈转储主逻辑（collect/format/dump 三层 + JSON 格式化）
+├── native_dump.py        Native 栈转储 (ctypes + libdwfl，惰性加载 + JSON 格式化)
+├── sampler.py            采样引擎（Sampler：一次性解析 + sample() 热路径，§15）
+├── record.py             record 子命令（collect_profile → format_folded → dump_record，§15）
+├── top.py                 top 子命令（TopStats 聚合 + 终端刷新，§15）
 ├── syscall_trace.py      系统调用追踪（ptrace 引擎 + 纯函数解码 + summary）
 ├── syscall_table.py      x86-64 syscall 号→名表 + 参数解码元数据 + flag 常量
-├── types.py              结构化数据类型（FrameInfo/ThreadInfo/ProcessInfo/.../SyscallEvent）
+├── types.py              结构化数据类型（FrameInfo/ThreadInfo/ProcessInfo/.../ProfileData/SyscallEvent）
 ├── errors.py             异常层级（PyProbeError 基类 + 子类）
 ├── colors.py             ANSI 颜色帮助 + clicolors 检测（零依赖）
 ├── offsets.py            CPython 结构体偏移量（多版本验证表，单一数据源）
@@ -48,9 +52,10 @@ examples/                 示例目标进程（fastapi_app.py）
 scripts/                  辅助脚本（build.sh, build_wheels.sh, gen_offsets.sh, run_tests.sh）
 
 tests/                    测试
-├── conftest.py           target_pid session fixture（派生子进程作为探测目标）
+├── conftest.py           target_pid / spin_pid session fixture（派生子进程作为探测目标）
 ├── helpers.py            FakeReader + CPython 对象内存构造器
 ├── targets/target_app.py 集成测试目标进程（主线程 + bg-worker 线程）
+├── targets/spin_app.py   集成测试目标进程（主线程 sleep + spin-worker 纯 Python 忙循环）
 └── test_*.py             单元测试 + test_integration.py（端到端）
 ```
 
@@ -65,12 +70,19 @@ tests/                    测试
 | 采集 | `collect_python(pid)` | 纯数据采集 | `(ProcessInfo, list[ThreadInfo])`，抛 `PyProbeError` 子类 |
 | 采集 | `collect_native(pid)` | ptrace attach + DWARF unwind | `list[NativeThreadInfo]`，抛 `AttachFailed` |
 | 采集 | `collect_syscalls(pid, *, trace, max_events, verbose)` | ptrace SEIZE + SYSCALL 全线程追踪 | `list[SyscallEvent]`，抛 `AttachFailed` / `ProcessNotFound` / `UnsupportedArchitecture` |
+| 采集 | `collect_profile(pid, *, rate=50, duration=None)` | 采样循环聚合 folded counts | `ProfileData`，KeyboardInterrupt / `ProcessExited` 返回部分数据（§15） |
+| 引擎 | `Sampler(pid)` | 一次性解析 + 周期采样（§15） | `sample() → list[ThreadInfo]`，`refresh_names()` 刷新线程名 |
 | 格式化 | `format_process(proc_info, threads, *, color=False, verbose=False)` | 结构化数据 → CLI 风格字符串 | `str`（`color=True` 时含 ANSI 码） |
 | 格式化 | `format_native(cmdline, threads, *, color=False, verbose=False)` | 同上（native） | `str` |
 | 格式化 | `format_summary(events, *, color=False)` | 事件列表 → strace -c 风格统计表 | `str` |
-| CLI 封装 | `dump_python(pid, color=None, verbose=False)` | collect + format + print | 退出码 `int`，异常转 stderr |
-| CLI 封装 | `dump_native(pid, color=None, verbose=False)` | 同上（native） | 退出码 `int` |
+| 格式化 | `format_folded(profile)` | ProfileData → folded stacks 纯文本 | `str`（count 降序 + 字典序） |
+| 格式化 | `format_process_json(proc_info, threads)` | Python 栈 → JSON（§15.5） | `str`（可 `json.loads`） |
+| 格式化 | `format_native_json(pid, cmdline, threads)` | native 栈 → JSON（§15.5） | `str`（可 `json.loads`） |
+| CLI 封装 | `dump_python(pid, color=None, verbose=False, json_output=False)` | collect + format + print | 退出码 `int`，异常转 stderr |
+| CLI 封装 | `dump_native(pid, color=None, verbose=False, json_output=False)` | 同上（native） | 退出码 `int` |
 | CLI 封装 | `dump_syscalls(pid, *, color, verbose, trace, max_events, summary)` | collect + 流式打印或 summary | 退出码 `int`，KeyboardInterrupt 优雅 detach |
+| CLI 封装 | `dump_record(pid, *, rate=50, duration=None, output=None, color=None)` | collect_profile + format_folded 输出 | 退出码 `int`；folded → stdout/`-o` 文件，进度/摘要 → stderr |
+| CLI 封装 | `dump_top(pid, *, rate=50, interval=1.0, color=None)` | 持续采样 + 终端刷新 | 退出码 `int`（非 tty → 2）；Ctrl-C/目标退出 → 0 |
 
 设计要点：
 - `collect_*` **不打印**，返回结构化 dataclass，调用方可程序化使用（序列化、后处理）。
@@ -89,6 +101,7 @@ ProcessInfo(pid, cmdline, exe_path, python_version)    # 进程元数据
 NativeFrame(pc, symbol, module)              # 单个 native 栈帧
 NativeThreadInfo(tid, comm, frames, unwind_failed)    # native 线程 + 帧列表
 SyscallEvent(tid, nr, name, args, rendered, ret, error, elapsed)  # 单次系统调用观测
+ProfileData(proc_info, counts, samples, idle_samples, elapsed)    # record 聚合结果（§15.4）
 ```
 
 每个 dataclass 自带 `format()` / `format_header()` 方法，`format_*` 函数组合调用它们生成输出。
@@ -106,6 +119,7 @@ PyProbeError                      基类（库调用方可统一 catch）
 ├── NoThreadState                 无法读取 thread state 链
 ├── VersionNotSupported           CPython 版本未验证（带 fallback 版本信息）
 ├── AttachFailed                  ptrace attach 失败（native 模式）
+├── ProcessExited                 采样循环中目标进程退出（§15）
 └── UnsupportedArchitecture       架构不支持（syscall 追踪仅 x86-64）
 ```
 
@@ -392,15 +406,20 @@ else:
 - 对象构造器：`build_pyunicode` / `build_pybytes` / `build_pylong` / `build_code_object` / `build_frame` — 按配置偏移量写入字节。
 - `FakeRemoteReader`：子类化真实 `RemoteReader`，stub `_read_syscall` 提供罐头页数据，测试真实页缓存逻辑（LRU 淘汰、跨页、旁路）。
 
-覆盖模块：offsets（版本键/configure/get/fallback）、types（格式化 + `color=True` 精确 ANSI 断言）、errors（异常层级）、colors（帮助函数恒等性/包裹 + `should_color` 环境矩阵）、linetable（PEP 626 全 code 类型）、pyobject（PyLong/PyBytes/PyUnicode 各变体）、dict_iter（combined/unicode/split/managed）、memory（页缓存）、elf（decode_py_version/read_cmdline/find_symbol/read_const 真实 ELF）、stack_dump（collect_frames/`_is_thread_idle`/collect_thread/format_process/错误路径/dump CLI 颜色）、cli（参数解析/分发/`--color` 传递）、syscall_table（号↔名表抽查/flag 解码）、syscall_trace（字符串转义截断/`_read_cstr`/`_read_timespec`/`_decode_args`/`_fill_out_args`/`TraceFilter`/`format_summary` 纯函数 FakeReader 注入；attach/detach/主循环 monkeypatch stub）。
+覆盖模块：offsets（版本键/configure/get/fallback）、types（格式化 + `color=True` 精确 ANSI 断言）、errors（异常层级）、colors（帮助函数恒等性/包裹 + `should_color` 环境矩阵）、linetable（PEP 626 全 code 类型）、pyobject（PyLong/PyBytes/PyUnicode 各变体）、dict_iter（combined/unicode/split/managed）、memory（页缓存）、elf（decode_py_version/read_cmdline/find_symbol/read_const 真实 ELF）、stack_dump（collect_frames/`_is_thread_idle`/collect_thread idle_hint/format_process/错误路径/dump CLI 颜色/JSON 输出）、cli（参数解析/分发/`--color` 传递/record/top/`--json` 分发）、syscall_table（号↔名表抽查/flag 解码）、syscall_trace（字符串转义截断/`_read_cstr`/`_read_timespec`/`_decode_args`/`_fill_out_args`/`TraceFilter`/`format_summary` 纯函数 FakeReader 注入；attach/detach/主循环 monkeypatch stub）、sampler（FakeReader + monkeypatch 注入：init 解析/错误路径/未验证版本告警恰好一条/sample 返回 ThreadInfo 列表/idle 剪枝/每 sample 新建 reader/ProcessExited/sample 不刷新 names/refresh_names 生效/sample 不再触碰 offsets.configure）、record（fold_key root-first 守护/线程前缀/排序/stub Sampler 的 collect_profile 计数与部分数据/绝对调度/dump stdout-stderr 分流）、top（own/total 语义/idle 排除/当前帧跟踪/render 布局与 color=False 无 ANSI/非 tty rc 2）、api_exports（`__all__` 每个名字可从 `pyprobe` 命名空间解析 + `import *` 冒烟）。
 
 ### 13.2 集成测试（`@pytest.mark.integration`）
 
-端到端验证 `collect_python` / `format_process` / `dump_python` / `collect_native` / `collect_syscalls`。
+端到端验证 `collect_python` / `format_process` / `dump_python` / `collect_native` / `collect_syscalls` / `Sampler` / `collect_profile` / `dump_record` / JSON 输出。
 
 - `target_pid` session fixture（`conftest.py`）：`subprocess.Popen` 派生 `tests/targets/target_app.py`（主线程 + bg-worker 线程），通过 stdout 获取真实 PID。子进程是 pytest 后代，`process_vm_readv` 在 `ptrace_scope=1` 默认下可用。目标解释器默认为 `sys.executable`，可经 `TARGET_PYTHON` 环境变量指定其他版本（如 3.11/3.13）做跨版本端到端验证。
+- `spin_pid` session fixture：同模式派生 `tests/targets/spin_app.py`（主线程 sleep + `spin-worker` 纯 Python 忙循环）——采样测试必须命中已知 `burn` 帧，sleep 目标会被 idle 剪枝排除。
 - 非 Linux 自动 skip；Native dump 与 syscall 追踪在 ptrace 权限不足时自动 skip（`AttachFailed`）。
 - Syscall（`TestSyscall`）：collect 断言 `clock_nanosleep` 事件 + 多 tid + elapsed > 0；dump 输出流式断言；`--summary` 表头断言；trace 后目标进程仍存活（干净 detach 验证）。
+- 采样引擎（`TestSampler`）：spin_pid 上 `sample()` 返回 ≥2 线程、连续采样稳定、`burn` 帧命中；临时 Popen + terminate 后 `sample()` 抛 `ProcessExited`。
+- record（`TestRecord`）：`collect_profile` 计数 > 0、folded 行格式正则、`"spin-worker"` 前缀键、`dump_record` 写文件 rc 0、stdout/stderr 分流；target_pid（sleep 目标）上活跃样本远小于总数（idle 排除宽松断言）。
+- TopStats 实测：spin_pid 采样 5 次 render 含 `spin-worker` / `burn`。
+- JSON 输出（`TestJsonOutputLive`）：`dump_python(spin_pid, json_output=True)` 可 `json.loads`、线程 ≥2、与 `collect_python` 交叉验证帧数。
 
 ### 13.3 手动探测约束
 
@@ -452,4 +471,75 @@ else:
 - x86-64 返回值错误判定用无符号比较（`ret > 0xFFFFFFFF00000000`）后再转有符号。
 - clone 事件里新线程 tid 需从 `waitid`/事件数据取，此处依赖随后 SIGSTOP delivery-stop 的 wpid（`tid not in self.tids` 分支）。
 - `waitpid` 可能被信号打断（`InterruptedError`），循环内 continue 重试；`KeyboardInterrupt` 时 `dump_syscalls` 仍 detach 并打印已收集 summary。
+
+---
+
+## 15. 采样引擎架构（sampler.py / record.py / top.py）
+
+`pyprobe record -p <pid>` 周期采样聚合为 folded stacks；`pyprobe top -p <pid>` 持续采样 + 终端实时刷新。两者共享 `Sampler` 引擎，使用 `process_vm_readv(2)`，**不需要 ptrace attach**（权限同 §9.1 Python 栈模式）。
+
+### 15.1 Sampler（sampler.py）
+
+`stack_dump.collect_python` 每次调用重复做进程生命周期内不变的工作：ELF 符号扫描 ×2（`_PyRuntime` + `Py_Version`）、`offsets.configure`（未验证版本每次刷 stderr 告警）、`RemoteReader` 重建。`Sampler` 把这些移入 `__init__` 一次性完成：
+
+- `__init__(pid, *, reader_factory=RemoteReader)` 解析（进程存活期内不变）：exe 路径、`_PyRuntime` 地址、CPython 版本 + `offsets.configure`（**仅此一次**，未验证版本告警至多一条）、main interpreter 地址（main → head 回退）、trampoline 地址（仅 3.12，`get_or` 缺省 0）、`ProcessInfo`（cmdline）、线程名 map（`get_thread_names`）。错误路径对齐 `collect_python`：`ProcessNotFound` / `SymbolNotFound` / `NoInterpreterState`。
+- `sample() → list[ThreadInfo]` 热路径：
+  1. **每样本新建 reader**（`reader_factory`）：页缓存是单次调用快照语义（§4.2），跨样本复用会读到陈旧内存；
+  2. `_read_thread_chain` 读线程链（`NoThreadState` → 转换抛 `ProcessExited`：采样循环中目标死亡）；
+  3. 逐线程 `/proc/<pid>/task/<tid>/stat` 状态非 `R` → `collect_thread(idle_hint=True)` 剪枝（跳过帧遍历，返回空帧 `ThreadInfo(idle=True)`），否则完整 `collect_thread`；
+  4. 按 `native_tid` 排序（输出确定性）。
+- `refresh_names()`：重读线程名 map。**线程名策略分叉**：`record` 全程不调（名字是 folded 聚合键的一部分，录制期间必须稳定）；`top` 每显示周期调一次（新线程的名字尽快上屏，采样热路径不付此成本）。
+- `reader_factory` 是测试注入点（FakeReader / 计数 stub），生产用 `RemoteReader`。
+
+### 15.2 调度（collect_profile，record.py）
+
+**绝对时间调度防漂移**：`next_t += interval` 而非 `next_t = now + interval`——后者每次采样耗时都会累积成频率下偏。单次采样超时落后过多时**重置基线**（`next_t = now`）防追赶风暴（不会连发补帧）。
+
+`KeyboardInterrupt` / `ProcessExited` 捕获后返回**部分数据**（Ctrl-C 或目标退出时已采集的样本不丢）；目标 init 错误仍抛 `PyProbeError` 子类。
+
+### 15.3 top 渲染（top.py）
+
+**单线程交织循环**：采样按 `rate` 累积进 `TopStats`，显示按 `interval` 渲染（首屏立即渲染）。不用采样线程——GIL 与"KeyboardInterrupt 只达主线程"的复杂度大于收益，渲染几毫秒的开销由绝对时间调度吸收。
+
+- `TopStats.update(threads)`：活跃线程 `own[顶帧名] += 1`（叶子帧即该函数自身消耗）、栈内每帧 `total += 1`（含被调用开销）、记录每线程最近活跃顶帧（CURRENT 列）；idle 线程不计入统计仅记录 tid。
+- `render(proc_info, *, elapsed, color=False, top_n=15)`：进程头 + Elapsed/样本数 + Active threads 表（TID / OWN% / CURRENT）+ Idle threads 行 + Top functions 表（OWN% / TOTAL% / TIME / FUNCTION）。颜色沿用 §3.3 语义（tid 黄、函数名绿、文件名青、百分比/时间 dim）；`color=False` 无 ANSI（不变式 I1）。
+- **终端处理**：进入时 `\x1b[?25l` 隐藏光标，每次渲染 `\x1b[H\x1b[2J` 清屏整屏重写，`finally` 恢复 `\x1b[?25h`（异常退出不留坏终端）。
+- **非 tty → rc 2 报错**（stderr 提示改用 `record`）：实时视图没有有意义的非交互降级，不静默降级。
+- Ctrl-C / `ProcessExited`：干净退出 + stderr 摘要，rc 0。
+
+### 15.4 folded stacks 格式（record.py）
+
+```
+"spin-worker";burn 87
+MainThread;main;loop 42
+```
+
+- 每行 `<帧0>;<帧1>;... <count>`，帧序 **root → leaf**（`frames` 是 leaf → root，需 reverse）。
+- 线程前缀帧：`"<name>"`（record 生命周期内固定初始快照）或 `tid-<native_tid>`（无名线程）。
+- 帧名 = `FrameInfo.name` 纯函数名（`None → ?`），不含文件/行号。
+- 排序 count 降序 + 字典序（确定性）；无活跃样本 → 空输出（合法）。
+- 输出可直接管道给 flamegraph.pl / inferno-flamegraph；`dump_record` 的 stdout 纯 folded，进度/摘要走 stderr（管道安全），`-o` 写文件。
+
+`ProfileData(proc_info, counts, samples, idle_samples, elapsed)` 携带聚合结果（`counts`: folded key → 样本数；`samples`/`idle_samples`: 活跃/被剪枝样本数）。
+
+### 15.5 JSON 输出（--json）
+
+`stack` 子命令 `--json` flag（`--native --json` 组合支持）。`format_process_json(proc_info, threads)` / `format_native_json(pid, cmdline, threads)`：`dataclasses.asdict` + `json.dumps(indent=2, ensure_ascii=False)`。
+
+决策：
+- JSON **无色**（颜色只在 format 文本层；`json_output=True` 忽略 `color`）。
+- 数据字段始终完整路径（§3.1 契约），JSON 天然全路径——`-v` 与 JSON 无关。
+- `None` 字段 → JSON `null`（`asdict` 自然保留）。
+- 错误路径不变：异常走 stderr 文本 + rc 1（对齐现有 `dump_*` 模式）。
+
+### 15.6 守护测试（防退化）
+
+- 未验证版本 stderr 告警**恰好一条**（configure 移出循环）。
+- 每 `sample()` 新建 reader（factory 计数）。
+- `sample()` 不触碰 `offsets.configure`（计数）。
+- `sample()` 不刷新线程名（计数）；`refresh_names()` 生效。
+- fold_key root-first（reverse 守护）。
+- 绝对调度：`next_t += interval` 而非相对 now（monkeypatch time 守护）。
+- `color=False` 渲染无 ANSI（不变式 I1）。
+- JSON 可 `json.loads` + 与 `collect_python` 交叉验证。
 

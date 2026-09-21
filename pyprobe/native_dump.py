@@ -9,8 +9,10 @@ Layered design (issue #8):
 """
 
 import ctypes
+import json
 import os
 import sys
+from dataclasses import asdict
 from typing import Optional
 
 from .colors import red, should_color, yellow_bold
@@ -255,18 +257,35 @@ def format_native(cmdline, threads, *, color: bool = False,
     return "\n".join(parts)
 
 
-def dump_native(pid, color: Optional[bool] = None, verbose: bool = False):
+def format_native_json(pid, cmdline, threads) -> str:
+    """Render collected native stacks as JSON (machine-readable output).
+
+    The native path has no CPython version/exe metadata (those are Python
+    stack concepts) — the process object carries pid and cmdline only.
+    """
+    return json.dumps(
+        {
+            "process": {"pid": pid, "cmdline": cmdline},
+            "threads": [asdict(t) for t in threads],
+        },
+        indent=2, ensure_ascii=False) + "\n"
+
+
+def dump_native(pid, color: Optional[bool] = None, verbose: bool = False,
+                json_output: bool = False):
     """CLI entry point: collect + format + print. Returns exit code.
 
     ``color``: None (default) auto-detect per stream via clicolors rules;
-    True/False force color on/off for both stdout and stderr.
+    True/False force color on/off for both stdout and stderr (ignored
+    when ``json_output`` is set — JSON is never colored).
     ``verbose``: keep full frame module paths instead of basenames.
     """
     use_color = should_color(sys.stdout) if color is None else color
     err_color = should_color(sys.stderr) if color is None else color
     _init_libs()
     cmdline = read_cmdline(pid) or ""
-    print(f"Process {yellow_bold(str(pid), use_color)}: {cmdline}\n")
+    if not json_output:
+        print(f"Process {yellow_bold(str(pid), use_color)}: {cmdline}\n")
 
     try:
         threads = collect_native(pid)
@@ -274,5 +293,9 @@ def dump_native(pid, color: Optional[bool] = None, verbose: bool = False):
         print(red(f"[!] {e}", err_color), file=sys.stderr)
         return 1
 
-    print(format_native(cmdline, threads, color=use_color, verbose=verbose))
+    if json_output:
+        print(format_native_json(pid, cmdline, threads))
+    else:
+        print(format_native(cmdline, threads, color=use_color,
+                            verbose=verbose))
     return 0

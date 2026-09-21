@@ -16,6 +16,7 @@ mock ``RemoteReader``.
 
 import os
 import sys
+from dataclasses import asdict
 from typing import Optional
 
 from .memory import RemoteReader, PTR_SIZE, MAX_STR_LEN
@@ -162,8 +163,22 @@ def _is_thread_idle(pid, native_tid, frames):
     return _is_thread_idle_by_stat(pid, native_tid) or _is_thread_idle_by_frames(frames)
 
 
-def collect_thread(reader, pid, tstate_addr, native_tid, name, trampoline_addr):
-    """Build a ThreadInfo from a remote tstate address (no printing)."""
+def collect_thread(reader, pid, tstate_addr, native_tid, name, trampoline_addr,
+                   idle_hint=False):
+    """Build a ThreadInfo from a remote tstate address (no printing).
+
+    ``idle_hint=True`` skips the frame walk entirely and returns an idle
+    ThreadInfo with empty frames — the pruning entry point for samplers
+    that already know the thread is idle (e.g. via /proc stat state).
+    """
+    if idle_hint:
+        return ThreadInfo(
+            native_tid=native_tid,
+            name=name,
+            frames=[],
+            idle=True,
+        )
+
     # 3.13 removed the cframe indirection: current_frame is a direct field.
     current_frame = 0
     cf_direct = offsets.get_or("ThreadState.current_frame")
@@ -315,11 +330,25 @@ def format_process(proc_info, threads, *, color: bool = False,
     return "\n".join(parts)
 
 
-def dump_python(pid, color: Optional[bool] = None, verbose: bool = False):
+def format_process_json(proc_info, threads) -> str:
+    """Render collected data as JSON (machine-readable output for --json).
+
+    Data fields always hold full paths (shortening is a display-layer
+    concern of ``format_process``), and JSON output is never colored.
+    """
+    import json
+    return json.dumps(
+        {"process": asdict(proc_info), "threads": [asdict(t) for t in threads]},
+        indent=2, ensure_ascii=False) + "\n"
+
+
+def dump_python(pid, color: Optional[bool] = None, verbose: bool = False,
+                json_output: bool = False):
     """CLI entry point: collect + format + print. Returns exit code.
 
     ``color``: None (default) auto-detect per stream via clicolors rules;
-    True/False force color on/off for both stdout and stderr.
+    True/False force color on/off for both stdout and stderr (ignored
+    when ``json_output`` is set — JSON is never colored).
     ``verbose``: keep full frame filename paths instead of shortened ones.
     """
     use_color = should_color(sys.stdout) if color is None else color
@@ -331,5 +360,9 @@ def dump_python(pid, color: Optional[bool] = None, verbose: bool = False):
         print(red(f"[!] {e}", err_color), file=sys.stderr)
         return 1
 
-    print(format_process(proc_info, threads, color=use_color, verbose=verbose))
+    if json_output:
+        print(format_process_json(proc_info, threads))
+    else:
+        print(format_process(proc_info, threads, color=use_color,
+                             verbose=verbose))
     return 0

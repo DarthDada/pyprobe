@@ -5,12 +5,14 @@ import pytest
 from pyprobe.errors import (
     PyProbeError, ProcessNotFound, PermissionDenied, SymbolNotFound,
     NoInterpreterState, NoThreadState, VersionNotSupported, AttachFailed,
+    ProcessExited,
 )
 
 
 SUBCLASSES = [
     ProcessNotFound, PermissionDenied, SymbolNotFound,
     NoInterpreterState, NoThreadState, VersionNotSupported, AttachFailed,
+    ProcessExited,
 ]
 
 
@@ -59,6 +61,12 @@ def test_attach_failed_attributes():
     e = AttachFailed(789, "no such process")
     assert e.pid == 789
     assert "789" in str(e)
+
+
+def test_process_exited_attributes():
+    e = ProcessExited(321)
+    assert e.pid == 321
+    assert "321" in str(e)
 
 
 def test_can_catch_all_as_base():

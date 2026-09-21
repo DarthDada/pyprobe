@@ -91,3 +91,11 @@ class UnsupportedArchitecture(PyProbeError):
         self.feature = feature
         self.arch = arch
         self.supported = supported
+
+
+class ProcessExited(PyProbeError):
+    """Target process exited while pyprobe was sampling it."""
+
+    def __init__(self, pid: int):
+        super().__init__(f"Process {pid} exited during sampling")
+        self.pid = pid

@@ -253,3 +253,133 @@ class TestSyscall:
         from pyprobe import collect_syscalls, PyProbeError
         with pytest.raises(PyProbeError):
             collect_syscalls(999999, max_events=1)
+
+
+class TestSampler:
+    """Sampling engine against the CPU-bound spin target."""
+
+    def test_sample_returns_threads(self, spin_pid):
+        from pyprobe import Sampler
+        threads = Sampler(spin_pid).sample()
+        assert len(threads) >= 2  # MainThread + spin-worker
+        assert all(isinstance(t, ThreadInfo) for t in threads)
+        names = {t.name for t in threads}
+        assert "spin-worker" in names
+
+    def test_consecutive_samples_independent(self, spin_pid):
+        from pyprobe import Sampler
+        s = Sampler(spin_pid)
+        first = s.sample()
+        second = s.sample()  # fresh reader per sample
+        assert {t.native_tid for t in first} == {t.native_tid for t in second}
+
+    def test_spin_worker_active_with_burn_frame(self, spin_pid):
+        from pyprobe import Sampler
+        threads = Sampler(spin_pid).sample()
+        spin = [t for t in threads if t.name == "spin-worker"]
+        assert spin and not spin[0].idle
+        assert any(f.name == "burn" for f in spin[0].frames)
+
+    def test_process_exited(self):
+        import subprocess
+        import time as _time
+        from tests.conftest import _can_read_descendant
+        if not _can_read_descendant():
+            pytest.skip("integration tests require Linux process_vm_readv")
+        from pyprobe import Sampler, ProcessExited
+        script = os.path.join(os.path.dirname(__file__), "targets",
+                              "spin_app.py")
+        child = subprocess.Popen([sys.executable, script],
+                                 stdout=subprocess.PIPE, text=True)
+        try:
+            line = child.stdout.readline()
+            pid = int(line.split(":")[-1].strip())
+            _time.sleep(0.3)
+            s = Sampler(pid)
+            s.sample()  # alive → works
+        finally:
+            child.terminate()
+            child.wait(timeout=5)
+        with pytest.raises(ProcessExited):
+            s.sample()  # memory gone after exit
+
+
+class TestRecord:
+    """record (folded profiling) against the spin target."""
+
+    def test_collect_profile_counts(self, spin_pid):
+        from pyprobe import collect_profile
+        p = collect_profile(spin_pid, rate=20, duration=1.0)
+        assert p.samples > 0
+        assert any(key.startswith('"spin-worker";') for key in p.counts)
+        assert p.elapsed >= 1.0
+
+    def test_folded_output_format(self, spin_pid):
+        from pyprobe import collect_profile, format_folded
+        p = collect_profile(spin_pid, rate=20, duration=1.0)
+        text = format_folded(p)
+        assert text
+        for line in text.strip().splitlines():
+            # "<thread>";<root>;...;<leaf> <count>
+            assert " " in line
+            key, count = line.rsplit(" ", 1)
+            assert count.isdigit()
+            assert ";" in key
+
+    def test_dump_record_to_file(self, spin_pid, tmp_path):
+        from pyprobe import dump_record
+        path = tmp_path / "profile.folded"
+        rc = dump_record(spin_pid, rate=20, duration=0.5,
+                         output=str(path), color=False)
+        assert rc == 0
+        content = path.read_text()
+        assert '"spin-worker";' in content
+
+    def test_dump_record_stdout_streams(self, spin_pid, capsys):
+        from pyprobe import dump_record
+        rc = dump_record(spin_pid, rate=20, duration=0.5, color=False)
+        assert rc == 0
+        out, err = capsys.readouterr()
+        assert out  # folded on stdout
+        assert "[i]" in err  # summary on stderr
+
+    def test_idle_threads_excluded_from_sleep_target(self, target_pid):
+        """target_app's threads are sleep loops → mostly/fully idle."""
+        from pyprobe import collect_profile
+        p = collect_profile(target_pid, rate=20, duration=0.5)
+        assert p.idle_samples > 0  # both threads sleep → idle dominates
+
+
+class TestTopStatsLive:
+    def test_render_contains_spin_worker(self, spin_pid):
+        from pyprobe import Sampler, TopStats
+        s = Sampler(spin_pid)
+        stats = TopStats()
+        for _ in range(5):
+            stats.update(s.sample())
+        out = stats.render(s.proc_info, elapsed=0.25, color=False)
+        assert "spin-worker" in out
+        assert "burn" in out
+        assert "Top functions" in out
+
+
+class TestJsonOutputLive:
+    def test_dump_python_json(self, spin_pid, capsys):
+        import json
+        from pyprobe import dump_python
+        rc = dump_python(spin_pid, color=False, json_output=True)
+        assert rc == 0
+        data = json.loads(capsys.readouterr().out)
+        assert data["process"]["pid"] == spin_pid
+        assert len(data["threads"]) >= 2
+
+    def test_json_cross_check_with_collect(self, spin_pid, capsys):
+        import json
+        from pyprobe import dump_python
+        rc = dump_python(spin_pid, color=False, json_output=True)
+        assert rc == 0
+        data = json.loads(capsys.readouterr().out)
+        _, threads = collect_python(spin_pid)
+        # same thread set, same frame counts
+        assert [t["native_tid"] for t in data["threads"]] == \
+            [t.native_tid for t in threads]
