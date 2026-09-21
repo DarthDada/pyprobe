@@ -9,6 +9,7 @@
 5. [syscall 对齐 strace](#5-syscall-对齐-strace)
 6. [深度检查与差异化](#6-深度检查与差异化)
 7. [工程基础设施](#7-工程基础设施)
+8. [代码模块化与解耦](#8-代码模块化与解耦)
 
 > **全局优先级**：功能（§1–§6）与基础设施（§7）两轨并行。上轮 P0（record/top + `--json`）已交付；当前 P0 = CPython 3.14（§3.2，时间敏感，以 §3.1 参数化为前置）+ §7 的 P0/P1（为 3.14 TDD 接入及后续开发提供快速反馈）；P1 = §2 剩余项（info / 按名称匹配 / syscall `--json`，低成本）；其余按章节内次序推进，§4 P0（生产环境可加载）作为已发布功能的健壮性问题可随需插入。
 
@@ -97,3 +98,25 @@
 - [ ] 9. 变异测试（mutmut）：解析二进制内存布局的代码测试"看似覆盖但抓不住错位偏移"风险高，用变异测试验证测试有效性
 - [ ] 10. 引入 lint/typecheck（当前 AGENTS.md 明确"无"）：重构安全网 = 测试 + 静态检查，二者缺一
 - [ ] 11. 属性测试（hypothesis）：`linetable` / `dict_iter` / `pyobject` 解析器代码的典型受益者
+
+## 8. 代码模块化与解耦
+
+> 2026-09 依赖审计结论：20 模块依赖图为干净 DAG（无循环），collect/format/dump 三层分离整体健康；问题集中在局部——初始化逻辑复制、跨模块私有访问、全局可变状态、少数模块职责发散。以下按收益/成本排序；P1/P2 建议在 §7.8 golden file 与 §7.10 lint 就绪后实施（重构安全网）；涉及模块增删或 API 转正时同步 design.md §2 与 `__init__.py` `__all__`。
+
+### P1 — 消除重复与跨模块私有访问（收益最大）
+
+- [ ] 1. 提取共享进程初始化：`stack_dump.collect_python`（stack_dump.py:253-304）与 `Sampler.__init__`（sampler.py:52-97）约 40 行逐字重复（exe readlink → find_symbol → read_const → offsets.configure → interp_addr 解析（main→head 回退）→ trampoline → get_thread_names），且复制后已**行为漂移**——目标版本无法判定时 stack 路径打 stderr 警告（stack_dump.py:271-274）而 record/top 路径静默回退（sampler.py:66-69）。提取 `ProcessSession` / `resolve_process(pid)` 共用，`collect_python` 可实现为一次性 Sampler + 单次 sample；版本告警策略随提取统一（与第 5 条联动）
+- [ ] 2. 转正事实公开 API：`sampler.py:26-28` 跨模块 import `stack_dump` 的 `_read_thread_chain` / `_is_thread_idle_by_stat`（采样热路径核心步骤）；`sampler.py:69` / `stack_dump.py:270` 跨模块读 `offsets._DEFAULT_VERSION`；tests/test_sampler.py:195 monkeypatch 的是 sampler 命名空间的再导出副本，补丁语义脆弱。去下划线转正并纳入公共 API 面
+
+### P2 — 模块边界清理（机械操作，低风险）
+
+- [ ] 3. 拆分 `syscall_trace.py`（682 行三合一：字符串渲染助手 + ptrace 引擎 + 公共 API）：syscall_trace.py:338-345 文件中部 import 是两文件拼接痕迹，syscall_trace.py:452 函数内延迟 import `memory`（两者间无循环依赖，延迟无必要）。拆为 `syscall_render.py`（纯函数，reader 注入）与 `syscall_tracer.py`（SyscallTracer 引擎），import 统一上移至文件头
+- [ ] 4. 幽灵 import 清理：elf.py:7 / dict_iter.py:5 / pyobject.py:5 / thread_names.py:3 的 `RemoteReader`、stack_dump.py:22 的 `MAX_STR_LEN` 均未使用，在依赖图上制造虚假边
+- [ ] 5. 死异常与库层打印收敛：`PermissionDenied` / `VersionNotSupported` 已定义并导出但全库无 raise 点；offsets.py:197-201（configure 内）与 stack_dump.py:271-274（collect 层）直接 print stderr，违反 collect 层"不打印"契约（stack_dump.py:5-7 docstring 自述）。要么用起来（未验证版本改 raise 或 collect 层返回告警、由 dump 层统一输出），要么删除
+- [ ] 6. `elf.py` 职责收敛：`read_cmdline`（elf.py:156）/ `decode_py_version`（elf.py:165）与 ELF 解析无关，导致 stack_dump / sampler / native_dump 为读 cmdline 依赖"ELF 模块"；移入独立 proc 元数据模块
+- [ ] 7. `cli.py:24` `from . import __version__` 反向依赖包根，import `pyprobe.cli` 即触发 `__init__.py` 全量加载；版本号下沉独立模块或改 `importlib.metadata`
+
+### P3 — 高成本重构（独立 PR，需安全网护航）
+
+- [ ] 8. `offsets` 去 global 化：`_active` 模块级可变单例（offsets.py:177），`get()` 未 configure 时隐式触发 configure（offsets.py:214-217，读路径带副作用）；71 处调用分布于 6 模块（stack_dump 30 / thread_names 12 / pyobject 11 / dict_iter 10 / sampler 7 / linetable 1）。改为 per-session 偏移量表对象随 reader/session 传递后：可同时探测不同 CPython 版本的进程、消除 tests/test_offsets.py:47 的手工复位。改动面大（59 处 `get`），以 §7.10 lint + §7.1 覆盖率基线为前置
+- [ ] 9. `types.py` 数据层依赖 `colors` 表现层（types.py:16）：5 个 dataclass 的 `format()` 内嵌 ANSI 着色，与模块 docstring"plain data objects"定位冲突。实际影响小（JSON/`asdict` 路径已绕开），可选：format 方法移表现层，或收窄 docstring 接受现状
