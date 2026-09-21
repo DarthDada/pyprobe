@@ -15,13 +15,26 @@ analyses the thread call stacks of a target CPython process; the
 
 import argparse
 import sys
+from importlib.metadata import version as _pkg_version
 
 from .stack_dump import dump_python
 from .native_dump import dump_native
-from .syscall_trace import dump_syscalls
+from .syscall_tracer import dump_syscalls
 from .record import dump_record
 from .top import dump_top
-from . import __version__
+
+
+def _version() -> str:
+    """Return the installed package version (single source: pyproject.toml).
+
+    Resolved lazily via ``importlib.metadata`` so ``pyprobe.cli`` no longer
+    depends on ``pyprobe.__init__`` for the version string — importing the
+    CLI module does not force the package-root ``__version__`` attribute.
+    """
+    try:
+        return _pkg_version("pyprobe")
+    except Exception:
+        return "0.0.0+unknown"
 
 
 def _positive_float(lo, hi, what):
@@ -45,7 +58,7 @@ def build_parser():
         description="CPython out-of-process stack inspection tool.",
     )
     parser.add_argument(
-        "--version", action="version", version=f"pyprobe {__version__}")
+        "--version", action="version", version=f"pyprobe {_version()}")
     subparsers = parser.add_subparsers(
         dest="command", required=True, metavar="<command>")
 

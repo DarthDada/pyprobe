@@ -102,21 +102,23 @@
 ## 8. 代码模块化与解耦
 
 > 2026-09 依赖审计结论：20 模块依赖图为干净 DAG（无循环），collect/format/dump 三层分离整体健康；问题集中在局部——初始化逻辑复制、跨模块私有访问、全局可变状态、少数模块职责发散。以下按收益/成本排序；P1/P2 建议在 §7.8 golden file 与 §7.10 lint 就绪后实施（重构安全网）；涉及模块增删或 API 转正时同步 design.md §2 与 `__init__.py` `__all__`。
+>
+> 2026-09 落地：P1/P2（条目 1–7）与 P3 条目 9 已交付（480 个测试 + 端到端集成测试为安全网，全绿）；条目 8（offsets 去 global 化）显式延后——TODO 注明需 §7.1 覆盖率基线 + §7.10 lint 作前置安全网。
 
 ### P1 — 消除重复与跨模块私有访问（收益最大）
 
-- [ ] 1. 提取共享进程初始化：`stack_dump.collect_python`（stack_dump.py:253-304）与 `Sampler.__init__`（sampler.py:52-97）约 40 行逐字重复（exe readlink → find_symbol → read_const → offsets.configure → interp_addr 解析（main→head 回退）→ trampoline → get_thread_names），且复制后已**行为漂移**——目标版本无法判定时 stack 路径打 stderr 警告（stack_dump.py:271-274）而 record/top 路径静默回退（sampler.py:66-69）。提取 `ProcessSession` / `resolve_process(pid)` 共用，`collect_python` 可实现为一次性 Sampler + 单次 sample；版本告警策略随提取统一（与第 5 条联动）
-- [ ] 2. 转正事实公开 API：`sampler.py:26-28` 跨模块 import `stack_dump` 的 `_read_thread_chain` / `_is_thread_idle_by_stat`（采样热路径核心步骤）；`sampler.py:69` / `stack_dump.py:270` 跨模块读 `offsets._DEFAULT_VERSION`；tests/test_sampler.py:195 monkeypatch 的是 sampler 命名空间的再导出副本，补丁语义脆弱。去下划线转正并纳入公共 API 面
+- [x] 1. 提取共享进程初始化：`stack_dump.collect_python`（stack_dump.py:253-304）与 `Sampler.__init__`（sampler.py:52-97）约 40 行逐字重复（exe readlink → find_symbol → read_const → offsets.configure → interp_addr 解析（main→head 回退）→ trampoline → get_thread_names），且复制后已**行为漂移**——目标版本无法判定时 stack 路径打 stderr 警告（stack_dump.py:271-274）而 record/top 路径静默回退（sampler.py:66-69）。提取 `ProcessSession` / `resolve_process(pid)` 共用，`collect_python` 可实现为一次性 Sampler + 单次 sample；版本告警策略随提取统一（与第 5 条联动）（2026-09 完成：新增 `pyprobe/process.py` 模块，`ProcessSession` dataclass + `resolve_process(pid, *, reader_factory)`；`Sampler.__init__` 与 `collect_python` 均改为调用 `resolve_process`；版本告警携带于 `ProcessSession.version_warning`，由 dump 层统一输出，见 design.md §6.2 / §13）
+- [x] 2. 转正事实公开 API：`sampler.py:26-28` 跨模块 import `stack_dump` 的 `_read_thread_chain` / `_is_thread_idle_by_stat`（采样热路径核心步骤）；`sampler.py:69` / `stack_dump.py:270` 跨模块读 `offsets._DEFAULT_VERSION`；tests/test_sampler.py:195 monkeypatch 的是 sampler 命名空间的再导出副本，补丁语义脆弱。去下划线转正并纳入公共 API 面（2026-09 完成：`read_thread_chain` / `is_thread_idle_by_stat` / `offsets.DEFAULT_VERSION` 全部去下划线转正；纳入 `pyprobe.__all__`；sampler 仍 import `get_thread_names` 供 `refresh_names` 使用）
 
 ### P2 — 模块边界清理（机械操作，低风险）
 
-- [ ] 3. 拆分 `syscall_trace.py`（682 行三合一：字符串渲染助手 + ptrace 引擎 + 公共 API）：syscall_trace.py:338-345 文件中部 import 是两文件拼接痕迹，syscall_trace.py:452 函数内延迟 import `memory`（两者间无循环依赖，延迟无必要）。拆为 `syscall_render.py`（纯函数，reader 注入）与 `syscall_tracer.py`（SyscallTracer 引擎），import 统一上移至文件头
-- [ ] 4. 幽灵 import 清理：elf.py:7 / dict_iter.py:5 / pyobject.py:5 / thread_names.py:3 的 `RemoteReader`、stack_dump.py:22 的 `MAX_STR_LEN` 均未使用，在依赖图上制造虚假边
-- [ ] 5. 死异常与库层打印收敛：`PermissionDenied` / `VersionNotSupported` 已定义并导出但全库无 raise 点；offsets.py:197-201（configure 内）与 stack_dump.py:271-274（collect 层）直接 print stderr，违反 collect 层"不打印"契约（stack_dump.py:5-7 docstring 自述）。要么用起来（未验证版本改 raise 或 collect 层返回告警、由 dump 层统一输出），要么删除
-- [ ] 6. `elf.py` 职责收敛：`read_cmdline`（elf.py:156）/ `decode_py_version`（elf.py:165）与 ELF 解析无关，导致 stack_dump / sampler / native_dump 为读 cmdline 依赖"ELF 模块"；移入独立 proc 元数据模块
-- [ ] 7. `cli.py:24` `from . import __version__` 反向依赖包根，import `pyprobe.cli` 即触发 `__init__.py` 全量加载；版本号下沉独立模块或改 `importlib.metadata`
+- [x] 3. 拆分 `syscall_trace.py`（682 行三合一：字符串渲染助手 + ptrace 引擎 + 公共 API）：syscall_trace.py:338-345 文件中部 import 是两文件拼接痕迹，syscall_trace.py:452 函数内延迟 import `memory`（两者间无循环依赖，延迟无必要）。拆为 `syscall_render.py`（纯函数，reader 注入）与 `syscall_tracer.py`（SyscallTracer 引擎），import 统一上移至文件头（2026-09 完成：`syscall_trace.py` 拆为 `syscall_render.py`（纯渲染 + `TraceFilter` + `SyscallStat` + `format_summary`）+ `syscall_tracer.py`（ptrace 引擎 + `collect_syscalls` / `dump_syscalls`）；文件中部 import 上移至头部；`__init__.py` 与 `cli.py` 改 import 新模块；test_syscall_trace.py 拆为 test_syscall_render.py + test_syscall_tracer.py）
+- [x] 4. 幽灵 import 清理：elf.py:7 / dict_iter.py:5 / pyobject.py:5 / thread_names.py:3 的 `RemoteReader`、stack_dump.py:22 的 `MAX_STR_LEN` 均未使用，在依赖图上制造虚假边（2026-09 完成：5 处幽灵 import 全部移除，依赖图收敛）
+- [x] 5. 死异常与库层打印收敛：`PermissionDenied` / `VersionNotSupported` 已定义并导出但全库无 raise 点；offsets.py:197-201（configure 内）与 stack_dump.py:271-274（collect 层）直接 print stderr，违反 collect 层"不打印"契约（stack_dump.py:5-7 docstring 自述）。要么用起来（未验证版本改 raise 或 collect 层返回告警、由 dump 层统一输出），要么删除（2026-09 完成："用起来"路径：`offsets.configure` 未验证版本改 raise `VersionNotSupported`（已先填好 fallback 偏移量表，捕获后可直接 `get`）；`resolve_process` 捕获并把告警串存到 `ProcessSession.version_warning`；`dump_python` / `dump_record` / `dump_top` 在 dump 层统一输出告警。collect 层不再 print）
+- [x] 6. `elf.py` 职责收敛：`read_cmdline`（elf.py:156）/ `decode_py_version`（elf.py:165）与 ELF 解析无关，导致 stack_dump / sampler / native_dump 为读 cmdline 依赖"ELF 模块"；移入独立 proc 元数据模块（2026-09 完成：`read_cmdline` / `decode_py_version` 迁至新模块 `pyprobe/procmeta.py`；elf.py 文档收窄为"ELF 解析专用"；stack_dump / sampler / native_dump / test_elf / 新增 test_procmeta 同步 import 调整）
+- [x] 7. `cli.py:24` `from . import __version__` 反向依赖包根，import `pyprobe.cli` 即触发 `__init__.py` 全量加载；版本号下沉独立模块或改 `importlib.metadata`（2026-09 完成：cli.py 改用 `importlib.metadata.version("pyprobe")`，不再 `from . import __version__`；`__init__.py` 的 `__version__` 也改为 `importlib.metadata` 派生，pyproject.toml 为唯一事实来源）
 
 ### P3 — 高成本重构（独立 PR，需安全网护航）
 
 - [ ] 8. `offsets` 去 global 化：`_active` 模块级可变单例（offsets.py:177），`get()` 未 configure 时隐式触发 configure（offsets.py:214-217，读路径带副作用）；71 处调用分布于 6 模块（stack_dump 30 / thread_names 12 / pyobject 11 / dict_iter 10 / sampler 7 / linetable 1）。改为 per-session 偏移量表对象随 reader/session 传递后：可同时探测不同 CPython 版本的进程、消除 tests/test_offsets.py:47 的手工复位。改动面大（59 处 `get`），以 §7.10 lint + §7.1 覆盖率基线为前置
-- [ ] 9. `types.py` 数据层依赖 `colors` 表现层（types.py:16）：5 个 dataclass 的 `format()` 内嵌 ANSI 着色，与模块 docstring"plain data objects"定位冲突。实际影响小（JSON/`asdict` 路径已绕开），可选：format 方法移表现层，或收窄 docstring 接受现状
+- [x] 9. `types.py` 数据层依赖 `colors` 表现层（types.py:16）：5 个 dataclass 的 `format()` 内嵌 ANSI 着色，与模块 docstring"plain data objects"定位冲突。实际影响小（JSON/`asdict` 路径已绕开），可选：format 方法移表现层，或收窄 docstring 接受现状（2026-09 完成：收窄 docstring 路径——types.py 模块 docstring 显式说明 `format()` 与 `colors` 的耦合是设计选择，JSON / asdict 路径无表现层依赖；移表现层收益低、改动面大，按 TODO 注释"实际影响小"判断为不划算）

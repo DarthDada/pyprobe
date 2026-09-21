@@ -1,10 +1,14 @@
-"""ELF symbol lookup — manual ELF64 parsing with struct module (no deps)."""
+"""ELF symbol lookup — manual ELF64 parsing with struct module (no deps).
+
+Scope: ELF section-header + symbol-table parsing only. Process-level
+metadata readers (``/proc/<pid>/cmdline``, ``Py_Version`` decoding) live
+in ``procmeta.py`` — they were extracted here to keep the dependency
+graph honest (TODO §8.6).
+"""
 
 import os
 import struct
 from collections import namedtuple
-
-from .memory import RemoteReader
 
 
 _SHDR_FMT = "<IIQQQQIIQQ"
@@ -151,19 +155,3 @@ def _get_load_base(pid, exe_path):
     except OSError:
         pass
     return 0
-
-
-def read_cmdline(pid):
-    try:
-        with open(f"/proc/{pid}/cmdline", "rb") as f:
-            data = f.read()
-        return data.replace(b"\x00", b" ").rstrip(b" ").decode("utf-8", "replace")
-    except OSError:
-        return None
-
-
-def decode_py_version(hexval):
-    major = (hexval >> 24) & 0xFF
-    minor = (hexval >> 16) & 0xFF
-    micro = (hexval >> 8) & 0xFF
-    return f"{major}.{minor}.{micro}"

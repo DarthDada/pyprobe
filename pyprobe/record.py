@@ -89,6 +89,7 @@ def collect_profile(pid: int, *, rate: float = 50,
         samples=samples,
         idle_samples=idle_samples,
         elapsed=time.monotonic() - start,
+        version_warning=sampler.session.version_warning,
     )
 
 
@@ -124,6 +125,9 @@ def dump_record(pid: int, *, rate: float = 50,
     except PyProbeError as e:
         print(red(f"[!] {e}", err_color), file=sys.stderr)
         return 1
+
+    if profile.version_warning:
+        print(red(profile.version_warning, err_color), file=sys.stderr)
 
     folded = format_folded(profile)
     if output is None:

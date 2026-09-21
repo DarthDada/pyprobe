@@ -6,6 +6,7 @@ is tested as a pure function.
 """
 
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -92,6 +93,10 @@ class StubSampler:
         self.proc_info = ProcessInfo(
             pid=pid, cmdline="py app.py", exe_path="/usr/bin/python3.12",
             python_version="3.12.13")
+        # ``collect_profile`` reads ``sampler.session.version_warning`` to
+        # propagate it into ProfileData (TODO §8.5); a stub session with no
+        # warning is the clean default for tests that don't exercise it.
+        self.session = SimpleNamespace(version_warning=None)
 
     def sample(self):
         item = self._queue.pop(0) if self._queue else None

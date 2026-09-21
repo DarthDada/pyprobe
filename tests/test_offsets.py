@@ -3,6 +3,7 @@
 import pytest
 
 from pyprobe import offsets
+from pyprobe.errors import VersionNotSupported
 
 
 class TestVersionKey:
@@ -34,14 +35,26 @@ class TestConfigure:
         offsets.configure("3.12.5")
         assert offsets.get("pointer_size") == 8
 
-    def test_unknown_version_falls_back(self, capsys):
-        offsets.configure("9.9.1")
-        captured = capsys.readouterr()
-        assert "not a verified version" in captured.err
+    def test_unknown_version_raises_and_falls_back(self, capsys):
+        """Unverified version raises VersionNotSupported *after* populating
+        ``_active`` with the default version's offsets (TODO §8.5).  No
+        stderr printing happens at the offsets layer — the caller decides
+        whether to surface the warning (collect layer catches and stores it
+        on the ProcessSession; the dump layer prints it).
+        """
+        with pytest.raises(VersionNotSupported) as exc_info:
+            offsets.configure("9.9.1")
+        assert exc_info.value.version == "9.9.1"
+        assert exc_info.value.fallback == "3.12"
+        # _active is still populated (fallback) so callers that catch can
+        # immediately use offsets.get / get_or.
         assert offsets.get("pointer_size") == 8
+        # No printing at the offsets layer.
+        captured = capsys.readouterr()
+        assert captured.err == ""
 
     def test_default_version(self):
-        assert offsets._DEFAULT_VERSION == "3.12"
+        assert offsets.DEFAULT_VERSION == "3.12"
 
     def test_get_before_configure_uses_default(self):
         offsets._active = None

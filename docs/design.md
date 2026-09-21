@@ -22,11 +22,13 @@ pyprobe 是 CPython 进程外检查工具，无需 ptrace attach 即可获取运
 
 ```
 pyprobe/                  纯 Python 实现（入口 pyprobe.cli:main）
-├── __init__.py           公共 API 导出（__all__）
+├── __init__.py           公共 API 导出（__all__）+ __version__（importlib.metadata 派生）
 ├── __main__.py           python -m pyprobe 入口
 ├── cli.py                argparse CLI（stack / syscall / record / top 子命令）
 ├── memory.py             process_vm_readv 远程内存读取 (ctypes) + 页级 LRU 缓存
-├── elf.py                ELF64 符号查找 (struct, 零依赖) + PIE load base
+├── elf.py                ELF64 符号查找 (struct, 零依赖) + PIE load base（仅 ELF 解析）
+├── procmeta.py           /proc 元数据读取：read_cmdline(pid) + decode_py_version(hex)（从 elf.py 拆出，TODO §8.6）
+├── process.py            ProcessSession / resolve_process(pid)：collect_python 与 Sampler 共享的进程初始化（TODO §8.1）
 ├── pyobject.py           PyLong / PyUnicode / PyBytes 远程读取
 ├── dict_iter.py          CPython 3.11–3.13 Dict 迭代器（combined/unicode/split/managed）
 ├── linetable.py          PEP 626 行号表解析（addr2line）
@@ -36,12 +38,13 @@ pyprobe/                  纯 Python 实现（入口 pyprobe.cli:main）
 ├── sampler.py            采样引擎（Sampler：一次性解析 + sample() 热路径，§15）
 ├── record.py             record 子命令（collect_profile → format_folded → dump_record，§15）
 ├── top.py                 top 子命令（TopStats 聚合 + 终端刷新，§15）
-├── syscall_trace.py      系统调用追踪（ptrace 引擎 + 纯函数解码 + summary）
+├── syscall_render.py     syscall 字符串渲染 + 参数解码 + TraceFilter + format_summary（纯函数，reader 注入；从 syscall_trace.py 拆出，TODO §8.3）
+├── syscall_tracer.py     SyscallTracer ptrace 引擎 + collect_syscalls / dump_syscalls（公共 API；从 syscall_trace.py 拆出，TODO §8.3）
 ├── syscall_table.py      x86-64 syscall 号→名表 + 参数解码元数据 + flag 常量
 ├── types.py              结构化数据类型（FrameInfo/ThreadInfo/ProcessInfo/.../ProfileData/SyscallEvent）
-├── errors.py             异常层级（PyProbeError 基类 + 子类）
+├── errors.py             异常层级（PyProbeError 基类 + 子类；VersionNotSupported 在 offsets.configure 抛出，TODO §8.5）
 ├── colors.py             ANSI 颜色帮助 + clicolors 检测（零依赖）
-├── offsets.py            CPython 结构体偏移量（多版本验证表，单一数据源）
+├── offsets.py            CPython 结构体偏移量（多版本验证表，单一数据源；configure 未验证版本 raise VersionNotSupported）
 └── offsets.json          开发期偏移量覆盖（生成于 tools/gen_offsets.c）
 
 tools/                    构建期工具
@@ -192,12 +195,12 @@ CLI 输出对齐 py-spy 的颜色语义，零依赖自实现（不引 rich/color
 
 ### 6.2 运行时配置
 
-`configure(version_str)` 在 `collect_python` 中被调用（传入目标进程的 CPython 版本）：
+`configure(version_str)` 在 `resolve_process`（`process.py`，由 `collect_python` 与 `Sampler.__init__` 共享）中被调用（传入目标进程的 CPython 版本）：
 - 已验证版本 → 加载对应偏移量表。
-- 未验证版本 → stderr 告警 + 回退到 `_DEFAULT_VERSION`（"3.12"）偏移量（输出可能不正确）。
-- 开发期覆盖：若 `offsets.json` 存在，仅当其 `_version` 键与目标进程 major.minor 一同时才覆盖验证表（用于在提升到 `_VERIFIED_OFFSETS` 前测试新生成的偏移量，避免跨版本污染）。
+- 未验证版本 → 先把 `_active` 填好默认版本（`DEFAULT_VERSION` = "3.12"）的偏移量表，**再 raise `VersionNotSupported`**（捕获后可直接 `get`/`get_or`）；`offsets` 层**不打印**——`resolve_process` 捕获该异常并把告警串存到 `ProcessSession.version_warning`，由 dump 层（`dump_python` / `dump_record` / `dump_top`）统一输出（违反 collect 层"不打印"契约的旧 print 已移除，TODO §8.5）。
+- 开发期覆盖：若 `offsets.json` 存在，仅当其 `_version` 键与目标进程 major.minor 一致时才覆盖验证表（用于在提升到 `_VERIFIED_OFFSETS` 前测试新生成的偏移量，避免跨版本污染）。未验证版本也走同一条覆盖路径——dev-only `offsets.json` 即可作为本地验证证据。
 
-`get(name)` 惰性初始化（未 configure 时用默认版本），返回偏移量值。`get_or(name, default)` 对该版本不存在的键返回 `default`——字段在版本间缺失（如 3.11 无 `InterpreterState.imports`、3.13 无 `ThreadState.cframe`）时消费者据此分支。
+`get(name)` 惰性初始化（未 configure 时用 `DEFAULT_VERSION`——已验证版本，不 raise），返回偏移量值。`get_or(name, default)` 对该版本不存在的键返回 `default`——字段在版本间缺失（如 3.11 无 `InterpreterState.imports`、3.13 无 `ThreadState.cframe`）时消费者据此分支。`DEFAULT_VERSION` 为公开常量（TODO §8.2 转正，跨模块读不再走 `_` 前缀）。
 
 ### 6.3 生成工具
 
@@ -223,9 +226,10 @@ find_symbol(_PyRuntime)
 关键逻辑：
 - **InterpreterFrame 遍历**（`collect_frames`）：沿 `previous` 链走，最多 `MAX_FRAMES=100` 帧。跳过 `f_code == 0` 的帧和 `interpreter_trampoline` 帧（仅 3.12 存在该键）；`co_name` 与 `co_filename` 均为 NULL 的尾部陈旧帧（3.13 datastack 残留）终止遍历。
 - **行号计算**：`lasti = prev_instr - (f_code + co_code_adaptive)`，传入 `addr2line` 解析行号表。
-- **线程链遍历**（`_read_thread_chain`）：沿 `ThreadState.next` 链走，最多 `MAX_THREADS=256`。批量读取每条 tstate 的 `next`/`thread_id`/`native_tid` 字段（单次读取覆盖最小跨度区间）。
+- **线程链遍历**（`read_thread_chain`，原 `_read_thread_chain`——TODO §8.2 去下划线转正）：沿 `ThreadState.next` 链走，最多 `MAX_THREADS=256`。批量读取每条 tstate 的 `next`/`thread_id`/`native_tid` 字段（单次读取覆盖最小跨度区间）。
 - **线程名查找**（`thread_names.py`）：定位 `sys.modules`（3.12 经 `InterpreterState.imports → modules` 直达；3.11/3.13 遍历 `sysdict` 字典找 `"modules"` 键），找到 `threading` 模块，读其 `_active` 字典，匹配 `thread_id → _name`。
-- **空闲线程检测**（`_is_thread_idle`）：两种启发式——读 `/proc/<pid>/task/<tid>/stat` 状态非 `R`，或顶层帧匹配已知空闲惯用语（`threading.wait`、`selectors.select` 等）。
+- **空闲线程检测**（`_is_thread_idle`）：两种启发式——读 `/proc/<pid>/task/<tid>/stat` 状态非 `R`（`is_thread_idle_by_stat`，原 `_is_thread_idle_by_stat`——TODO §8.2 转正，sampler 热路径跨模块 import），或顶层帧匹配已知空闲惯用语（`threading.wait`、`selectors.select` 等）。
+- **进程初始化共享**（`process.py`，TODO §8.1）：`resolve_process(pid) → ProcessSession` 把 `collect_python` 与 `Sampler.__init__` 原本逐字复制的 ~40 行（exe readlink / find_symbol / read_const / offsets.configure / interp_addr main→head 回退 / trampoline / get_thread_names）合并到一处；`ProcessSession.version_warning` 携带未验证版本告警，由 dump 层统一输出。`collect_python` 内部走 `resolve_process + _collect_threads_from_session`；`Sampler.__init__` 走 `resolve_process` 并暴露 `interp_addr` / `trampoline_addr` / `proc_info` / `_names` 为 backward-compat 属性。
 - `reader` 参数为鸭子类型（任何提供 `read`/`read_ptr` 的对象），便于单元测试注入 `FakeReader`。
 
 ### 7.2 字典迭代器（dict_iter.py）
@@ -406,7 +410,7 @@ else:
 - 对象构造器：`build_pyunicode` / `build_pybytes` / `build_pylong` / `build_code_object` / `build_frame` — 按配置偏移量写入字节。
 - `FakeRemoteReader`：子类化真实 `RemoteReader`，stub `_read_syscall` 提供罐头页数据，测试真实页缓存逻辑（LRU 淘汰、跨页、旁路）。
 
-覆盖模块：offsets（版本键/configure/get/fallback）、types（格式化 + `color=True` 精确 ANSI 断言）、errors（异常层级）、colors（帮助函数恒等性/包裹 + `should_color` 环境矩阵）、linetable（PEP 626 全 code 类型）、pyobject（PyLong/PyBytes/PyUnicode 各变体）、dict_iter（combined/unicode/split/managed）、memory（页缓存）、elf（decode_py_version/read_cmdline/find_symbol/read_const 真实 ELF）、stack_dump（collect_frames/`_is_thread_idle`/collect_thread idle_hint/format_process/错误路径/dump CLI 颜色/JSON 输出）、cli（参数解析/分发/`--color` 传递/record/top/`--json` 分发）、syscall_table（号↔名表抽查/flag 解码）、syscall_trace（字符串转义截断/`_read_cstr`/`_read_timespec`/`_decode_args`/`_fill_out_args`/`TraceFilter`/`format_summary` 纯函数 FakeReader 注入；attach/detach/主循环 monkeypatch stub）、sampler（FakeReader + monkeypatch 注入：init 解析/错误路径/未验证版本告警恰好一条/sample 返回 ThreadInfo 列表/idle 剪枝/每 sample 新建 reader/ProcessExited/sample 不刷新 names/refresh_names 生效/sample 不再触碰 offsets.configure）、record（fold_key root-first 守护/线程前缀/排序/stub Sampler 的 collect_profile 计数与部分数据/绝对调度/dump stdout-stderr 分流）、top（own/total 语义/idle 排除/当前帧跟踪/render 布局与 color=False 无 ANSI/非 tty rc 2）、api_exports（`__all__` 每个名字可从 `pyprobe` 命名空间解析 + `import *` 冒烟）。
+覆盖模块：offsets（版本键/configure/get/fallback；未验证版本改 raise `VersionNotSupported`——TODO §8.5）、types（格式化 + `color=True` 精确 ANSI 断言；docstring 收窄接受 `format()` 与 `colors` 耦合——TODO §8.9）、errors（异常层级；`VersionNotSupported` 现有真实 raise 点）、colors（帮助函数恒等性/包裹 + `should_color` 环境矩阵）、linetable（PEP 626 全 code 类型）、pyobject（PyLong/PyBytes/PyUnicode 各变体）、dict_iter（combined/unicode/split/managed）、memory（页缓存）、elf（仅 find_symbol/read_const 真实 ELF——`read_cmdline`/`decode_py_version` 迁出，TODO §8.6）、procmeta（`read_cmdline`/`decode_py_version`，从 elf.py 拆出）、process（`ProcessSession`/`resolve_process`：Sampler init 路径/错误路径/未验证版本告警恰好捕获到 session、不打 stderr——TODO §8.1/§8.5）、stack_dump（collect_frames/`_is_thread_idle`/`is_thread_idle_by_stat`/`read_thread_chain`（去下划线转正——TODO §8.2）/collect_thread idle_hint/format_process/错误路径/dump CLI 颜色/JSON 输出）、cli（参数解析/分发/`--color` 传递/record/top/`--json` 分发；`__version__` 走 `importlib.metadata`——TODO §8.7）、syscall_table（号↔名表抽查/flag 解码）、syscall_render（字符串转义截断/`_read_cstr`/`_read_timespec`/`_decode_args`/`_fill_out_args`/`TraceFilter`/`format_summary` 纯函数 FakeReader 注入——从 syscall_trace.py 拆出，TODO §8.3）、syscall_tracer（attach/detach/主循环 monkeypatch stub——从 syscall_trace.py 拆出，TODO §8.3）、sampler（FakeReader + monkeypatch 注入：init 解析/错误路径/未验证版本告警恰好捕获到 session/sample 返回 ThreadInfo 列表/idle 剪枝/每 sample 新建 reader/ProcessExited/sample 不刷新 names/refresh_names 生效/sample 不再触碰 offsets.configure）、record（fold_key root-first 守护/线程前缀/排序/stub Sampler 的 collect_profile 计数与部分数据/绝对调度/dump stdout-stderr 分流；`version_warning` 经由 ProfileData 透传到 dump 层）、top（own/total 语义/idle 排除/当前帧跟踪/render 布局与 color=False 无 ANSI/非 tty rc 2；`version_warning` 在 dump 层输出）、api_exports（`__all__` 每个名字可从 `pyprobe` 命名空间解析 + `import *` 冒烟）。
 
 ### 13.2 集成测试（`@pytest.mark.integration`）
 
@@ -430,9 +434,11 @@ else:
 
 ---
 
-## 14. Syscall 追踪架构（syscall_trace.py / syscall_table.py）
+## 14. Syscall 追踪架构（syscall_render.py / syscall_tracer.py / syscall_table.py）
 
 `pyprobe syscall -p <pid>` 实时追踪目标进程**所有线程**的系统调用（strace 风格），含 `--summary` 统计（strace -c 等价）。纯 Python + ctypes 调 `libc.ptrace`，零第三方依赖；仅 x86-64。
+
+> 2026-09 模块拆分（TODO §8.3）：原 `syscall_trace.py`（682 行三合一）拆为 `syscall_render.py`（纯函数 + `TraceFilter` + `SyscallStat` + `format_summary`）与 `syscall_tracer.py`（`SyscallTracer` 引擎 + `collect_syscalls` / `dump_syscalls`），文件中部 import 上移至头部。`__init__.py` 与 `cli.py` 改 import 新模块。
 
 ### 14.1 syscall_table.py（静态数据，无逻辑）
 
@@ -456,7 +462,7 @@ else:
 - **内存读取**：`_UncachedReader` 包装 `RemoteReader.read_uncached` 绕过页缓存——追踪是长时运行且目标内存持续变化（如 timespec 结构复用），快照缓存会读到过期数据。
 - **detach（幂等）**：逐线程 INTERRUPT → `waitpid(WNOHANG)` 收 stop（有界重试）→ DETACH，目标恢复运行。
 
-### 14.3 解码与输出（纯函数，reader 注入）
+### 14.3 解码与输出（`syscall_render.py`，纯函数，reader 注入）
 
 - `escape_bytes` / `truncate_escaped` / `render_str_arg`：strace 风格字符串（非可见 ASCII 转 `\NNN` 八进制，非 verbose 截断 32 字符 + `...`）。
 - `_read_cstr`：NUL 终止字符串读取，完全不可读时回退裸地址（对齐 strace）；`_read_available` 二分探测短映射可读长度。
@@ -480,16 +486,17 @@ else:
 
 ### 15.1 Sampler（sampler.py）
 
-`stack_dump.collect_python` 每次调用重复做进程生命周期内不变的工作：ELF 符号扫描 ×2（`_PyRuntime` + `Py_Version`）、`offsets.configure`（未验证版本每次刷 stderr 告警）、`RemoteReader` 重建。`Sampler` 把这些移入 `__init__` 一次性完成：
+`stack_dump.collect_python` 每次调用重复做进程生命周期内不变的工作：ELF 符号扫描 ×2（`_PyRuntime` + `Py_Version`）、`offsets.configure`、`RemoteReader` 重建。`Sampler` 把这些移入 `__init__` 一次性完成（TODO §8.1 落地：实际解析逻辑提取到 `pyprobe/process.py:resolve_process(pid, *, reader_factory)`，`collect_python` 与 `Sampler.__init__` 共享同一 `ProcessSession`）：
 
-- `__init__(pid, *, reader_factory=RemoteReader)` 解析（进程存活期内不变）：exe 路径、`_PyRuntime` 地址、CPython 版本 + `offsets.configure`（**仅此一次**，未验证版本告警至多一条）、main interpreter 地址（main → head 回退）、trampoline 地址（仅 3.12，`get_or` 缺省 0）、`ProcessInfo`（cmdline）、线程名 map（`get_thread_names`）。错误路径对齐 `collect_python`：`ProcessNotFound` / `SymbolNotFound` / `NoInterpreterState`。
+- `__init__(pid, *, reader_factory=RemoteReader)` 调用 `resolve_process(pid, reader_factory=...)` 解析（进程存活期内不变）：exe 路径、`_PyRuntime` 地址、CPython 版本 + `offsets.configure`（**仅此一次**，未验证版本告警存到 `ProcessSession.version_warning`、不打印）、main interpreter 地址（main → head 回退）、trampoline 地址（仅 3.12，`get_or` 缺省 0）、`ProcessInfo`（cmdline）、线程名 map（`get_thread_names`）。错误路径对齐 `collect_python`：`ProcessNotFound` / `SymbolNotFound` / `NoInterpreterState`。`Sampler` 还为 backward-compat 暴露 `proc_info` / `interp_addr` / `trampoline_addr` / `_names` 属性（实际数据在 `self.session` 上）。
 - `sample() → list[ThreadInfo]` 热路径：
   1. **每样本新建 reader**（`reader_factory`）：页缓存是单次调用快照语义（§4.2），跨样本复用会读到陈旧内存；
-  2. `_read_thread_chain` 读线程链（`NoThreadState` → 转换抛 `ProcessExited`：采样循环中目标死亡）；
+  2. `read_thread_chain`（原 `_read_thread_chain`——TODO §8.2 转正）读线程链（`NoThreadState` → 转换抛 `ProcessExited`：采样循环中目标死亡）；
   3. 逐线程 `/proc/<pid>/task/<tid>/stat` 状态非 `R` → `collect_thread(idle_hint=True)` 剪枝（跳过帧遍历，返回空帧 `ThreadInfo(idle=True)`），否则完整 `collect_thread`；
   4. 按 `native_tid` 排序（输出确定性）。
 - `refresh_names()`：重读线程名 map。**线程名策略分叉**：`record` 全程不调（名字是 folded 聚合键的一部分，录制期间必须稳定）；`top` 每显示周期调一次（新线程的名字尽快上屏，采样热路径不付此成本）。
 - `reader_factory` 是测试注入点（FakeReader / 计数 stub），生产用 `RemoteReader`。
+- `version_warning` 由 `dump_record` / `dump_top` 在 dump 层输出（TODO §8.5）。
 
 ### 15.2 调度（collect_profile，record.py）
 
@@ -534,7 +541,7 @@ MainThread;main;loop 42
 
 ### 15.6 守护测试（防退化）
 
-- 未验证版本 stderr 告警**恰好一条**（configure 移出循环）。
+- 未验证版本告警**恰好一条**且**不打在 collect 层**：`offsets.configure` 改为 raise `VersionNotSupported`（无 stderr 打印，TODO §8.5），`resolve_process` 捕获并把告警串存到 `ProcessSession.version_warning`；`Sampler.__init__` 走同一 `resolve_process`，所以告警在 init 时一次性捕获；`sample()` 不再触碰 `offsets.configure`，也不会再 emit 告警。`dump_python` / `dump_record` / `dump_top` 在 dump 层把 `version_warning` 输出到 stderr（仅一次）。
 - 每 `sample()` 新建 reader（factory 计数）。
 - `sample()` 不触碰 `offsets.configure`（计数）。
 - `sample()` 不刷新线程名（计数）；`refresh_names()` 生效。

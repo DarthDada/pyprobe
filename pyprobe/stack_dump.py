@@ -14,18 +14,16 @@ Layered design (issue #8):
 mock ``RemoteReader``.
 """
 
-import os
 import sys
 from dataclasses import asdict
 from typing import Optional
 
-from .memory import RemoteReader, PTR_SIZE, MAX_STR_LEN
+from .memory import RemoteReader, PTR_SIZE
 from . import offsets
 from .colors import red, should_color
-from .elf import find_symbol, read_const, read_cmdline, decode_py_version
 from .pyobject import read_pyunicode
 from .linetable import addr2line
-from .thread_names import get_thread_names
+from .process import ProcessSession, resolve_process
 from .types import FrameInfo, ThreadInfo, ProcessInfo
 from .errors import (
     ProcessNotFound, SymbolNotFound, NoInterpreterState, NoThreadState,
@@ -114,7 +112,7 @@ def collect_frames(reader, frame_addr, trampoline_addr):
     return frames
 
 
-def _is_thread_idle_by_stat(pid, native_tid):
+def is_thread_idle_by_stat(pid, native_tid):
     """Return True if the thread is not in 'R' (running) state.
 
     Reads ``/proc/<pid>/task/<tid>/stat``.  Returns False on any error
@@ -160,7 +158,7 @@ def _is_thread_idle_by_frames(frames):
 
 
 def _is_thread_idle(pid, native_tid, frames):
-    return _is_thread_idle_by_stat(pid, native_tid) or _is_thread_idle_by_frames(frames)
+    return is_thread_idle_by_stat(pid, native_tid) or _is_thread_idle_by_frames(frames)
 
 
 def collect_thread(reader, pid, tstate_addr, native_tid, name, trampoline_addr,
@@ -202,7 +200,7 @@ def collect_thread(reader, pid, tstate_addr, native_tid, name, trampoline_addr,
     )
 
 
-def _read_thread_chain(reader, interp_addr):
+def read_thread_chain(reader, interp_addr):
     """Read the tstate linked list; return a list of raw thread dicts."""
     tstate_addr = reader.read_ptr(
         interp_addr + offsets.get("InterpreterState.threads")
@@ -247,73 +245,39 @@ def collect_python(pid):
     Returns ``(ProcessInfo, list[ThreadInfo])``.  Raises a ``PyProbeError``
     subclass on failure.
 
-    No output is written to stdout — callers format the result via
-    ``format_process`` or inspect the structured data directly.
+    No output is written to stdout/stderr — version warnings stay on the
+    :class:`ProcessSession` and are surfaced by the dump layer
+    (:func:`dump_python`), per the collect/format/dump contract (TODO §8.1,
+    §8.5).  Callers needing the warning use :func:`resolve_process` directly.
     """
-    try:
-        exe_path = os.readlink(f"/proc/{pid}/exe")
-    except OSError as e:
-        raise ProcessNotFound(pid) from e
+    session = resolve_process(pid)
+    threads = _collect_threads_from_session(session)
+    return session.proc_info, threads
 
-    runtime_addr = find_symbol(exe_path, "_PyRuntime", pid)
-    if runtime_addr == 0:
-        raise SymbolNotFound("_PyRuntime", exe_path)
 
-    version_str = "?"
-    py_version = read_const(exe_path, "Py_Version", 8)
-    if py_version is not None:
-        version_str = decode_py_version(int.from_bytes(py_version, "little"))
+def _collect_threads_from_session(session: ProcessSession):
+    """Build ``list[ThreadInfo]`` from a resolved :class:`ProcessSession`.
 
-    if version_str != "?":
-        offsets.configure(version_str)
-    else:
-        offsets.configure(offsets._DEFAULT_VERSION)
-        print(red("[!] Warning: cannot determine target CPython version, "
-                  "using default offsets — output may be incorrect.",
-                  should_color(sys.stderr)),
-              file=sys.stderr)
+    Uses a fresh ``RemoteReader`` (page-cache snapshot per call) and the
+    thread-name map captured at :func:`resolve_process` time.  Factored out
+    so :func:`collect_python` and :func:`dump_python` share the same
+    collection path without ``dump_python`` having to call
+    ``collect_python`` (which would discard ``session.version_warning``).
+    """
+    reader = RemoteReader(session.pid)
+    raw_threads = read_thread_chain(reader, session.interp_addr)
 
-    cmdline = read_cmdline(pid) or exe_path
-    proc_info = ProcessInfo(
-        pid=pid, cmdline=cmdline, exe_path=exe_path, python_version=version_str,
-    )
-
-    reader = RemoteReader(pid)
-
-    interp_addr = reader.read_ptr(
-        runtime_addr + offsets.get("RuntimeState.interpreters")
-        + offsets.get("pyinterpreters.main"))
-    if interp_addr is None or interp_addr == 0:
-        interp_addr = reader.read_ptr(
-            runtime_addr + offsets.get("RuntimeState.interpreters")
-            + offsets.get("pyinterpreters.head"))
-    if interp_addr is None or interp_addr == 0:
-        raise NoInterpreterState()
-
-    # The interpreter trampoline only exists in 3.12 (introduced there,
-    # removed in 3.13); when absent there are no trampoline frames to skip.
-    trampoline_addr = 0
-    tramp_off = offsets.get_or("InterpreterState.interpreter_trampoline")
-    if tramp_off is not None:
-        trampoline_addr = reader.read_ptr(interp_addr + tramp_off)
-        if trampoline_addr is None:
-            trampoline_addr = 0
-
-    raw_threads = _read_thread_chain(reader, interp_addr)
-
-    names = get_thread_names(reader, interp_addr)
     for t in raw_threads:
-        if t["thread_id"] in names:
-            t["name"] = names[t["thread_id"]]
+        if t["thread_id"] in session.names:
+            t["name"] = session.names[t["thread_id"]]
 
     raw_threads.sort(key=lambda t: t["native_tid"])
 
-    threads = [
-        collect_thread(reader, pid, t["tstate_addr"], t["native_tid"],
-                       t["name"], trampoline_addr)
+    return [
+        collect_thread(reader, session.pid, t["tstate_addr"], t["native_tid"],
+                       t["name"], session.trampoline_addr)
         for t in raw_threads
     ]
-    return proc_info, threads
 
 
 def format_process(proc_info, threads, *, color: bool = False,
@@ -350,19 +314,27 @@ def dump_python(pid, color: Optional[bool] = None, verbose: bool = False,
     True/False force color on/off for both stdout and stderr (ignored
     when ``json_output`` is set — JSON is never colored).
     ``verbose``: keep full frame filename paths instead of shortened ones.
+
+    Version warnings (unverified CPython version) are printed to stderr
+    once per invocation — the collect layer captures the warning on the
+    :class:`ProcessSession` and the dump layer surfaces it (TODO §8.5).
     """
     use_color = should_color(sys.stdout) if color is None else color
     err_color = should_color(sys.stderr) if color is None else color
     try:
-        proc_info, threads = collect_python(pid)
+        session = resolve_process(pid)
+        threads = _collect_threads_from_session(session)
     except (ProcessNotFound, SymbolNotFound,
             NoInterpreterState, NoThreadState, OSError) as e:
         print(red(f"[!] {e}", err_color), file=sys.stderr)
         return 1
 
+    if session.version_warning:
+        print(red(session.version_warning, err_color), file=sys.stderr)
+
     if json_output:
-        print(format_process_json(proc_info, threads))
+        print(format_process_json(session.proc_info, threads))
     else:
-        print(format_process(proc_info, threads, color=use_color,
+        print(format_process(session.proc_info, threads, color=use_color,
                              verbose=verbose))
     return 0

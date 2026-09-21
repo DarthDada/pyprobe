@@ -106,17 +106,21 @@ def _default_threads():
 
 @pytest.fixture
 def static_env(monkeypatch):
-    """Stub all out-of-process resolution used by Sampler.__init__."""
+    """Stub all out-of-process resolution used by Sampler.__init__.
+
+    ``resolve_process`` now lives in ``pyprobe.process`` (TODO §8.1) —
+    patches target that module's namespace, not ``pyprobe.sampler``.
+    """
     monkeypatch.setattr(os, "readlink", lambda path: "/usr/bin/python3.12")
-    monkeypatch.setattr("pyprobe.sampler.find_symbol",
+    monkeypatch.setattr("pyprobe.process.find_symbol",
                         lambda exe, sym, pid: RUNTIME)
     # Py_Version 3.12.13 → 0x030C0D00
     monkeypatch.setattr(
-        "pyprobe.sampler.read_const",
+        "pyprobe.process.read_const",
         lambda exe, sym, length: (0x030C0D00).to_bytes(8, "little"))
-    monkeypatch.setattr("pyprobe.sampler.read_cmdline",
+    monkeypatch.setattr("pyprobe.process.read_cmdline",
                         lambda pid: "python3 app.py")
-    monkeypatch.setattr("pyprobe.sampler.get_thread_names",
+    monkeypatch.setattr("pyprobe.process.get_thread_names",
                         lambda reader, interp: {})
 
 
@@ -152,7 +156,7 @@ class TestInit:
 
     def test_symbol_not_found(self, monkeypatch):
         monkeypatch.setattr(os, "readlink", lambda path: "/usr/bin/python3")
-        monkeypatch.setattr("pyprobe.sampler.find_symbol",
+        monkeypatch.setattr("pyprobe.process.find_symbol",
                             lambda exe, sym, pid: 0)
         with pytest.raises(SymbolNotFound):
             Sampler(999, reader_factory=_make_factory())
@@ -163,12 +167,17 @@ class TestInit:
 
     def test_unverified_version_warns_exactly_once(
             self, static_env, monkeypatch, capsys):
+        # ``resolve_process`` captures the unverified-version warning on the
+        # ProcessSession and does NOT print at the collect layer (TODO §8.5).
+        # ``sample()`` must not re-warn either — the warning is static.
         monkeypatch.setattr(
-            "pyprobe.sampler.read_const",
+            "pyprobe.process.read_const",
             lambda exe, sym, length: (0x09090000).to_bytes(8, "little"))
         s = Sampler(1, reader_factory=_make_factory())
+        assert s.session.version_warning is not None
+        assert "9.9" in s.session.version_warning
         first = capsys.readouterr()
-        assert first.err.count("[!] Warning") == 1
+        assert first.err == ""  # collect/init layer must not print
 
         for _ in range(3):
             s.sample()
@@ -178,7 +187,8 @@ class TestInit:
 
 class TestSample:
     def test_returns_thread_infos(self, static_env, monkeypatch):
-        monkeypatch.setattr("pyprobe.sampler.get_thread_names",
+        # ``resolve_process`` (in pyprobe.process) reads names at init time.
+        monkeypatch.setattr("pyprobe.process.get_thread_names",
                             lambda reader, interp: {1001: "spin-worker"})
         s = Sampler(1, reader_factory=_make_factory())
         threads = s.sample()
@@ -192,7 +202,7 @@ class TestSample:
 
     def test_prunes_idle_threads(self, static_env, monkeypatch):
         monkeypatch.setattr(
-            "pyprobe.sampler._is_thread_idle_by_stat",
+            "pyprobe.sampler.is_thread_idle_by_stat",
             lambda pid, tid: tid == 2001)
         s = Sampler(1, reader_factory=_make_factory())
         threads = s.sample()
@@ -231,7 +241,9 @@ class TestSample:
             counter["n"] += 1
             return {}
 
-        monkeypatch.setattr("pyprobe.sampler.get_thread_names", counting)
+        # Counts the call from resolve_process at init; sample() must not
+        # re-invoke get_thread_names (the hot loop uses self._names only).
+        monkeypatch.setattr("pyprobe.process.get_thread_names", counting)
         s = Sampler(1, reader_factory=_make_factory())
         assert counter["n"] == 1
         for _ in range(3):
@@ -244,6 +256,9 @@ class TestSample:
         def fake_names(reader, interp):
             return state["names"]
 
+        # Patch both namespaces: resolve_process (init) and Sampler's
+        # own refresh_names (which imports get_thread_names directly).
+        monkeypatch.setattr("pyprobe.process.get_thread_names", fake_names)
         monkeypatch.setattr("pyprobe.sampler.get_thread_names", fake_names)
         s = Sampler(1, reader_factory=_make_factory())
         assert s.sample()[0].name == "old"

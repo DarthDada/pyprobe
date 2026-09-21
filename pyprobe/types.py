@@ -6,6 +6,16 @@ The library API is split into two layers:
   can inspect, serialize, or post-process the results programmatically.
 * ``format_*`` functions turn those data objects into the human-readable
   strings used by the CLI.
+
+Note (TODO §8.9): each dataclass also carries a ``format()`` method that
+renders the CLI-style string for that single object.  Those methods import
+ANSI helpers from :mod:`pyprobe.colors` so the CLI can colorize output
+without the caller having to pass color decisions through the format layer.
+The JSON / ``dataclasses.asdict`` serialization paths bypass ``format()``
+entirely and stay free of presentation concerns.  The module-level docstring
+used to claim "plain data objects" — narrowed here to accept the reality
+that ``format()`` lives alongside the data by design (low impact, single
+small presentation dependency).
 """
 
 import os
@@ -208,7 +218,9 @@ class ProfileData:
     ``counts`` maps a folded-stack key (``"<thread>";root;...;leaf``) to
     the number of samples that observed exactly that stack.  ``samples``
     counts active (non-idle) thread observations; ``idle_samples`` the
-    ones excluded by idle detection.
+    ones excluded by idle detection.  ``version_warning`` carries the
+    soft warning (if any) captured by :class:`pyprobe.process.ProcessSession`
+    so ``dump_record`` can surface it once at the start (TODO §8.5).
     """
 
     proc_info: ProcessInfo
@@ -216,3 +228,4 @@ class ProfileData:
     samples: int = 0
     idle_samples: int = 0
     elapsed: float = 0.0
+    version_warning: Optional[str] = None

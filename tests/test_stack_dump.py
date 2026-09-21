@@ -9,7 +9,7 @@ import pytest
 from pyprobe import offsets
 from pyprobe.stack_dump import (
     collect_frames, collect_thread,
-    _is_thread_idle, _is_thread_idle_by_stat, _is_thread_idle_by_frames,
+    _is_thread_idle, is_thread_idle_by_stat, _is_thread_idle_by_frames,
     format_process, dump_python, collect_python,
     MAX_FRAMES,
 )
@@ -195,11 +195,11 @@ class TestIsThreadIdleByFrames:
 class TestIsThreadIdleByStat:
     def test_self_running(self):
         """The current thread should be in 'R' state → not idle."""
-        assert _is_thread_idle_by_stat(os.getpid(), os.getpid()) is False
+        assert is_thread_idle_by_stat(os.getpid(), os.getpid()) is False
 
     def test_nonexistent_tid(self):
         """A nonexistent TID → OSError → returns False (conservative)."""
-        assert _is_thread_idle_by_stat(os.getpid(), 0xFFFFFFF) is False
+        assert is_thread_idle_by_stat(os.getpid(), 0xFFFFFFF) is False
 
 
 class TestCollectThread:
@@ -328,8 +328,12 @@ class TestCollectPythonErrors:
             collect_python(0xFFFFFFF)
 
     def test_symbol_not_found(self, monkeypatch):
-        """Mock find_symbol to return 0 → SymbolNotFound."""
-        monkeypatch.setattr("pyprobe.stack_dump.find_symbol", lambda *a, **k: 0)
+        """Mock find_symbol to return 0 → SymbolNotFound.
+
+        ``resolve_process`` lives in ``pyprobe.process`` (TODO §8.1) —
+        patches target that module's namespace.
+        """
+        monkeypatch.setattr("pyprobe.process.find_symbol", lambda *a, **k: 0)
         monkeypatch.setattr("os.readlink", lambda p: "/fake/python3.12")
         with pytest.raises(SymbolNotFound):
             collect_python(12345)
@@ -343,13 +347,24 @@ class TestDumpPythonCli:
         assert "not found" in captured.err.lower() or "not found" in captured.out.lower()
 
     def _fake_collect(self, monkeypatch):
-        """Stub collect_python to return canned data; no real process needed."""
+        """Stub resolve_process + _collect_threads_from_session.
+
+        ``dump_python`` no longer routes through ``collect_python`` (it
+        needs the ``ProcessSession.version_warning``); the two helpers it
+        actually calls are patched instead (TODO §8.1).
+        """
+        from pyprobe.process import ProcessSession
         proc = ProcessInfo(pid=123, cmdline="python app.py",
                            exe_path="/usr/bin/python3", python_version="3.12.1")
         threads = [ThreadInfo(native_tid=123, name="MainThread",
                               frames=[FrameInfo("main", "app.py", 10)])]
-        monkeypatch.setattr("pyprobe.stack_dump.collect_python",
-                            lambda pid: (proc, threads))
+        session = ProcessSession(
+            pid=123, exe_path=proc.exe_path, runtime_addr=0,
+            interp_addr=0, trampoline_addr=0, proc_info=proc, names={})
+        monkeypatch.setattr("pyprobe.stack_dump.resolve_process",
+                            lambda pid, **kw: session)
+        monkeypatch.setattr("pyprobe.stack_dump._collect_threads_from_session",
+                            lambda session: threads)
 
     def test_no_color_when_not_a_tty(self, monkeypatch, capsys):
         """I3: default (color=None) must emit plain text when stdout is not a tty."""

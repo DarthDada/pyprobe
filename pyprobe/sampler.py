@@ -1,44 +1,44 @@
 """Sampling engine: one-time resolution + periodic lightweight sampling.
 
-``stack_dump.collect_python`` re-does expensive, process-lifetime-invariant
-work on every call (ELF symbol scan ×2, ``offsets.configure``, warning
-output for unverified versions).  The ``Sampler`` splits that into:
+``stack_dump.collect_python`` and ``Sampler.__init__`` used to each redo
+the same expensive, process-lifetime-invariant work (ELF symbol scan ×2,
+``offsets.configure``, warning handling).  That resolution now lives in
+:mod:`pyprobe.process` (``resolve_process`` → :class:`ProcessSession`),
+and the ``Sampler`` simply stores the session.  The split is:
 
-* ``__init__`` — resolve everything that cannot change while the target
-  lives: exe path, ``_PyRuntime`` address, CPython version + offsets
-  table, main interpreter address, trampoline address (3.12 only),
-  cmdline metadata, and the thread-name map (``threading._active``).
+* ``__init__`` — call :func:`resolve_process` once; everything that
+  cannot change while the target lives (exe path, ``_PyRuntime`` address,
+  CPython version + offsets table, main interpreter address, trampoline
+  address (3.12 only), cmdline metadata, thread-name map) is on the
+  session.
 * ``sample()`` — the hot path: a fresh ``RemoteReader`` (page cache is a
   single-dump snapshot; reuse across samples would serve stale data),
   the thread chain, idle pruning via ``/proc`` stat state, and the frame
   walk for active threads only.
 
-``record`` and ``top`` both build on this engine.
+``record`` and ``top`` both build on this engine.  ``session.version_warning``
+is surfaced by ``dump_record`` / ``dump_top`` (the dump layer), per the
+collect/format/dump contract (TODO §8.1, §8.5).
 """
 
-import os
-from typing import Callable, List
+from typing import List
 
 from .memory import RemoteReader
-from . import offsets
-from .elf import find_symbol, read_const, read_cmdline, decode_py_version
-from .thread_names import get_thread_names
+from .process import ProcessSession, resolve_process
 from .stack_dump import (
-    collect_thread, _read_thread_chain, _is_thread_idle_by_stat,
+    collect_thread, read_thread_chain, is_thread_idle_by_stat,
 )
-from .types import ThreadInfo, ProcessInfo
-from .errors import (
-    ProcessNotFound, SymbolNotFound, NoInterpreterState, NoThreadState,
-    ProcessExited,
-)
+from .thread_names import get_thread_names
+from .types import ThreadInfo
+from .errors import NoThreadState, ProcessExited
 
 
 class Sampler:
     """Periodic Python-stack sampler for a running CPython process.
 
     Constructing a ``Sampler`` performs all process-lifetime-invariant
-    resolution once (see module docstring); ``sample()`` is then cheap
-    enough to call tens of times per second.
+    resolution once via :func:`resolve_process`; ``sample()`` is then
+    cheap enough to call tens of times per second.
 
     ``reader_factory`` is an injection point for tests (any callable
     returning an object with ``read``/``read_ptr`` semantics, e.g.
@@ -48,53 +48,17 @@ class Sampler:
     def __init__(self, pid: int, *, reader_factory=RemoteReader):
         self.pid = pid
         self._reader_factory = reader_factory
+        # Shared resolution path with ``collect_python`` (TODO §8.1) — no
+        # more duplicated ELF / offsets / interp-addr logic here.
+        self.session: ProcessSession = resolve_process(
+            pid, reader_factory=reader_factory)
 
-        try:
-            exe_path = os.readlink(f"/proc/{pid}/exe")
-        except OSError as e:
-            raise ProcessNotFound(pid) from e
-
-        runtime_addr = find_symbol(exe_path, "_PyRuntime", pid)
-        if runtime_addr == 0:
-            raise SymbolNotFound("_PyRuntime", exe_path)
-
-        version_str = "?"
-        py_version = read_const(exe_path, "Py_Version", 8)
-        if py_version is not None:
-            version_str = decode_py_version(
-                int.from_bytes(py_version, "little"))
-        if version_str != "?":
-            offsets.configure(version_str)
-        else:
-            offsets.configure(offsets._DEFAULT_VERSION)
-
-        cmdline = read_cmdline(pid) or exe_path
-        self.proc_info = ProcessInfo(
-            pid=pid, cmdline=cmdline, exe_path=exe_path,
-            python_version=version_str,
-        )
-
-        bootstrap = reader_factory(pid)
-        self.interp_addr = bootstrap.read_ptr(
-            runtime_addr + offsets.get("RuntimeState.interpreters")
-            + offsets.get("pyinterpreters.main"))
-        if self.interp_addr is None or self.interp_addr == 0:
-            self.interp_addr = bootstrap.read_ptr(
-                runtime_addr + offsets.get("RuntimeState.interpreters")
-                + offsets.get("pyinterpreters.head"))
-        if self.interp_addr is None or self.interp_addr == 0:
-            raise NoInterpreterState()
-
-        # The interpreter trampoline only exists in 3.12 (introduced there,
-        # removed in 3.13); when absent there are no trampoline frames to skip.
-        self.trampoline_addr = 0
-        tramp_off = offsets.get_or("InterpreterState.interpreter_trampoline")
-        if tramp_off is not None:
-            addr = bootstrap.read_ptr(self.interp_addr + tramp_off)
-            if addr is not None:
-                self.trampoline_addr = addr
-
-        self._names = get_thread_names(bootstrap, self.interp_addr)
+        # Backward-compat attributes: existing tests and callers read
+        # interp_addr / trampoline_addr / proc_info / _names directly.
+        self.proc_info = self.session.proc_info
+        self.interp_addr = self.session.interp_addr
+        self.trampoline_addr = self.session.trampoline_addr
+        self._names = self.session.names
 
     def sample(self) -> List[ThreadInfo]:
         """Take one snapshot of all threads. Raises ``ProcessExited``.
@@ -105,14 +69,14 @@ class Sampler:
         """
         reader = self._reader_factory(self.pid)
         try:
-            raw = _read_thread_chain(reader, self.interp_addr)
+            raw = read_thread_chain(reader, self.interp_addr)
         except NoThreadState as e:
             raise ProcessExited(self.pid) from e
 
         threads = []
         for t in raw:
             name = self._names.get(t["thread_id"], "")
-            idle = _is_thread_idle_by_stat(self.pid, t["native_tid"])
+            idle = is_thread_idle_by_stat(self.pid, t["native_tid"])
             threads.append(collect_thread(
                 reader, self.pid, t["tstate_addr"], t["native_tid"],
                 name, self.trampoline_addr, idle_hint=idle))
@@ -129,3 +93,4 @@ class Sampler:
         """
         reader = self._reader_factory(self.pid)
         self._names = get_thread_names(reader, self.interp_addr)
+        self.session.names = self._names

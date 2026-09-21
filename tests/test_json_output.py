@@ -64,9 +64,25 @@ class TestFormatProcessJson:
 
 
 class TestDumpPythonJson:
+    def _stub(self, monkeypatch, proc=PROC, threads=None):
+        """Patch resolve_process + _collect_threads_from_session (TODO §8.1).
+
+        ``dump_python`` no longer routes through ``collect_python`` — it
+        needs the ``ProcessSession.version_warning`` field — so the two
+        helpers it actually calls are patched.
+        """
+        from pyprobe.process import ProcessSession
+        threads = threads if threads is not None else _threads()
+        session = ProcessSession(
+            pid=proc.pid, exe_path=proc.exe_path, runtime_addr=0,
+            interp_addr=0, trampoline_addr=0, proc_info=proc, names={})
+        monkeypatch.setattr("pyprobe.stack_dump.resolve_process",
+                            lambda pid, **kw: session)
+        monkeypatch.setattr("pyprobe.stack_dump._collect_threads_from_session",
+                            lambda session: threads)
+
     def test_output_parses(self, monkeypatch, capsys):
-        monkeypatch.setattr(
-            "pyprobe.stack_dump.collect_python", lambda pid: (PROC, _threads()))
+        self._stub(monkeypatch)
         rc = dump_python(42, color=True, json_output=True)
         assert rc == 0
         out, _ = capsys.readouterr()
@@ -76,17 +92,16 @@ class TestDumpPythonJson:
         assert len(data["threads"]) == 2
 
     def test_error_path_still_text_stderr(self, monkeypatch, capsys):
-        def boom(pid):
+        def boom(pid, **kw):
             raise ProcessNotFound(pid)
-        monkeypatch.setattr("pyprobe.stack_dump.collect_python", boom)
+        monkeypatch.setattr("pyprobe.stack_dump.resolve_process", boom)
         rc = dump_python(999, json_output=True)
         assert rc == 1
         _, err = capsys.readouterr()
         assert "[!]" in err
 
     def test_text_mode_unchanged(self, monkeypatch, capsys):
-        monkeypatch.setattr(
-            "pyprobe.stack_dump.collect_python", lambda pid: (PROC, _threads()))
+        self._stub(monkeypatch)
         rc = dump_python(42, color=False)
         assert rc == 0
         out, _ = capsys.readouterr()

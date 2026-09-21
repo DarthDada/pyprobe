@@ -16,7 +16,7 @@ from dataclasses import asdict
 from typing import Optional
 
 from .colors import red, should_color, yellow_bold
-from .elf import read_cmdline
+from .procmeta import read_cmdline
 from .types import NativeFrame, NativeThreadInfo
 from .errors import AttachFailed
 

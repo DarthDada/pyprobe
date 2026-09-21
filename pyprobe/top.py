@@ -136,6 +136,13 @@ def dump_top(pid: int, *, rate: float = 50, interval: float = 1.0,
         print(red(f"[!] {e}", err_color), file=sys.stderr)
         return 1
 
+    # Surface the unverified-version warning once at startup (TODO §8.5):
+    # the collect layer (resolve_process) captures it on the session; the
+    # dump layer (here) prints it.
+    if sampler.session.version_warning:
+        print(red(sampler.session.version_warning, err_color),
+              file=sys.stderr)
+
     stats = TopStats()
     sample_interval = 1.0 / rate
     out = sys.stdout

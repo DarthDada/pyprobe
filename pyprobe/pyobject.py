@@ -2,7 +2,7 @@
 
 import struct
 
-from .memory import RemoteReader, PTR_SIZE, MAX_STR_LEN
+from .memory import PTR_SIZE, MAX_STR_LEN
 from . import offsets
 
 _UNICODE_KINDS = {

@@ -7,6 +7,7 @@ fake clock, and monkeypatched ``sys.stdout.isatty``.
 
 import sys
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -125,6 +126,9 @@ class StubSampler:
         self.pid = pid
         self._queue = list(type(self).preset)
         self.proc_info = PROC
+        # ``dump_top`` reads ``sampler.session.version_warning`` (TODO §8.5);
+        # a stub session with no warning is the clean default here.
+        self.session = SimpleNamespace(version_warning=None)
         self.n_samples = 0
 
     def sample(self):
