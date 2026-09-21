@@ -7,7 +7,7 @@
 #   sync          install/sync dependencies          (scripts/sync.sh)
 #   gen-offsets   regenerate pyprobe/offsets.json     (scripts/gen_offsets.sh)
 #   build-c       build the C reference implementation (scripts/build.sh)
-#   test          run the test suite                  (scripts/run_tests.sh)
+#   test          run the test suite + coverage baseline   (scripts/run_tests.sh)
 #   smoke         build wheel + import/CLI smoke test (scripts/smoke.sh)
 #
 # Usage:
@@ -24,7 +24,7 @@ run_stage() {
         sync)        echo "==> [sync]";          scripts/sync.sh ;;
         gen-offsets) echo "==> [gen-offsets]";   scripts/gen_offsets.sh ;;
         build-c)     echo "==> [build-c]";       scripts/build.sh ;;
-        test)        echo "==> [test]";          scripts/run_tests.sh ;;
+        test)        echo "==> [test]";          scripts/run_tests.sh --cov ;;
         smoke)       echo "==> [smoke]";         scripts/smoke.sh ;;
         *) echo "unknown stage: $1 (valid: sync gen-offsets build-c test smoke all full)" >&2; exit 2 ;;
     esac

@@ -59,6 +59,7 @@ def target_pid():
         except subprocess.TimeoutExpired:
             child.kill()
             child.wait()
+        child.stdout.close()
 
 
 @pytest.fixture(scope="session")
@@ -91,3 +92,4 @@ def spin_pid():
         except subprocess.TimeoutExpired:
             child.kill()
             child.wait()
+        child.stdout.close()

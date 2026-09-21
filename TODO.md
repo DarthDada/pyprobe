@@ -10,7 +10,7 @@
 7. [工程基础设施](#7-工程基础设施)
 8. [代码模块化与解耦](#8-代码模块化与解耦)
 
-> **全局优先级**：功能（§2–§6）与基础设施（§7）两轨并行。上轮 P0（record/top + `--json`）已交付；当前 P0 = CPython 3.14（§3.2，时间敏感，以 §3.1 参数化为前置）+ §7 的 P0/P1（为 3.14 TDD 接入及后续开发提供快速反馈）；P1 = §2 剩余项（info / 按名称匹配 / syscall `--json`，低成本）；其余按章节内次序推进，§4 P0（生产环境可加载）作为已发布功能的健壮性问题可随需插入。
+> **全局优先级**：功能（§2–§6）与基础设施（§7）两轨并行。上轮 P0（record/top + `--json`、§7 的 P0：pytest-cov 基线 / watch / 严格化）已交付；当前 P0 = CPython 3.14（§3.2，时间敏感，以 §3.1 参数化为前置）；P1 = §2 剩余项（info / 按名称匹配 / syscall `--json`，低成本）+ §7 剩余 P1（远程 CI / git hooks / 文档增补）；其余按章节内次序推进，§4 P0（生产环境可加载）作为已发布功能的健壮性问题可随需插入。
 
 ## 2. CLI 易用性与集成
 
@@ -68,32 +68,26 @@
 
 ## 7. 工程基础设施
 
-> 现状：480 个测试（含参数化展开）+ FakeReader/对象构造器 + `target_pid`/`spin_pid` fixture（支持 `TARGET_PYTHON` 跨版本端到端）已具备；以下为按红→绿→重构循环衡量的缺口。TDD 是流程约束，靠自觉必退化。
-
-### P0 — 支撑红绿循环本身
-
-- [ ] 1. 引入 `pytest-cov`：加入 dev 依赖组；`scripts/run_tests.sh` 支持 `--cov` 透传或新增 coverage 阶段；设定 `--cov-fail-under` 基线防覆盖回退
-- [ ] 2. watch 模式：`scripts/run_tests.sh watch` 子命令，复用 venv 中已有的 `watchfiles`，实现保存即重跑（秒级反馈）
-- [ ] 3. pytest 严格化：`pyproject.toml` 增加 `addopts = ["-ra", "--strict-markers", "--strict-config"]` 与 `filterwarnings = ["error"]`；同步 `scripts/run_tests.sh`
+> 现状：480 个测试（含参数化展开）+ FakeReader/对象构造器 + `target_pid`/`spin_pid` fixture（支持 `TARGET_PYTHON` 跨版本端到端）已具备；P0 已于 2026-09 落地——pytest-cov 覆盖率基线（`scripts/run_tests.sh --cov`，CI test 阶段强制，79% fail-under）、watch 模式（`scripts/run_tests.sh watch`，watchfiles 保存即重跑）、pytest 严格化（`-ra`/`--strict-markers`/`--strict-config` + `filterwarnings = ["error"]`）。以下为按红→绿→重构循环衡量的剩余缺口。TDD 是流程约束，靠自觉必退化。
 
 ### P1 — 流程纪律强制
 
-- [ ] 4. 远程 CI：新增 `.github/workflows/ci.yml`，仅调用 `scripts/ci.sh`（与本地一致），强制"提交必须全绿"
-- [ ] 5. git hooks：pre-commit/pre-push 跑单元测试（无裸命令，走 `scripts/run_tests.sh unit`）
-- [ ] 6. AGENTS.md 增补 TDD 工作流约束条目（先写失败测试、red 阶段验证、测试与实现同提交）
-- [ ] 7. design.md §13 增补测试架构对应变更（§13.1/13.2 已含 record/top/`--json` 测试架构；覆盖率目标、watch 模式、CI 阶段待补）
+- [ ] 1. 远程 CI：新增 `.github/workflows/ci.yml`，仅调用 `scripts/ci.sh`（与本地一致），强制"提交必须全绿"
+- [ ] 2. git hooks：pre-commit/pre-push 跑单元测试（无裸命令，走 `scripts/run_tests.sh unit`）
+- [ ] 3. AGENTS.md 增补 TDD 工作流约束条目（先写失败测试、red 阶段验证、测试与实现同提交）
+- [ ] 4. design.md §13 增补测试架构对应变更（§13.1/13.2 已含 record/top/`--json` 测试架构；覆盖率目标、watch 模式、CI 阶段待补）
 
 ### P2 — "绿"的质量与重构安全网
 
-- [ ] 8. golden file 测试：`format_process` / CLI 文本与 `--json` 输出的格式快照基线（tests/test_json_output.py 现为结构断言，非快照），保障格式化重构安全
-- [ ] 9. 变异测试（mutmut）：解析二进制内存布局的代码测试"看似覆盖但抓不住错位偏移"风险高，用变异测试验证测试有效性
-- [ ] 10. 引入 lint/typecheck（当前 AGENTS.md 明确"无"）：重构安全网 = 测试 + 静态检查，二者缺一
-- [ ] 11. 属性测试（hypothesis）：`linetable` / `dict_iter` / `pyobject` 解析器代码的典型受益者
+- [ ] 5. golden file 测试：`format_process` / CLI 文本与 `--json` 输出的格式快照基线（tests/test_json_output.py 现为结构断言，非快照），保障格式化重构安全
+- [ ] 6. 变异测试（mutmut）：解析二进制内存布局的代码测试"看似覆盖但抓不住错位偏移"风险高，用变异测试验证测试有效性
+- [ ] 7. 引入 lint/typecheck（当前 AGENTS.md 明确"无"）：重构安全网 = 测试 + 静态检查，二者缺一
+- [ ] 8. 属性测试（hypothesis）：`linetable` / `dict_iter` / `pyobject` 解析器代码的典型受益者
 
 ## 8. 代码模块化与解耦
 
-> 2026-09 依赖审计结论：20 模块依赖图为干净 DAG（无循环），collect/format/dump 三层分离整体健康。P1/P2（重复消除与模块边界清理）与 P3 条目 9（types.py docstring 收窄）已于 2026-09 落地（480 个测试 + 端到端集成测试为安全网，全绿）；仅余 `offsets` 去 global 化（P3）显式延后——需 §7.1 覆盖率基线 + §7.10 lint 作前置安全网。涉及模块增删或 API 转正时同步 design.md §2 与 `__init__.py` `__all__`。
+> 2026-09 依赖审计结论：20 模块依赖图为干净 DAG（无循环），collect/format/dump 三层分离整体健康。P1/P2（重复消除与模块边界清理）与 P3 条目 9（types.py docstring 收窄）已于 2026-09 落地（480 个测试 + 端到端集成测试为安全网，全绿）；仅余 `offsets` 去 global 化（P3）显式延后——覆盖率基线已交付（`--cov`），需 §7.7 lint 作前置安全网。涉及模块增删或 API 转正时同步 design.md §2 与 `__init__.py` `__all__`。
 
 ### P3 — 高成本重构（独立 PR，需安全网护航）
 
-- [ ] 1. `offsets` 去 global 化：`_active` 模块级可变单例（offsets.py:177），`get()` 未 configure 时隐式触发 configure（offsets.py:214-217，读路径带副作用）；71 处调用分布于 6 模块（stack_dump 30 / thread_names 12 / pyobject 11 / dict_iter 10 / sampler 7 / linetable 1）。改为 per-session 偏移量表对象随 reader/session 传递后：可同时探测不同 CPython 版本的进程、消除 tests/test_offsets.py:47 的手工复位。改动面大（59 处 `get`），以 §7.10 lint + §7.1 覆盖率基线为前置
+- [ ] 1. `offsets` 去 global 化：`_active` 模块级可变单例（offsets.py:177），`get()` 未 configure 时隐式触发 configure（offsets.py:214-217，读路径带副作用）；71 处调用分布于 6 模块（stack_dump 30 / thread_names 12 / pyobject 11 / dict_iter 10 / sampler 7 / linetable 1）。改为 per-session 偏移量表对象随 reader/session 传递后：可同时探测不同 CPython 版本的进程、消除 tests/test_offsets.py:47 的手工复位。改动面大（59 处 `get`），以 §7.7 lint 为前置（覆盖率基线已交付）

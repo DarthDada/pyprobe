@@ -300,6 +300,7 @@ class TestSampler:
         finally:
             child.terminate()
             child.wait(timeout=5)
+            child.stdout.close()
         with pytest.raises(ProcessExited):
             s.sample()  # memory gone after exit
 

@@ -258,7 +258,7 @@ Top functions
 | `scripts/build_wheel.sh` | 单架构 native wheel（替代裸 `uv build --wheel`） |
 | `scripts/build_wheels.sh` | 双架构（x86_64 + aarch64）wheel |
 | `scripts/smoke.sh` | wheel 冒烟测试（构建 + 隔离 venv 安装 + import/CLI 校验） |
-| `scripts/run_tests.sh` | 测试（`unit`/`integration`/全部） |
+| `scripts/run_tests.sh` | 测试（`unit`/`integration`/全部；`--cov` 覆盖率基线；`watch` 保存即重跑） |
 | `scripts/ci.sh` | CI 全流程编排（`sync gen-offsets test smoke`，`full` 含 `build-c`） |
 | `scripts/_common.sh` | 公共逻辑（被各脚本 source，不单独执行） |
 
@@ -277,6 +277,9 @@ scripts/ci.sh sync gen-offsets   # 指定阶段，按给出顺序执行
 scripts/run_tests.sh              # 全部测试（unit + integration）
 scripts/run_tests.sh unit         # 仅单元测试（无子进程）
 scripts/run_tests.sh integration  # 仅集成测试
+scripts/run_tests.sh unit --cov   # 覆盖率报告 + fail-under 基线（防覆盖回退）
+scripts/run_tests.sh watch        # 保存即重跑单元测试（默认；Ctrl-C 退出）
+scripts/run_tests.sh watch all    # 同上，重跑全部测试
 scripts/run_tests.sh -- -x        # -- 之后的参数透传给 pytest
 ```
 
