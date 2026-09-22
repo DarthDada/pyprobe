@@ -38,6 +38,10 @@ build_wheel() {
         uv_plat=(-C--build-option=--plat-name="$plat")
         pip_plat=(--config-settings=--build-option=--plat-name="$plat")
     fi
+    # Purge stale setuptools intermediates (build/lib + build/bdist.*) so
+    # source files removed since the last build don't leak into the wheel.
+    # build/pyprobe (C reference binary, from scripts/build.sh) is untouched.
+    rm -rf build/lib build/bdist.*
     if have_uv; then
         uv build --wheel "${uv_plat[@]}" "$@"
     elif python3 -c "import setuptools" >/dev/null 2>&1; then
