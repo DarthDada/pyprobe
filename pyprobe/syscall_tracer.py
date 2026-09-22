@@ -23,10 +23,15 @@ import time
 
 from .colors import red, should_color
 from .errors import (
-    AttachFailed, ProcessNotFound, UnsupportedArchitecture,
+    AttachFailed,
+    ProcessNotFound,
+    UnsupportedArchitecture,
 )
 from .syscall_render import (
-    _decode_args, _fill_out_args, TraceFilter, format_summary,
+    TraceFilter,
+    _decode_args,
+    _fill_out_args,
+    format_summary,
 )
 from .syscall_table import SYSCALL_NAMES, SYSCALL_NRS
 from .types import SyscallEvent
@@ -96,9 +101,9 @@ def _waitpid(pid, flags):
 
 def _list_tids(pid):
     try:
-        return sorted(int(x) for x in os.listdir("/proc/%d/task" % pid))
+        return sorted(int(x) for x in os.listdir(f"/proc/{pid}/task"))
     except (FileNotFoundError, ProcessLookupError):
-        raise ProcessNotFound(pid)
+        raise ProcessNotFound(pid) from None
 
 
 class _UncachedReader:
@@ -294,7 +299,7 @@ class SyscallTracer:
                            TraceFilter(""), on_event)
 
     def _emit(self, tid, nr, args, ret, elapsed, flt, on_event):
-        name = SYSCALL_NAMES.get(nr, "sys_%d" % nr)
+        name = SYSCALL_NAMES.get(nr, f"sys_{nr}")
         if not flt.matches(name):
             return
         error = None
@@ -350,7 +355,7 @@ def dump_syscalls(pid, *, color=None, verbose=False, trace="",
         tracer.attach()
     except (AttachFailed, ProcessNotFound, UnsupportedArchitecture) as e:
         err_color = should_color(sys.stderr) if color is None else color
-        print(red("[!] %s" % e, err_color), file=sys.stderr)
+        print(red(f"[!] {e}", err_color), file=sys.stderr)
         return 1
 
     try:

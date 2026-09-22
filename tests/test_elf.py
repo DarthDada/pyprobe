@@ -5,7 +5,6 @@ live in ``procmeta.py`` and are covered by ``test_procmeta.py``.
 """
 
 import os
-import struct
 import sys
 
 import pytest

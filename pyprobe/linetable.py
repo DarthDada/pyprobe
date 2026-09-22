@@ -14,7 +14,6 @@ def addr2line(reader, code_addr, lasti, firstlineno):
     if linetable is None:
         return firstlineno
 
-    ar_start = -1
     ar_end = 0
     computed_line = firstlineno
     ar_line = -1
@@ -57,7 +56,6 @@ def addr2line(reader, code_addr, lasti, firstlineno):
         else:
             ar_line = computed_line
 
-        ar_start = ar_end
         ar_end += ((first_byte & 7) + 1) * 2
 
         pos += 1

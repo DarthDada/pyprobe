@@ -11,7 +11,7 @@ contains ``[addr, addr+length)`` and returns the slice, or ``None``.
 import struct
 
 from pyprobe import offsets
-from pyprobe.memory import PTR_SIZE, PAGE_SIZE, PAGE_MASK, RemoteReader
+from pyprobe.memory import PAGE_MASK, PTR_SIZE, RemoteReader
 
 
 class FakeReader:
@@ -74,7 +74,6 @@ def build_pyunicode_utf16(reader, addr, text):
     """Write a compact non-ASCII PyUnicode (kind=2, utf-16-le) at *addr*."""
     data = text.encode("utf-16-le")
     length = len(text)
-    ascii_sz = offsets.get("PyASCIIObject_size")
     compact_sz = offsets.get("PyCompactUnicodeObject_size")
     blob = bytearray(compact_sz + len(data))
     struct.pack_into("<q", blob, 16, length)

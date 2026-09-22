@@ -2,8 +2,8 @@
 
 import struct
 
-from .memory import PTR_SIZE, MAX_STR_LEN
 from . import offsets
+from .memory import MAX_STR_LEN, PTR_SIZE
 
 
 class DictIter:

@@ -2,8 +2,6 @@
 
 import struct
 
-import pytest
-
 from pyprobe import offsets
 from pyprobe.dict_iter import DictIter
 from tests.helpers import FakeReader
@@ -145,7 +143,6 @@ class TestFromManagedValues:
         struct.pack_into("<q", keys_blob, offsets.get("dictkeysobject.dk_nentries"), 1)
         reader.add(KEYS_ADDR, bytes(keys_blob))
 
-        entry_sz = offsets.get("PyDictKeyEntry_size")
         entries_addr = KEYS_ADDR + (1 << 0) + keys_sz
         # entry: hash=0, key=0xAAAA, value=0 (value read from values array)
         reader.add(entries_addr, struct.pack("<QQQ", 0, 0xAAAA, 0))

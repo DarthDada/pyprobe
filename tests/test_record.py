@@ -10,10 +10,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from pyprobe.record import collect_profile, format_folded, _fold_key
-from pyprobe.types import FrameInfo, ThreadInfo, ProcessInfo, ProfileData
-from pyprobe.errors import ProcessExited, ProcessNotFound
 from pyprobe import record
+from pyprobe.errors import ProcessExited, ProcessNotFound
+from pyprobe.record import _fold_key, collect_profile, format_folded
+from pyprobe.types import FrameInfo, ProcessInfo, ProfileData, ThreadInfo
 
 
 def _thread(tid, name, frames, idle=False):

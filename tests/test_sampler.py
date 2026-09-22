@@ -11,13 +11,20 @@ import os
 import pytest
 
 from pyprobe import offsets
-from pyprobe.sampler import Sampler
 from pyprobe.errors import (
-    ProcessNotFound, SymbolNotFound, NoInterpreterState, ProcessExited,
+    NoInterpreterState,
+    ProcessExited,
+    ProcessNotFound,
+    SymbolNotFound,
 )
+from pyprobe.sampler import Sampler
 from tests.helpers import (
-    FakeReader, build_frame, build_code_object, build_pyunicode,
-    build_pybytes, linetable_no_line,
+    FakeReader,
+    build_code_object,
+    build_frame,
+    build_pybytes,
+    build_pyunicode,
+    linetable_no_line,
 )
 
 # Static addresses used by the fake process layout.

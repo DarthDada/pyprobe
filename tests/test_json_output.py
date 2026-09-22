@@ -7,15 +7,16 @@ None fields become null, and the error path stays plain-text stderr + rc 1.
 
 import json
 
-import pytest
-
-from pyprobe.types import (
-    FrameInfo, ThreadInfo, ProcessInfo, NativeFrame, NativeThreadInfo,
-)
-from pyprobe.stack_dump import format_process_json, dump_python
-from pyprobe.native_dump import format_native_json, dump_native
 from pyprobe.errors import ProcessNotFound
-
+from pyprobe.native_dump import dump_native, format_native_json
+from pyprobe.stack_dump import dump_python, format_process_json
+from pyprobe.types import (
+    FrameInfo,
+    NativeFrame,
+    NativeThreadInfo,
+    ProcessInfo,
+    ThreadInfo,
+)
 
 PROC = ProcessInfo(pid=42, cmdline="python3 app.py",
                    exe_path="/usr/bin/python3.12", python_version="3.12.13")
@@ -135,7 +136,6 @@ class TestFormatNativeJson:
 
 class TestDumpNativeJson:
     def test_output_parses_and_no_text_header(self, monkeypatch, capsys):
-        from pyprobe.native_dump import collect_native
         threads = [NativeThreadInfo(tid=100, comm="python3",
                                     frames=[NativeFrame(0x4000, "main")])]
         monkeypatch.setattr("pyprobe.native_dump.collect_native",

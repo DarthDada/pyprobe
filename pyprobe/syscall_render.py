@@ -22,10 +22,12 @@ import re
 import struct
 
 from .syscall_table import (
-    SYSCALL_NAMES, SYSCALL_NRS, DECODE, TRACE_GROUPS,
-    OPEN_FLAGS, MAP_FLAGS, PROT_FLAGS,
+    DECODE,
+    MAP_FLAGS,
+    OPEN_FLAGS,
+    PROT_FLAGS,
+    TRACE_GROUPS,
 )
-from .types import SyscallEvent
 
 # ---------------------------------------------------------------------------
 # String rendering helpers (strace style)
@@ -49,7 +51,7 @@ def escape_bytes(data: bytes) -> str:
             else:
                 out.append(ch)
         else:
-            out.append("\\%03o" % b)
+            out.append(f"\\{b:03o}")
     return "".join(out)
 
 
@@ -324,16 +326,19 @@ def format_summary(events, *, color: bool = False) -> str:
 
     rows = sorted(stats.values(), key=lambda s: -s.total_time)
     lines = [
-        "%-20s %10s %10s %11s %11s %16s" % (
-            "syscall", "calls", "errors", "total", "total/s", "per-call"),
+        f"{'syscall':<20} {'calls':>10} {'errors':>10} "
+        f"{'total':>11} {'total/s':>11} {'per-call':>16}",
         "-" * 82,
     ]
     for st in rows:
         per_call = st.total_time / st.calls if st.calls else 0.0
-        lines.append("%-20s %10d %10d %10.6f %10.6f %13.6f" % (
-            st.name, st.calls, st.errors,
-            st.total_time, st.total_time, per_call))
+        lines.append(
+            f"{st.name:<20} {st.calls:>10} {st.errors:>10} "
+            f"{st.total_time:>10.6f} {st.total_time:>10.6f} {per_call:>13.6f}"
+        )
     lines.append("-" * 82)
-    lines.append("%-20s %10d %10d %10.6f %10.6f" % (
-        "total", total_calls, total_errors, total_time, total_time))
+    lines.append(
+        f"{'total':<20} {total_calls:>10} {total_errors:>10} "
+        f"{total_time:>10.6f} {total_time:>10.6f}"
+    )
     return "\n".join(lines)

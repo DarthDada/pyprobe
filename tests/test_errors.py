@@ -3,11 +3,16 @@
 import pytest
 
 from pyprobe.errors import (
-    PyProbeError, ProcessNotFound, PermissionDenied, SymbolNotFound,
-    NoInterpreterState, NoThreadState, VersionNotSupported, AttachFailed,
+    AttachFailed,
+    NoInterpreterState,
+    NoThreadState,
+    PermissionDenied,
     ProcessExited,
+    ProcessNotFound,
+    PyProbeError,
+    SymbolNotFound,
+    VersionNotSupported,
 )
-
 
 SUBCLASSES = [
     ProcessNotFound, PermissionDenied, SymbolNotFound,

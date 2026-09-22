@@ -12,12 +12,11 @@ takes a few ms and absolute-time scheduling absorbs the hiccup.
 
 import sys
 import time
-from typing import Dict, List, Tuple
 
 from .colors import cyan, dim, green, red, should_color, yellow_bold
-from .sampler import Sampler
-from .types import FrameInfo, ThreadInfo, ProcessInfo
 from .errors import ProcessExited, PyProbeError
+from .sampler import Sampler
+from .types import FrameInfo, ProcessInfo, ThreadInfo
 
 HIDE_CURSOR = "\x1b[?25l"
 SHOW_CURSOR = "\x1b[?25h"
@@ -35,15 +34,15 @@ class TopStats:
     """Incremental aggregation of sampled threads."""
 
     def __init__(self):
-        self.own: Dict[str, int] = {}
-        self.total: Dict[str, int] = {}
+        self.own: dict[str, int] = {}
+        self.total: dict[str, int] = {}
         self.samples = 0
         self.idle_samples = 0
         # tid → (top FrameInfo, name) of the most recent active sample
-        self.current: Dict[int, Tuple[FrameInfo, str]] = {}
-        self.idle_threads: List[int] = []
+        self.current: dict[int, tuple[FrameInfo, str]] = {}
+        self.idle_threads: list[int] = []
 
-    def update(self, threads: List[ThreadInfo]) -> None:
+    def update(self, threads: list[ThreadInfo]) -> None:
         for t in threads:
             if t.idle:
                 self.idle_samples += 1

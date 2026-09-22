@@ -1,8 +1,11 @@
 """Unit tests for pyprobe.types — structured data formatting."""
 
 from pyprobe.types import (
-    FrameInfo, ThreadInfo, ProcessInfo,
-    NativeFrame, NativeThreadInfo,
+    FrameInfo,
+    NativeFrame,
+    NativeThreadInfo,
+    ProcessInfo,
+    ThreadInfo,
 )
 
 
@@ -172,8 +175,8 @@ class TestNativeFrame:
 class TestSyscallEvent:
     def _event(self, **kw):
         from pyprobe.types import SyscallEvent
-        defaults = dict(tid=1234, nr=257, name="openat",
-                        rendered='AT_FDCWD, "/tmp/x", O_RDONLY', ret=3)
+        defaults = {"tid": 1234, "nr": 257, "name": "openat",
+                    "rendered": 'AT_FDCWD, "/tmp/x", O_RDONLY', "ret": 3}
         defaults.update(kw)
         return SyscallEvent(**defaults)
 

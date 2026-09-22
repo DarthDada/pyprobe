@@ -19,11 +19,15 @@ import sys
 import pytest
 
 from pyprobe import (
-    collect_python, format_process, dump_python,
-    ProcessInfo, ThreadInfo, FrameInfo,
-    PyProbeError, ProcessNotFound,
+    FrameInfo,
+    ProcessInfo,
+    ProcessNotFound,
+    PyProbeError,
+    ThreadInfo,
+    collect_python,
+    dump_python,
+    format_process,
 )
-from pyprobe import offsets
 
 pytestmark = pytest.mark.integration
 
@@ -172,7 +176,7 @@ class TestNativeDump:
     """Verify collect_native against the child (may skip if ptrace denied)."""
 
     def test_collect_native_or_skip(self, target_pid):
-        from pyprobe import collect_native, AttachFailed
+        from pyprobe import AttachFailed, collect_native
         try:
             threads = collect_native(target_pid)
         except AttachFailed:
@@ -185,7 +189,7 @@ class TestSyscall:
     """Verify syscall tracing against the child (skip if ptrace denied)."""
 
     def _collect(self, target_pid, **kw):
-        from pyprobe import collect_syscalls, AttachFailed
+        from pyprobe import AttachFailed, collect_syscalls
         try:
             return collect_syscalls(target_pid, **kw)
         except AttachFailed:
@@ -227,7 +231,7 @@ class TestSyscall:
         assert proc_info.pid == target_pid
 
     def test_dump_output(self, target_pid, capsys):
-        from pyprobe import dump_syscalls, AttachFailed
+        from pyprobe import AttachFailed, dump_syscalls
         try:
             rc = dump_syscalls(target_pid, color=False, max_events=4)
         except AttachFailed:
@@ -237,7 +241,7 @@ class TestSyscall:
         assert "clock_nanosleep" in out
 
     def test_summary_table(self, target_pid, capsys):
-        from pyprobe import dump_syscalls, AttachFailed
+        from pyprobe import AttachFailed, dump_syscalls
         try:
             rc = dump_syscalls(target_pid, color=False, max_events=4,
                                summary=True)
@@ -250,7 +254,7 @@ class TestSyscall:
         assert "total" in out
 
     def test_nonexistent_pid_raises(self):
-        from pyprobe import collect_syscalls, PyProbeError
+        from pyprobe import PyProbeError, collect_syscalls
         with pytest.raises(PyProbeError):
             collect_syscalls(999999, max_events=1)
 
@@ -283,10 +287,11 @@ class TestSampler:
     def test_process_exited(self):
         import subprocess
         import time as _time
+
         from tests.conftest import _can_read_descendant
         if not _can_read_descendant():
             pytest.skip("integration tests require Linux process_vm_readv")
-        from pyprobe import Sampler, ProcessExited
+        from pyprobe import ProcessExited, Sampler
         script = os.path.join(os.path.dirname(__file__), "targets",
                               "spin_app.py")
         child = subprocess.Popen([sys.executable, script],
@@ -367,6 +372,7 @@ class TestTopStatsLive:
 class TestJsonOutputLive:
     def test_dump_python_json(self, spin_pid, capsys):
         import json
+
         from pyprobe import dump_python
         rc = dump_python(spin_pid, color=False, json_output=True)
         assert rc == 0
@@ -376,6 +382,7 @@ class TestJsonOutputLive:
 
     def test_json_cross_check_with_collect(self, spin_pid, capsys):
         import json
+
         from pyprobe import dump_python
         rc = dump_python(spin_pid, color=False, json_output=True)
         assert rc == 0

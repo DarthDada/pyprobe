@@ -5,17 +5,16 @@
 fake clock, and monkeypatched ``sys.stdout.isatty``.
 """
 
-import sys
 import time
 from types import SimpleNamespace
 
 import pytest
 
 import pyprobe.top
-from pyprobe.top import TopStats, dump_top
-from pyprobe.types import FrameInfo, ThreadInfo, ProcessInfo
-from pyprobe.errors import ProcessExited, ProcessNotFound
 from pyprobe import top
+from pyprobe.errors import ProcessExited, ProcessNotFound
+from pyprobe.top import TopStats, dump_top
+from pyprobe.types import FrameInfo, ProcessInfo, ThreadInfo
 
 
 def _thread(tid, name, frames, idle=False):

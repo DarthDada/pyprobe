@@ -21,8 +21,19 @@ YELLOW = "\x1b[33m"
 CYAN = "\x1b[36m"
 
 __all__ = [
-    "RESET", "BOLD", "DIM", "RED", "GREEN", "YELLOW", "CYAN",
-    "yellow_bold", "green", "cyan", "dim", "red", "should_color",
+    "BOLD",
+    "CYAN",
+    "DIM",
+    "GREEN",
+    "RED",
+    "RESET",
+    "YELLOW",
+    "cyan",
+    "dim",
+    "green",
+    "red",
+    "should_color",
+    "yellow_bold",
 ]
 
 

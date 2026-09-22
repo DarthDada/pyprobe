@@ -2,11 +2,11 @@
 
 import struct
 
-import pytest
-
 from pyprobe.memory import (
-    RemoteReader, PTR_SIZE, PAGE_SIZE, PAGE_MASK, CACHE_MAX_PAGES,
     BYPASS_CACHE_THRESHOLD,
+    CACHE_MAX_PAGES,
+    PAGE_SIZE,
+    PTR_SIZE,
 )
 from tests.helpers import FakeRemoteReader
 

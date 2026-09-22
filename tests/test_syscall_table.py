@@ -1,8 +1,13 @@
 """Unit tests for the x86-64 syscall table (pyprobe/syscall_table.py)."""
 
 from pyprobe.syscall_table import (
-    SYSCALL_NAMES, SYSCALL_NRS, DECODE, TRACE_GROUPS,
-    OPEN_FLAGS, MAP_FLAGS, PROT_FLAGS,
+    DECODE,
+    MAP_FLAGS,
+    OPEN_FLAGS,
+    PROT_FLAGS,
+    SYSCALL_NAMES,
+    SYSCALL_NRS,
+    TRACE_GROUPS,
 )
 
 

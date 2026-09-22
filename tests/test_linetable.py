@@ -1,12 +1,14 @@
 """Unit tests for pyprobe.linetable — PEP 626 line-table resolution."""
 
-import pytest
 
-from pyprobe import offsets
 from pyprobe.linetable import addr2line
 from tests.helpers import (
-    FakeReader, build_code_object, build_pybytes,
-    linetable_no_line, linetable_simple_increments, linetable_with_no_line,
+    FakeReader,
+    build_code_object,
+    build_pybytes,
+    linetable_no_line,
+    linetable_simple_increments,
+    linetable_with_no_line,
 )
 
 CODE_ADDR = 0x10000

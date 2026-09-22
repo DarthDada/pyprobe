@@ -1,13 +1,16 @@
 """Unit tests for pyprobe.pyobject — remote PyLong/PyBytes/PyUnicode readers."""
 
-import pytest
 
 from pyprobe import offsets
 from pyprobe.memory import MAX_STR_LEN
-from pyprobe.pyobject import read_pylong, read_pybytes, read_pyunicode
+from pyprobe.pyobject import read_pybytes, read_pylong, read_pyunicode
 from tests.helpers import (
-    FakeReader, build_pylong, build_pybytes,
-    build_pyunicode, build_pyunicode_utf16, build_pyunicode_noncompact,
+    FakeReader,
+    build_pybytes,
+    build_pylong,
+    build_pyunicode,
+    build_pyunicode_noncompact,
+    build_pyunicode_utf16,
 )
 
 ADDR = 0x10000
@@ -129,7 +132,6 @@ class TestReadPyUnicode:
 
     def test_non_compact_null_data_ptr(self):
         reader = FakeReader()
-        import struct
         full_sz = offsets.get("PyUnicodeObject.data_any") + 8
         blob = bytearray(full_sz)
         blob[32] = 0x08  # compact=0, kind=2, is_ascii=0

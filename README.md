@@ -18,7 +18,7 @@ scripts/build.sh           # 编译 C 参考实现（可选；需 libdw/libelf/z
 
 ### 构建 Wheel
 
-Wheel 标签为 `py3-none-linux_{x86_64,aarch64}`（纯 Python，支持 Python 3.8+ 宿主，仅 Linux）。
+Wheel 标签为 `py3-none-linux_{x86_64,aarch64}`（纯 Python，支持 Python 3.11+ 宿主，仅 Linux）。
 
 ```bash
 scripts/build_wheel.sh     # 仅构建当前架构 wheel 到 dist/
@@ -259,13 +259,14 @@ Top functions
 | `scripts/build_wheels.sh` | 双架构（x86_64 + aarch64）wheel |
 | `scripts/smoke.sh` | wheel 冒烟测试（构建 + 隔离 venv 安装 + import/CLI 校验） |
 | `scripts/run_tests.sh` | 测试（`unit`/`integration`/全部；`--cov` 覆盖率基线；`watch` 保存即重跑） |
-| `scripts/ci.sh` | CI 全流程编排（`sync gen-offsets test smoke`，`full` 含 `build-c`） |
+| `scripts/lint.sh` | ruff 代码检查（`--fix` 自动修复；`format` 应用格式化） |
+| `scripts/ci.sh` | CI 全流程编排（`sync gen-offsets lint test smoke`，`full` 含 `build-c`） |
 | `scripts/_common.sh` | 公共逻辑（被各脚本 source，不单独执行） |
 
 `scripts/ci.sh` 用法：
 
 ```bash
-scripts/ci.sh                 # 默认流水线：sync gen-offsets test smoke
+scripts/ci.sh                 # 默认流水线：sync gen-offsets lint test smoke
 scripts/ci.sh full            # 上述 + build-c（需 libdw/libelf/zlib）
 scripts/ci.sh test            # 单阶段
 scripts/ci.sh sync gen-offsets   # 指定阶段，按给出顺序执行

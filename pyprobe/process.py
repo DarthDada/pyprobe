@@ -17,13 +17,15 @@ the collect/format/dump contract (TODO §8.5).
 
 import os
 from dataclasses import dataclass, field
-from typing import Dict, Optional
 
+from . import offsets
 from .elf import find_symbol, read_const
 from .errors import (
-    NoInterpreterState, ProcessNotFound, SymbolNotFound, VersionNotSupported,
+    NoInterpreterState,
+    ProcessNotFound,
+    SymbolNotFound,
+    VersionNotSupported,
 )
-from . import offsets
 from .procmeta import decode_py_version, read_cmdline
 from .thread_names import get_thread_names
 from .types import ProcessInfo
@@ -45,8 +47,8 @@ class ProcessSession:
     interp_addr: int
     trampoline_addr: int
     proc_info: ProcessInfo
-    names: Dict[int, str] = field(default_factory=dict)
-    version_warning: Optional[str] = None
+    names: dict[int, str] = field(default_factory=dict)
+    version_warning: str | None = None
 
 
 def resolve_process(pid: int, *, reader_factory=None) -> ProcessSession:
@@ -119,7 +121,7 @@ def resolve_process(pid: int, *, reader_factory=None) -> ProcessSession:
     )
 
 
-def _configure_offsets(version_str: str) -> Optional[str]:
+def _configure_offsets(version_str: str) -> str | None:
     """Run ``offsets.configure`` and translate the unverified-version case
     into a warning string (no printing, no exception escapes).
 

@@ -21,16 +21,17 @@ is surfaced by ``dump_record`` / ``dump_top`` (the dump layer), per the
 collect/format/dump contract (TODO §8.1, §8.5).
 """
 
-from typing import List
 
+from .errors import NoThreadState, ProcessExited
 from .memory import RemoteReader
 from .process import ProcessSession, resolve_process
 from .stack_dump import (
-    collect_thread, read_thread_chain, is_thread_idle_by_stat,
+    collect_thread,
+    is_thread_idle_by_stat,
+    read_thread_chain,
 )
 from .thread_names import get_thread_names
 from .types import ThreadInfo
-from .errors import NoThreadState, ProcessExited
 
 
 class Sampler:
@@ -60,7 +61,7 @@ class Sampler:
         self.trampoline_addr = self.session.trampoline_addr
         self._names = self.session.names
 
-    def sample(self) -> List[ThreadInfo]:
+    def sample(self) -> list[ThreadInfo]:
         """Take one snapshot of all threads. Raises ``ProcessExited``.
 
         Each call uses a fresh reader: the page-level cache implements a

@@ -81,7 +81,7 @@
 
 - [ ] 5. golden file 测试：`format_process` / CLI 文本与 `--json` 输出的格式快照基线（tests/test_json_output.py 现为结构断言，非快照），保障格式化重构安全
 - [ ] 6. 变异测试（mutmut）：解析二进制内存布局的代码测试"看似覆盖但抓不住错位偏移"风险高，用变异测试验证测试有效性
-- [ ] 7. 引入 lint/typecheck（当前 AGENTS.md 明确"无"）：重构安全网 = 测试 + 静态检查，二者缺一
+- [ ] 7. typecheck（mypy/pyright）：lint 已落地（`scripts/lint.sh` 接入 CI lint 阶段），ctypes 重度使用 typecheck 噪音大待评估
 - [ ] 8. 属性测试（hypothesis）：`linetable` / `dict_iter` / `pyobject` 解析器代码的典型受益者
 
 ## 8. 代码模块化与解耦

@@ -8,7 +8,6 @@ collapses the dependency graph: ELF-dependent callers no longer pull ELF
 in merely to format a process header.
 """
 
-import os
 
 
 def read_cmdline(pid):

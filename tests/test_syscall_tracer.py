@@ -11,7 +11,9 @@ import pytest
 
 import pyprobe.syscall_tracer as st_mod
 from pyprobe.errors import (
-    AttachFailed, ProcessNotFound, UnsupportedArchitecture,
+    AttachFailed,
+    ProcessNotFound,
+    UnsupportedArchitecture,
 )
 
 
@@ -157,7 +159,6 @@ class TestRunStateMachine:
             regs={100: [regs_entry, regs_exit]},
         )
         tracer = make_tracer(monkeypatch, stub)
-        orig_getregs = tracer._getregs
 
         seq = iter([regs_entry, regs_exit])
         monkeypatch.setattr(tracer, "_getregs", lambda tid: next(seq, None))
@@ -307,7 +308,6 @@ class TestDetach:
         stub = StubPtrace(tids=[100, 101], stops={100: [], 101: []})
         tracer = make_tracer(monkeypatch, stub)
         tracer.detach()
-        intr = [c for c in stub.calls if c[0] == st_mod.PTRACE_INTERRUPT]
         det = [c for c in stub.calls if c[0] == st_mod.PTRACE_DETACH]
         assert {c[1] for c in det} == {100, 101}
         assert tracer.tids == set()

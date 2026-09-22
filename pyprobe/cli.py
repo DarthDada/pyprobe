@@ -17,10 +17,10 @@ import argparse
 import sys
 from importlib.metadata import version as _pkg_version
 
-from .stack_dump import dump_python
 from .native_dump import dump_native
-from .syscall_tracer import dump_syscalls
 from .record import dump_record
+from .stack_dump import dump_python
+from .syscall_tracer import dump_syscalls
 from .top import dump_top
 
 
@@ -44,7 +44,7 @@ def _positive_float(lo, hi, what):
             f = float(value)
         except ValueError:
             raise argparse.ArgumentTypeError(
-                f"{what} must be a number, got {value!r}")
+                f"{what} must be a number, got {value!r}") from None
         if not (lo < f <= hi):
             raise argparse.ArgumentTypeError(
                 f"{what} must be in ({lo:g}, {hi:g}], got {value!r}")

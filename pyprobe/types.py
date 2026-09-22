@@ -19,9 +19,7 @@ small presentation dependency).
 """
 
 import os
-
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 
 from .colors import cyan, dim, green, red, yellow_bold
 
@@ -69,8 +67,8 @@ def _shorten_path(path: str, depth: int = 2) -> str:
 class FrameInfo:
     """A single Python stack frame."""
 
-    name: Optional[str]
-    filename: Optional[str]
+    name: str | None
+    filename: str | None
     line: int
 
     def format(self, index: int, *, color: bool = False,
@@ -91,7 +89,7 @@ class ThreadInfo:
     native_tid: int
     thread_id: int = 0
     name: str = ""
-    frames: List[FrameInfo] = field(default_factory=list)
+    frames: list[FrameInfo] = field(default_factory=list)
     idle: bool = False
 
     def format(self, *, color: bool = False, verbose: bool = False) -> str:
@@ -132,7 +130,7 @@ class NativeFrame:
 
     pc: int
     symbol: str = "??"
-    module: Optional[str] = None
+    module: str | None = None
 
 
 @dataclass
@@ -141,7 +139,7 @@ class NativeThreadInfo:
 
     tid: int
     comm: str = ""
-    frames: List[NativeFrame] = field(default_factory=list)
+    frames: list[NativeFrame] = field(default_factory=list)
     unwind_failed: bool = False
 
     def format(self, index: int, *, color: bool = False,
@@ -184,10 +182,10 @@ class SyscallEvent:
     tid: int
     nr: int
     name: str
-    args: List[int] = field(default_factory=list)
+    args: list[int] = field(default_factory=list)
     rendered: str = ""
     ret: int = 0
-    error: Optional[int] = None    # errno when the syscall failed (-1 return)
+    error: int | None = None    # errno when the syscall failed (-1 return)
     elapsed: float = 0.0           # seconds between entry and exit stop
 
     def format(self, *, color: bool = False) -> str:
@@ -224,8 +222,8 @@ class ProfileData:
     """
 
     proc_info: ProcessInfo
-    counts: Dict[str, int] = field(default_factory=dict)
+    counts: dict[str, int] = field(default_factory=dict)
     samples: int = 0
     idle_samples: int = 0
     elapsed: float = 0.0
-    version_warning: Optional[str] = None
+    version_warning: str | None = None

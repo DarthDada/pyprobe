@@ -1,5 +1,5 @@
 # Build / Test / Run
-- 所有关键命令均经 `scripts/` 实现，详见 README「开发脚本」；CI 一律走 `scripts/ci.sh`，勿手敲裸命令（`uv sync`/`uv build`/`pytest` 等均已有对应脚本）
+- 所有关键命令均经 `scripts/` 实现，详见 README「开发脚本」；CI 一律走 `scripts/ci.sh`，勿手敲裸命令（`uv sync`/`uv build`/`pytest`/`ruff` 等均已有对应脚本）
 - 改构建依赖时同步 `pyproject.toml` 的 `[build-system].requires` 与 `scripts/_common.sh` 回退逻辑
 
 # Docs 写作约束
@@ -25,7 +25,8 @@
 - **禁止** shell `&` + `$!`/`pgrep` 取 PID（`uv run` 包装器导致 PID 错位）；**禁止**持久 shell 裸 `&` 跑长驻进程（管道继承致 shell 卡死）
 
 # Lint / Typecheck
-- 无
+- Lint 走 `scripts/lint.sh`（ruff，配置在 `pyproject.toml` `[tool.ruff]`），CI 在 test 阶段前强制；禁裸 `ruff` 命令
+- Typecheck 暂无（ctypes 重度使用，mypy/pyright 噪音大；TODO §7.7 待评估）
 
 # Architecture
 - 详见 [docs/design.md](docs/design.md)

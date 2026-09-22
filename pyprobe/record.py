@@ -16,12 +16,11 @@ Layered like the other features:
 
 import sys
 import time
-from typing import Optional
 
 from .colors import red, should_color
+from .errors import ProcessExited, PyProbeError
 from .sampler import Sampler
 from .types import ProfileData, ThreadInfo
-from .errors import ProcessExited, PyProbeError
 
 
 def _fold_key(thread: ThreadInfo) -> str:
@@ -44,7 +43,7 @@ def _fold_key(thread: ThreadInfo) -> str:
 
 
 def collect_profile(pid: int, *, rate: float = 50,
-                    duration: Optional[float] = None) -> ProfileData:
+                    duration: float | None = None) -> ProfileData:
     """Sample ``pid`` at ``rate`` Hz until ``duration`` seconds elapse.
 
     ``duration=None`` samples until interrupted (Ctrl-C) or the target
@@ -110,15 +109,14 @@ def format_folded(profile: ProfileData) -> str:
 
 
 def dump_record(pid: int, *, rate: float = 50,
-                duration: Optional[float] = None,
-                output: Optional[str] = None,
-                color: Optional[bool] = None) -> int:
+                duration: float | None = None,
+                output: str | None = None,
+                color: bool | None = None) -> int:
     """CLI entry point: sample + write folded stacks. Returns exit code.
 
     Folded text is written to stdout (or the ``-o`` file); progress and
     the summary line go to stderr so stdout stays pipeable.
     """
-    use_color = should_color(sys.stdout) if color is None else color
     err_color = should_color(sys.stderr) if color is None else color
     try:
         profile = collect_profile(pid, rate=rate, duration=duration)

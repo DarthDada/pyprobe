@@ -16,18 +16,20 @@ mock ``RemoteReader``.
 
 import sys
 from dataclasses import asdict
-from typing import Optional
 
-from .memory import RemoteReader, PTR_SIZE
 from . import offsets
 from .colors import red, should_color
-from .pyobject import read_pyunicode
-from .linetable import addr2line
-from .process import ProcessSession, resolve_process
-from .types import FrameInfo, ThreadInfo, ProcessInfo
 from .errors import (
-    ProcessNotFound, SymbolNotFound, NoInterpreterState, NoThreadState,
+    NoInterpreterState,
+    NoThreadState,
+    ProcessNotFound,
+    SymbolNotFound,
 )
+from .linetable import addr2line
+from .memory import PTR_SIZE, RemoteReader
+from .process import ProcessSession, resolve_process
+from .pyobject import read_pyunicode
+from .types import FrameInfo, ThreadInfo
 
 MAX_FRAMES = 100
 MAX_THREADS = 256
@@ -306,7 +308,7 @@ def format_process_json(proc_info, threads) -> str:
         indent=2, ensure_ascii=False) + "\n"
 
 
-def dump_python(pid, color: Optional[bool] = None, verbose: bool = False,
+def dump_python(pid, color: bool | None = None, verbose: bool = False,
                 json_output: bool = False):
     """CLI entry point: collect + format + print. Returns exit code.
 

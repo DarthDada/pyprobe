@@ -46,39 +46,60 @@ except Exception:
     # install). Fall back to a marker; the canonical source is pyproject.toml.
     __version__ = "0.0.0+unknown"
 
-from .types import (
-    FrameInfo, ThreadInfo, ProcessInfo,
-    NativeFrame, NativeThreadInfo,
-    SyscallEvent, ProfileData,
-)
+from . import colors, offsets
 from .errors import (
-    PyProbeError, ProcessNotFound, PermissionDenied, SymbolNotFound,
-    NoInterpreterState, NoThreadState, VersionNotSupported, AttachFailed,
-    UnsupportedArchitecture, ProcessExited,
+    AttachFailed,
+    NoInterpreterState,
+    NoThreadState,
+    PermissionDenied,
+    ProcessExited,
+    ProcessNotFound,
+    PyProbeError,
+    SymbolNotFound,
+    UnsupportedArchitecture,
+    VersionNotSupported,
 )
-from .stack_dump import (
-    collect_python, format_process, dump_python,
-    collect_frames, collect_thread, format_process_json,
-    read_thread_chain, is_thread_idle_by_stat,
-)
-from .process import ProcessSession, resolve_process
 from .native_dump import (
-    collect_native, format_native, dump_native, format_native_json,
+    collect_native,
+    dump_native,
+    format_native,
+    format_native_json,
+)
+from .offsets import DEFAULT_VERSION
+from .process import ProcessSession, resolve_process
+from .record import collect_profile, dump_record, format_folded
+from .sampler import Sampler
+from .stack_dump import (
+    collect_frames,
+    collect_python,
+    collect_thread,
+    dump_python,
+    format_process,
+    format_process_json,
+    is_thread_idle_by_stat,
+    read_thread_chain,
 )
 from .syscall_render import (
-    TraceFilter, SyscallStat, format_summary,
+    SyscallStat,
+    TraceFilter,
+    format_summary,
 )
 from .syscall_tracer import (
-    collect_syscalls, dump_syscalls,
+    collect_syscalls,
+    dump_syscalls,
 )
-from .sampler import Sampler
-from .record import collect_profile, format_folded, dump_record
-from .top import dump_top, TopStats
-from . import offsets
-from .offsets import DEFAULT_VERSION
-from . import colors
+from .top import TopStats, dump_top
+from .types import (
+    FrameInfo,
+    NativeFrame,
+    NativeThreadInfo,
+    ProcessInfo,
+    ProfileData,
+    SyscallEvent,
+    ThreadInfo,
+)
 
-__all__ = [
+__all__ = [  # noqa: RUF022 — semantic section grouping, not alphabetical
     # data types
     "FrameInfo", "ThreadInfo", "ProcessInfo",
     "NativeFrame", "NativeThreadInfo",

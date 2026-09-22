@@ -1,22 +1,28 @@
 """Unit tests for pyprobe.stack_dump — frame walking, idle detection, formatting."""
 
 import os
-import struct
-import sys
 
 import pytest
 
 from pyprobe import offsets
-from pyprobe.stack_dump import (
-    collect_frames, collect_thread,
-    _is_thread_idle, is_thread_idle_by_stat, _is_thread_idle_by_frames,
-    format_process, dump_python, collect_python,
-    MAX_FRAMES,
-)
-from pyprobe.types import FrameInfo, ThreadInfo, ProcessInfo
 from pyprobe.errors import ProcessNotFound, SymbolNotFound
+from pyprobe.stack_dump import (
+    MAX_FRAMES,
+    _is_thread_idle_by_frames,
+    collect_frames,
+    collect_python,
+    collect_thread,
+    dump_python,
+    format_process,
+    is_thread_idle_by_stat,
+)
+from pyprobe.types import FrameInfo, ProcessInfo, ThreadInfo
 from tests.helpers import (
-    FakeReader, build_frame, build_code_object, build_pyunicode, build_pybytes,
+    FakeReader,
+    build_code_object,
+    build_frame,
+    build_pybytes,
+    build_pyunicode,
     linetable_no_line,
 )
 

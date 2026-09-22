@@ -10,7 +10,6 @@ import os
 import struct
 from collections import namedtuple
 
-
 _SHDR_FMT = "<IIQQQQIIQQ"
 _SHDR_SIZE = 64
 _SYM_FMT = "<IBBHQQ"
@@ -93,7 +92,7 @@ def _search_symbols(f, info, shdr_idx, symname_bytes):
 
     target = symname_bytes + b"\x00"
     tlen = len(target)
-    for st_name, st_info, st_other, st_shndx, st_value, st_size in \
+    for st_name, st_info, _st_other, st_shndx, st_value, _st_size in \
             struct.iter_unpack(_SYM_FMT, symdata):
         stt = st_info & 0xF
         if stt not in (1, 0):

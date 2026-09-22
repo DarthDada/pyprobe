@@ -1,8 +1,8 @@
 """Thread name lookup via threading._active dict traversal."""
 
-from .memory import PTR_SIZE
 from . import offsets
 from .dict_iter import DictIter
+from .memory import PTR_SIZE
 from .pyobject import read_pylong, read_pyunicode
 
 

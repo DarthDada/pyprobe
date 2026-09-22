@@ -7,13 +7,19 @@ split — pure rendering helpers now live in ``syscall_render.py``.
 
 import struct
 
-import pytest
-
 from pyprobe.syscall_render import (
-    escape_bytes, truncate_escaped, render_str_arg,
-    _read_cstr, _read_timespec, _decode_flags,
-    _decode_args, _fill_out_args,
-    TraceFilter, format_summary, SyscallStat, STR_MAX,
+    STR_MAX,
+    SyscallStat,
+    TraceFilter,
+    _decode_args,
+    _decode_flags,
+    _fill_out_args,
+    _read_cstr,
+    _read_timespec,
+    escape_bytes,
+    format_summary,
+    render_str_arg,
+    truncate_escaped,
 )
 from pyprobe.types import SyscallEvent
 from tests.helpers import FakeReader
@@ -285,9 +291,9 @@ class TestFormatSummary:
         out = format_summary(evs)
         lines = out.splitlines()
         # read row: 2 calls 1 error; write row: 1 call 1 error
-        read_row = next(l for l in lines if l.startswith("read "))
+        read_row = next(ln for ln in lines if ln.startswith("read "))
         assert " 2 " in read_row and " 1 " in read_row
-        write_row = next(l for l in lines if l.startswith("write "))
+        write_row = next(ln for ln in lines if ln.startswith("write "))
         assert "1" in write_row
 
     def test_sorted_by_total_time(self):
@@ -295,7 +301,7 @@ class TestFormatSummary:
                self._ev("slow", elapsed=1.0),
                self._ev("fast", elapsed=0.002)]
         out = format_summary(evs)
-        lines = [l for l in out.splitlines() if l.split() and l.split()[0] in
+        lines = [ln for ln in out.splitlines() if ln.split() and ln.split()[0] in
                  ("fast", "slow")]
         assert lines[0].startswith("slow")
 
