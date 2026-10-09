@@ -226,9 +226,18 @@ class TestCollectThread:
         ti = collect_thread(reader, 0, tstate_addr, 999, "worker", 0)
         assert isinstance(ti, ThreadInfo)
         assert ti.native_tid == 999
+        assert ti.thread_id == 0  # default when not supplied
         assert ti.name == "worker"
         assert len(ti.frames) == 1
         assert ti.frames[0].name == "worker"
+
+    def test_thread_id_propagated(self):
+        """thread_id kwarg lands in ThreadInfo (threading ident used for
+        name lookup; it used to be silently dropped to 0)."""
+        reader = FakeReader()
+        ti = collect_thread(reader, 0, 0x10000, 100, "w", 0,
+                            idle_hint=True, thread_id=0xAABB)
+        assert ti.thread_id == 0xAABB
 
     def test_null_cframe(self):
         """If cframe is 0, no frames are collected."""
@@ -457,3 +466,26 @@ class TestDumpNativeCli:
         captured = capsys.readouterr()
         assert "\x1b" not in captured.out
         assert "\x1b" not in captured.err
+
+    def test_success_prints_single_process_header(self, monkeypatch, capsys):
+        """Guard (2026-10 review): dump_native prints the header exactly
+        once — format_native must not carry a header of its own."""
+        from pyprobe.native_dump import dump_native, format_native
+        from pyprobe.types import NativeFrame, NativeThreadInfo
+        threads = [NativeThreadInfo(tid=100, comm="python3",
+                                    frames=[NativeFrame(0x4000, "main",
+                                                        module="/usr/bin/libc.so.6")])]
+        monkeypatch.setattr("pyprobe.native_dump._init_libs", lambda: None)
+        monkeypatch.setattr("pyprobe.native_dump.read_cmdline",
+                            lambda pid: "python3 x.py")
+        monkeypatch.setattr("pyprobe.native_dump.collect_native",
+                            lambda pid: threads)
+        rc = dump_native(42, color=False)
+        assert rc == 0
+        out, _ = capsys.readouterr()
+        assert out.count("Process") == 1
+        assert out.startswith("Process 42: python3 x.py\n\n")
+        # format_native itself is header-free (library callers get stacks only)
+        fmt = format_native(threads, color=False)
+        assert "Process" not in fmt
+        assert fmt.startswith('Thread 1 (LWP 100) "python3":')

@@ -175,7 +175,7 @@ class SyscallEvent:
     """A single completed syscall observation (entry + exit paired).
 
     ``rendered`` holds the pre-rendered argument string (built by
-    ``syscall_trace._decode_args`` / ``_fill_out_args``) so ``format()``
+    ``syscall_render._decode_args`` / ``_fill_out_args``) so ``format()``
     stays a pure data -> string step.
     """
 

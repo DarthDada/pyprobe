@@ -40,7 +40,7 @@ from .syscall_table import (
 STR_MAX = 32
 _PRINTABLE = re.compile(rb"^[\x20-\x7e]*$")
 
-_AT_FDCWD = 0xFFFFFFFFFFFFFF10  # (int) AT_FDCWD on x86-64
+_AT_FDCWD = 0xFFFFFFFFFFFFFF9C  # (int) AT_FDCWD (-100) on x86-64
 
 
 def escape_bytes(data: bytes) -> str:

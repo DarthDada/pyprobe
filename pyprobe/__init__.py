@@ -2,25 +2,38 @@
 
 Public API
 ----------
+Everything exported here is the stable surface (mirrored by ``__all__``);
+the full function reference lives in :doc:`docs/design.md` §3.
 
 Data collection (returns structured data, raises ``PyProbeError`` on failure):
 
 * :func:`collect_python`  → ``(ProcessInfo, list[ThreadInfo])``
 * :func:`collect_native`  → ``list[NativeThreadInfo]``
+* :func:`collect_syscalls` → ``list[SyscallEvent]``
+* :func:`collect_profile` → ``ProfileData`` (record)
+* :func:`Sampler` — reusable sampling engine behind record/top
 
 Formatting (turns structured data into the CLI-style string; pass
-``color=True`` for ANSI-colored output):
+``color=True`` for ANSI-colored output; ``*_json`` variants emit
+machine-readable JSON):
 
 * :func:`format_process`  — Python stacks
 * :func:`format_native`   — native stacks
+* :func:`format_summary` / :func:`format_syscalls_json` — syscall stats / events
+* :func:`format_folded`   — folded stacks (flamegraph input)
 
 CLI wrappers (collect + format + print, return an exit code):
 
-* :func:`dump_python`
-* :func:`dump_native`
+* :func:`dump_python` / :func:`dump_native` / :func:`dump_syscalls`
+* :func:`dump_record` / :func:`dump_top`
+
+Process/session helpers: :func:`resolve_process` / :class:`ProcessSession`,
+:func:`read_thread_chain`, :func:`collect_frames`, :func:`collect_thread`,
+:func:`is_thread_idle_by_stat`, ``DEFAULT_VERSION``.
 
 Structured data types live in :mod:`pyprobe.types`; exceptions in
-:mod:`pyprobe.errors`.
+:mod:`pyprobe.errors`; :mod:`pyprobe.offsets` and :mod:`pyprobe.colors`
+are exported as submodules.
 
 Example
 -------

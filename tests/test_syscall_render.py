@@ -127,8 +127,9 @@ class TestDecodeArgs:
     def test_openat_full(self):
         r = FakeReader()
         r.add(0x1000, b"/etc/hosts\x00")
-        args = [0xFFFFFFFFFFFFFF10, 0x1000, 0x80000, 0]  # AT_FDCWD, path, O_CLOEXEC? no: flags
-        # openat(dirfd, path, flags, mode): 0x80000 = O_CLOEXEC
+        # openat(dirfd, path, flags, mode): dirfd = AT_FDCWD (-100 as read
+        # from the register, i.e. unsigned 0xFFFFFFFFFFFFFF9C), 0x80000 = O_CLOEXEC
+        args = [0xFFFFFFFFFFFFFF9C, 0x1000, 0x80000, 0]
         out = _decode_args(r, "openat", args[:3])
         assert out == 'AT_FDCWD, "/etc/hosts", O_CLOEXEC'
 
@@ -136,7 +137,7 @@ class TestDecodeArgs:
         r = FakeReader()
         r.add(0x1000, b"newfile\x00")
         out = _decode_args(r, "openat",
-                           [0xFFFFFFFFFFFFFF10, 0x1000, 0x241, 0o644])
+                           [0xFFFFFFFFFFFFFF9C, 0x1000, 0x241, 0o644])
         # 0x241 = O_WRONLY|O_CREAT|O_TRUNC
         assert out == 'AT_FDCWD, "newfile", O_WRONLY|O_CREAT|O_TRUNC, 0o644'
 

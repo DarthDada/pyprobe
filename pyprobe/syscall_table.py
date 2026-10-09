@@ -5,7 +5,7 @@
 dependency on the header).  Only x86-64 is supported; other architectures
 raise :class:`~pyprobe.errors.UnsupportedArchitecture` at engine level.
 
-``DECODE`` describes how to render the six syscall arguments for ~50 common
+``DECODE`` describes how to render the six syscall arguments for 98 common
 syscalls (paths, buffers, flags, structs); the rest are rendered as raw hex.
 
 Argument categories (per-argument, positional):

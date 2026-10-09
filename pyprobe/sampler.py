@@ -80,7 +80,8 @@ class Sampler:
             idle = is_thread_idle_by_stat(self.pid, t["native_tid"])
             threads.append(collect_thread(
                 reader, self.pid, t["tstate_addr"], t["native_tid"],
-                name, self.trampoline_addr, idle_hint=idle))
+                name, self.trampoline_addr, idle_hint=idle,
+                thread_id=t["thread_id"]))
         threads.sort(key=lambda t: t.native_tid)
         return threads
 

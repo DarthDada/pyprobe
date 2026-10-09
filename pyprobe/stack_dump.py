@@ -164,16 +164,19 @@ def _is_thread_idle(pid, native_tid, frames):
 
 
 def collect_thread(reader, pid, tstate_addr, native_tid, name, trampoline_addr,
-                   idle_hint=False):
+                   idle_hint=False, thread_id=0):
     """Build a ThreadInfo from a remote tstate address (no printing).
 
     ``idle_hint=True`` skips the frame walk entirely and returns an idle
     ThreadInfo with empty frames — the pruning entry point for samplers
     that already know the thread is idle (e.g. via /proc stat state).
+    ``thread_id`` populates ``ThreadInfo.thread_id`` (the threading ident
+    used for name lookup; 0 when unknown).
     """
     if idle_hint:
         return ThreadInfo(
             native_tid=native_tid,
+            thread_id=thread_id,
             name=name,
             frames=[],
             idle=True,
@@ -196,6 +199,7 @@ def collect_thread(reader, pid, tstate_addr, native_tid, name, trampoline_addr,
 
     return ThreadInfo(
         native_tid=native_tid,
+        thread_id=thread_id,
         name=name,
         frames=frames,
         idle=idle,
@@ -277,7 +281,8 @@ def _collect_threads_from_session(session: ProcessSession):
 
     return [
         collect_thread(reader, session.pid, t["tstate_addr"], t["native_tid"],
-                       t["name"], session.trampoline_addr)
+                       t["name"], session.trampoline_addr,
+                       thread_id=t["thread_id"])
         for t in raw_threads
     ]
 

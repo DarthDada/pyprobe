@@ -157,11 +157,11 @@ class TestDumpNativeJson:
 def _syscall_events():
     return [
         SyscallEvent(tid=100, nr=257, name="openat",
-                     args=[0xFFFFFFFFFFFFFF10, 0x7F00, 0, 0, 0, 0],
+                     args=[0xFFFFFFFFFFFFFF9C, 0x7F00, 0, 0, 0, 0],
                      rendered='AT_FDCWD, "/tmp/x", O_RDONLY|O_CLOEXEC',
                      ret=3, error=None, elapsed=0.000021),
         SyscallEvent(tid=101, nr=257, name="openat",
-                     args=[0xFFFFFFFFFFFFFF10, 0x7F01, 0, 0, 0, 0],
+                     args=[0xFFFFFFFFFFFFFF9C, 0x7F01, 0, 0, 0, 0],
                      rendered='AT_FDCWD, "/nope", O_RDONLY',
                      ret=-1, error=2, elapsed=0.000015),
     ]
@@ -176,7 +176,7 @@ class TestFormatSyscallsJson:
         assert ev0["tid"] == 100
         assert ev0["nr"] == 257
         assert ev0["name"] == "openat"
-        assert ev0["args"][0] == 0xFFFFFFFFFFFFFF10
+        assert ev0["args"][0] == 0xFFFFFFFFFFFFFF9C
         assert ev0["rendered"] == 'AT_FDCWD, "/tmp/x", O_RDONLY|O_CLOEXEC'
         assert ev0["ret"] == 3
         assert ev0["error"] is None

@@ -35,6 +35,8 @@ pip install setuptools wheel        # 预装构建依赖（以 [build-system].re
 scripts/build_wheels.sh             # 脚本自动检测并走 pip 回退路径
 ```
 
+开发（非构建）路径同理：无 `uv` 时 `scripts/sync.sh` 以 pip 安装包本体 + 开发工具（pytest / pytest-cov / watchfiles / ruff），`scripts/lint.sh`（内部 `python -m ruff`）与 `scripts/run_tests.sh` 在纯 pip 环境下同样可用。
+
 > 改 `pyproject.toml` 的 `[build-system].requires` 时，需同步更新此处预装命令与 `scripts/_common.sh` 的回退逻辑。
 
 ### 启动目标进程
@@ -43,6 +45,8 @@ scripts/build_wheels.sh             # 脚本自动检测并走 pip 回退路径
 uv run python examples/fastapi_app.py   # FastAPI on :8000
 pgrep -f fastapi_app                     # 获取 PID，例如 14695
 ```
+
+> **注意**：`uv run` 先派生 `uv` 包装进程再 exec Python，`pgrep -f` 可能同时命中两者。请选用命令行为 `.../python ... fastapi_app.py` 的那个 PID——对非 Python 进程查找 `_PyRuntime` 符号必然失败（PID 错位风险详见 [design.md §13.3](docs/design.md#133-手动探测约束)）。
 
 ### Python 栈转储
 
@@ -57,17 +61,19 @@ uv run python -m pyprobe stack -p 14695      # Python 实现
 Process 14695: python3 examples/fastapi_app.py
 Python v3.12.13 (/home/.../python3.12)
 
-Thread 14695
-  #0 run (.../asyncio/runners.py:118)  [qualname=Runner.run]
-  #1 run (.../asyncio/runners.py:195)  [qualname=run]
-  #2 run (.../uvicorn/server.py:86)    [qualname=Server.run]
-  #3 <module> (.../fastapi_app.py:47)  [qualname=<module>]
+Thread 14695 (idle): "MainThread"
+  #0 run (asyncio/runners.py:118)
+  #1 run (asyncio/runners.py:195)
+  #2 run (uvicorn/server.py:86)
+  #3 <module> (examples/fastapi_app.py:47)
 
-Thread 14701
-  #0 matrix_worker (.../fastapi_app.py:22)  [qualname=matrix_worker]
-  #1 run (.../threading.py:1012)            [qualname=Thread.run]
-  #2 _bootstrap_inner (.../threading.py:1075) [qualname=Thread._bootstrap_inner]
+Thread 14701 (idle): "matrix-worker"
+  #0 matrix_worker (examples/fastapi_app.py:22)
+  #1 run (python3.12/threading.py:1012)
+  #2 _bootstrap_inner (python3.12/threading.py:1075)
 ```
+
+线程头带 `(idle)` 标记（内核态睡眠/等待的线程）与 `: "<线程名>"`（threading 注册名）；帧行格式为 `#序号 函数名 (文件:行号)`，文件缺省显示末 2 级路径（`-v` 保持完整路径）。
 
 `--json` 输出机器可读结果（数据字段始终为完整路径，永不着色）：
 
@@ -79,7 +85,7 @@ uv run python -m pyprobe stack -p 14695 --json | python -m json.tool
 {
   "process": {
     "pid": 14695,
-    "cmdline": ["python3", "examples/fastapi_app.py"],
+    "cmdline": "python3 examples/fastapi_app.py",
     "exe_path": "/usr/bin/python3.12",
     "python_version": "3.12.13"
   },
@@ -91,7 +97,7 @@ uv run python -m pyprobe stack -p 14695 --json | python -m json.tool
       "frames": [
         {"name": "run", "filename": "/usr/lib/.../asyncio/runners.py", "line": 118}
       ],
-      "idle": false
+      "idle": true
     }
   ]
 }
@@ -109,13 +115,15 @@ uv run python -m pyprobe stack -p 14695 --native   # Python 实现
 ```
 Process 14695: python3 examples/fastapi_app.py
 
-Thread 1 (Thread 0x0000000000000000 (LWP 14701) "python3"):
-  #0  0x00007f0c55d93687 in ?? () from /usr/lib/x86_64-linux-gnu/libc.so.6
-  #1  0x00007f0c55ddffba in ?? () from /usr/lib/x86_64-linux-gnu/libc.so.6
-  #2  0x0000000001999945 in time_sleep () from .../python3.12
-  #3  0x00000000018160dd in _PyEval_EvalFrameDefault () from .../python3.12
+Thread 1 (LWP 14695) "python3":
+  #0  0x00007f0c55d93687 in ?? () from libc.so.6
+  #1  0x00007f0c55ddffba in ?? () from libc.so.6
+  #2  0x00007f0c55e179d9 in epoll_pwait () from libc.so.6
+  #3  0x000078d4960affa3 in uv__io_poll () from loop.cpython-312-x86_64-linux-gnu.so
   ...
 ```
+
+线程按 tid 升序编号（主线程为 Thread 1）；模块缺省显示 basename（`-v` 保持完整路径）；`??` 为无符号信息的帧（如 stripped libc）。
 
 ## 命令行用法
 
@@ -164,7 +172,7 @@ pyprobe syscall -p 14695 -e trace=!futex       # 排除某系统调用
 ```
 14701  clock_nanosleep(1, 1, {6928, 190163573}, 0, 0x0, 0x0) = 0 <1.000455>
 14701  clock_nanosleep(1, 1, {6929, 190245273}, 0, 0x0, 0x0) = 0 <1.000544>
-14695  openat(AT_FDCWD, "/etc/hosts", O_RDONLY|O_CLOEXEC) = 4 <0.000021>
+14695  openat(AT_FDCWD, "/etc/hosts", O_CLOEXEC, 0o0, 0x0, 0x0) = 4 <0.000021>
 ```
 
 汇总示例：
@@ -178,7 +186,7 @@ total                        50          0  66.012166  66.012166
 ```
 
 - 追踪**所有线程**（含追踪期间新建线程，PTRACE_O_TRACECLONE），事件带线程 ID 前缀
-- 常用 ~50 个系统调用按 strace 风格解码参数（路径字符串、`O_*`/`MAP_*`/`PROT_*` 标志、timespec、read/write 缓冲区内容），其余显示裸数值
+- 常用 98 个系统调用按 strace 风格解码参数（路径字符串、`O_*`/`MAP_*`/`PROT_*` 标志、timespec、read/write 缓冲区内容），其余显示裸数值；每个系统调用恒显示 6 个参数（未用参数为 `0x0`）
 - 基于寄存器的返回值错误自动解码为 `= -1 ENOENT (No such file or directory)` 风格
 - 仅支持 x86-64（其他架构报 `UnsupportedArchitecture`）
 

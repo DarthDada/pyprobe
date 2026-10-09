@@ -105,7 +105,7 @@ ProcessInfo(pid, cmdline, exe_path, python_version)    # 进程元数据
 NativeFrame(pc, symbol, module)              # 单个 native 栈帧
 NativeThreadInfo(tid, comm, frames, unwind_failed)    # native 线程 + 帧列表
 SyscallEvent(tid, nr, name, args, rendered, ret, error, elapsed)  # 单次系统调用观测
-ProfileData(proc_info, counts, samples, idle_samples, elapsed)    # record 聚合结果（§15.4）
+ProfileData(proc_info, counts, samples, idle_samples, elapsed, version_warning)    # record 聚合结果（§15.4）
 ```
 
 每个 dataclass 自带 `format()` / `format_header()` 方法，`format_*` 函数组合调用它们生成输出。
@@ -117,7 +117,7 @@ ProfileData(proc_info, counts, samples, idle_samples, elapsed)    # record 聚�
 ```
 PyProbeError                      基类（库调用方可统一 catch）
 ├── ProcessNotFound               /proc/<pid> 不可读（进程不存在）
-├── PermissionDenied              权限不足
+├── PermissionDenied              权限不足（保留未用：权限失败实际以 OSError 或 AttachFailed 呈现，见下方注记）
 ├── SymbolNotFound                ELF 符号未找到（如 _PyRuntime）
 ├── NoInterpreterState            无法读取 interpreter state
 ├── NoThreadState                 无法读取 thread state 链
@@ -128,6 +128,8 @@ PyProbeError                      基类（库调用方可统一 catch）
 ```
 
 `collect_*` 抛出具体异常；`dump_*` 捕获后转 stderr + 退出码。库调用方可 catch `PyProbeError` 统一处理或 catch 子类区分失败模式。
+
+> **注记**：`PermissionDenied` 在异常层级中定义并导出，但当前全代码库无 raise 点（保留未用）：权限不足实际表现为 `OSError`（如 `process_vm_readv` EACCES/EPERM，由 `dump_*` 捕获）或 `AttachFailed`（ptrace attach 失败），两者均已携带 pid 上下文。若未来需要区分"进程不存在"与"权限不足"的专用错误语义，再补 raise 点。
 
 ### 3.3 颜色基础设施（colors.py）
 
@@ -271,7 +273,7 @@ find_symbol(_PyRuntime)
 2. `_collect_frames(pid)` — `dwfl_begin` → `dwfl_linux_proc_report` → `dwfl_linux_proc_attach` → `dwfl_getthreads`（遍历线程）→ `dwfl_thread_getframes`（遍历帧）。每帧通过 `dwfl_addrmodule` + `dwfl_module_addrname` 解析符号，`dwfl_module_info` 获取模块路径。
 3. `_detach_all(tids)` — `ptrace(PTRACE_DETACH)` 所有线程。
 
-结果按 tid 降序排列（匹配 gdb `thread apply all bt` 输出）。`unwind_failed` 标记无法展开的线程。
+结果按 tid 升序排列（主线程 tid 最小，编号 Thread 1 起——对齐 gdb 线程编号；2026-09 修复线程排序时残留的"降序"描述已于 2026-10 更正）。`unwind_failed` 标记无法展开的线程。
 
 ### 8.3 ctypes 回调
 
@@ -445,8 +447,8 @@ else:
 
 ### 14.1 syscall_table.py（静态数据，无逻辑）
 
-- `SYSCALL_NAMES`：x86-64 syscall 号→名（~362 条，一次性从 `asm/unistd_64.h` 提取编入）+ 逆表 `SYSCALL_NRS`。
-- `DECODE`：~50 常用 syscall 的逐参数类别元数据（`path`/`buf_in`/`buf_out`/`open_flags`/`mode`/`fd`/`timespec`/`signal`/`prot`/`map_flags` 等）；无条目的 syscall 参数显示裸 hex。
+- `SYSCALL_NAMES`：x86-64 syscall 号→名（375 条，一次性从 `asm/unistd_64.h` 提取编入）+ 逆表 `SYSCALL_NRS`。
+- `DECODE`：98 常用 syscall 的逐参数类别元数据（`path`/`buf_in`/`buf_out`/`open_flags`/`mode`/`fd`/`timespec`/`signal`/`prot`/`map_flags` 等）；无条目的 syscall 参数显示裸 hex。
 - `TRACE_GROUPS`：`-e trace=` 类组（file/network/process/memory/signal/desc）→ syscall 名集合。
 - `OPEN_FLAGS` / `MAP_FLAGS` / `PROT_FLAGS`：flags 位→名表，OR 解码（`O_RDONLY|O_CLOEXEC` 风格）。
 

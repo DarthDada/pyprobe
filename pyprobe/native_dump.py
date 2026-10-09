@@ -4,7 +4,8 @@ Layered design (issue #8):
 
 * ``collect_native(pid)`` — ptrace attach + DWARF unwind; returns
   ``list[NativeThreadInfo]``.  Raises ``AttachFailed`` on ptrace failure.
-* ``format_native(cmdline, threads)`` — render the human-readable output.
+* ``format_native(threads)`` — render the human-readable output (the
+  process header is printed by ``dump_native``, which knows the pid).
 * ``dump_native(pid)`` — thin CLI wrapper: collect + format + print.
 """
 
@@ -242,14 +243,18 @@ def collect_native(pid):
         _detach_all(attached)
 
 
-def format_native(cmdline, threads, *, color: bool = False,
+def format_native(threads, *, color: bool = False,
                   verbose: bool = False):
     """Render collected native stacks as the human-readable CLI output.
+
+    No process header here — ``dump_native`` prints it (with the pid)
+    before collecting, so failure paths keep their context. (The CLI
+    used to print the header twice; fixed in the 2026-10 review round.)
 
     ``verbose=False`` shorts frame modules to their basename;
     ``verbose=True`` keeps full paths.
     """
-    parts = [f"Process: {cmdline}\n"] if cmdline is not None else []
+    parts = []
     for i, t in enumerate(threads):
         parts.append(t.format(i + 1, color=color, verbose=verbose))
         parts.append("")
@@ -295,6 +300,5 @@ def dump_native(pid, color: bool | None = None, verbose: bool = False,
     if json_output:
         print(format_native_json(pid, cmdline, threads))
     else:
-        print(format_native(cmdline, threads, color=use_color,
-                            verbose=verbose))
+        print(format_native(threads, color=use_color, verbose=verbose))
     return 0

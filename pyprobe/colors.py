@@ -1,6 +1,6 @@
 """ANSI color helpers for pyprobe terminal output.
 
-Zero-dependency (stdlib only), Python 3.8+.  Color decision follows the
+Zero-dependency (stdlib only), Python 3.11+.  Color decision follows the
 clicolors spec (https://bixense.com/clicolors/) used by py-spy's console
 crate: CLICOLOR_FORCE forces color on; otherwise color requires a tty
 without NO_COLOR, without TERM=dumb, and CLICOLOR != "0".
