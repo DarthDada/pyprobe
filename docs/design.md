@@ -30,7 +30,7 @@ pyprobe/                  纯 Python 实现（入口 pyprobe.cli:main）
 ├── procmeta.py           /proc 元数据读取：read_cmdline(pid) + decode_py_version(hex)（从 elf.py 拆出，TODO §8.6）
 ├── process.py            ProcessSession / resolve_process(pid)：collect_python 与 Sampler 共享的进程初始化（TODO §8.1）
 ├── pyobject.py           PyLong / PyUnicode / PyBytes 远程读取
-├── dict_iter.py          CPython 3.11–3.13 Dict 迭代器（combined/unicode/split/managed）
+├── dict_iter.py          CPython 3.11–3.14 Dict 迭代器（combined/unicode/split/managed）
 ├── linetable.py          PEP 626 行号表解析（addr2line）
 ├── thread_names.py       threading._active 线程名查找
 ├── stack_dump.py         Python 栈转储主逻辑（collect/format/dump 三层 + JSON 格式化）
@@ -198,13 +198,13 @@ CLI 输出对齐 py-spy 的颜色语义，零依赖自实现（不引 rich/color
 `configure(version_str)` 在 `resolve_process`（`process.py`，由 `collect_python` 与 `Sampler.__init__` 共享）中被调用（传入目标进程的 CPython 版本）：
 - 已验证版本 → 加载对应偏移量表。
 - 未验证版本 → 先把 `_active` 填好默认版本（`DEFAULT_VERSION` = "3.12"）的偏移量表，**再 raise `VersionNotSupported`**（捕获后可直接 `get`/`get_or`）；`offsets` 层**不打印**——`resolve_process` 捕获该异常并把告警串存到 `ProcessSession.version_warning`，由 dump 层（`dump_python` / `dump_record` / `dump_top`）统一输出（违反 collect 层"不打印"契约的旧 print 已移除，TODO §8.5）。
-- 开发期覆盖：若 `offsets.json` 存在，仅当其 `_version` 键与目标进程 major.minor 一致时才覆盖验证表（用于在提升到 `_VERIFIED_OFFSETS` 前测试新生成的偏移量，避免跨版本污染）。未验证版本也走同一条覆盖路径——dev-only `offsets.json` 即可作为本地验证证据。
+- 开发期覆盖：若 `offsets.json` 存在，仅当其 `_version` 键与目标进程 major.minor 一致时，以其内容**整表替换** `_active`（json 为 gen_offsets 从目标版本真实头文件生成的完整输出；叠在回退表上合并会泄漏该版本已不存在的 3.12 陈旧 key，如 `InterpreterState.imports` 会把 `get_thread_names` 引向错误版本分支——2026-10 修复）。未验证版本也走同一条覆盖路径——dev-only `offsets.json` 即可作为本地验证证据。
 
 `get(name)` 惰性初始化（未 configure 时用 `DEFAULT_VERSION`——已验证版本，不 raise），返回偏移量值。`get_or(name, default)` 对该版本不存在的键返回 `default`——字段在版本间缺失（如 3.11 无 `InterpreterState.imports`、3.13 无 `ThreadState.cframe`）时消费者据此分支。`DEFAULT_VERSION` 为公开常量（TODO §8.2 转正，跨模块读不再走 `_` 前缀）。
 
 ### 6.3 生成工具
 
-`tools/gen_offsets.c`（通过 `scripts/gen_offsets.sh`）编译并运行一个小程序，读取 CPython 头文件中的结构体偏移量，生成 `pyprobe/offsets.json`。新版本验证流程：运行 gen_offsets → 测试 → 确认后编入 `_VERIFIED_OFFSETS`。
+`tools/gen_offsets.c`（通过 `scripts/gen_offsets.sh`，可用 `PYTHON=<解释器>` 指定目标版本）编译并运行一个小程序，读取 CPython 头文件中的结构体偏移量，生成 `pyprobe/offsets.json`。新版本验证流程（TDD，入口在 `tests/test_offsets.py` 的 `_VERSION_EXTRA_KEYS` oracle——共享 key + 版本特有 key 的独立期望集合，版本 × key 双维参数化）：gen_offsets 生成 → 在 oracle 写下新版本期望 key（测试变红，`_VERIFIED_OFFSETS` 尚无该版本）→ 验证 `offsets.json` 值后编入 `_VERIFIED_OFFSETS`（测试转绿）。
 
 ---
 
@@ -234,11 +234,11 @@ find_symbol(_PyRuntime)
 
 ### 7.2 字典迭代器（dict_iter.py）
 
-`DictIter` 支持 CPython 3.11–3.13 字典的所有变体（各版本 `_dictkeysobject`/entries 布局一致）：
+`DictIter` 支持 CPython 3.11–3.14 字典的所有变体（各版本 `_dictkeysobject`/entries 布局一致）：
 - **combined**（`kind=0`）：`PyDictKeyEntry`（key + hash + value），key 偏移为 8。
 - **unicode**（`kind=1`）：`PyDictUnicodeEntry`（key + value），key 偏移为 0。
 - **split**：values 数组独立存储，从 `DictObject.ma_values` 读取。
-- **managed dict**：通过 `Py_TPFLAGS_MANAGED_DICT` 标志检测。实例 pre-header 槽位（`obj - 3*PTR_SIZE`）各版本约定不同：3.11 为独立两槽——dict 指针（未物化为 NULL）+ `obj-4` 的 untagged `PyDictValues*`（`PyObject.pre_values` 键，仅 3.11 表存在）；3.12 合并为单槽 tagged 指针（bit0=1 时为 `ptr-1` 的 values 数组）；3.13 单槽 untagged，NULL 表示 values 内嵌在对象内（`PyObject_size + dictvalues_header` 起始）。
+- **managed dict**：通过 `Py_TPFLAGS_MANAGED_DICT` 标志检测。实例 pre-header 槽位（`obj - 3*PTR_SIZE`）各版本约定不同：3.11 为独立两槽——dict 指针（未物化为 NULL）+ `obj-4` 的 untagged `PyDictValues*`（`PyObject.pre_values` 键，仅 3.11 表存在）；3.12 合并为单槽 tagged 指针（bit0=1 时为 `ptr-1` 的 values 数组）；3.13 单槽 untagged，NULL 表示 values 内嵌在对象内（`PyObject_size + dictvalues_header` 起始）；3.14 同 3.13。
 
 `from_dict(dict_addr)` 从 `DictObject.ma_keys` / `ma_values` 初始化；`from_managed_values(values_addr, type_addr)` 从 `HeapTypeObject.ht_cached_keys` 初始化。
 
@@ -334,12 +334,14 @@ sudo python -m pyprobe stack -p <pid> --native   # root 可绕过所有限制
 | 3.12.x | aarch64 | 未验证（偏移量理论上与 x86-64 相同，待实际验证） |
 | 3.13.x | x86-64 | 已验证 |
 | 3.13.x | aarch64 | 未验证（偏移量理论上与 x86-64 相同，待实际验证） |
+| 3.14.x | x86-64 | 已验证（2026-10 于 3.14.4） |
+| 3.14.x | aarch64 | 未验证（偏移量理论上与 x86-64 相同，待实际验证） |
 
 对未验证版本，pyprobe 会在 stderr 输出告警并使用 3.12 偏移量作为默认回退。可通过 `scripts/gen_offsets.sh` 为目标 CPython 生成偏移量，验证后编入 `pyprobe/offsets.py` 的 `_VERIFIED_OFFSETS`。
 
 ### 限制
 
-- 已验证 3.11.x / 3.12.x / 3.13.x（x86-64）；其他版本回退 3.12 偏移量并告警。
+- 已验证 3.11.x / 3.12.x / 3.13.x / 3.14.x（x86-64）；其他版本回退 3.12 偏移量并告警。
 - 仅支持 **Linux**（依赖 `/proc`、`process_vm_readv`、`ptrace`）。
 - 已验证 **x86-64**；aarch64 偏移量理论上相同（均为 64 位 LP64）但未实际验证。
 - Native 模式在非 root 下受 `ptrace_scope` 和 `dumpable` 限制。
@@ -410,7 +412,7 @@ else:
 - 对象构造器：`build_pyunicode` / `build_pybytes` / `build_pylong` / `build_code_object` / `build_frame` — 按配置偏移量写入字节。
 - `FakeRemoteReader`：子类化真实 `RemoteReader`，stub `_read_syscall` 提供罐头页数据，测试真实页缓存逻辑（LRU 淘汰、跨页、旁路）。
 
-覆盖模块：offsets（版本键/configure/get/fallback；未验证版本改 raise `VersionNotSupported`——TODO §8.5）、types（格式化 + `color=True` 精确 ANSI 断言；docstring 收窄接受 `format()` 与 `colors` 耦合——TODO §8.9）、errors（异常层级；`VersionNotSupported` 现有真实 raise 点）、colors（帮助函数恒等性/包裹 + `should_color` 环境矩阵）、linetable（PEP 626 全 code 类型）、pyobject（PyLong/PyBytes/PyUnicode 各变体）、dict_iter（combined/unicode/split/managed）、memory（页缓存）、elf（仅 find_symbol/read_const 真实 ELF——`read_cmdline`/`decode_py_version` 迁出，TODO §8.6）、procmeta（`read_cmdline`/`decode_py_version`，从 elf.py 拆出）、process（`ProcessSession`/`resolve_process`：Sampler init 路径/错误路径/未验证版本告警恰好捕获到 session、不打 stderr——TODO §8.1/§8.5）、stack_dump（collect_frames/`_is_thread_idle`/`is_thread_idle_by_stat`/`read_thread_chain`（去下划线转正——TODO §8.2）/collect_thread idle_hint/format_process/错误路径/dump CLI 颜色/JSON 输出）、cli（参数解析/分发/`--color` 传递/record/top/`--json` 分发；`__version__` 走 `importlib.metadata`——TODO §8.7）、syscall_table（号↔名表抽查/flag 解码）、syscall_render（字符串转义截断/`_read_cstr`/`_read_timespec`/`_decode_args`/`_fill_out_args`/`TraceFilter`/`format_summary` 纯函数 FakeReader 注入——从 syscall_trace.py 拆出，TODO §8.3）、syscall_tracer（attach/detach/主循环 monkeypatch stub——从 syscall_trace.py 拆出，TODO §8.3）、sampler（FakeReader + monkeypatch 注入：init 解析/错误路径/未验证版本告警恰好捕获到 session/sample 返回 ThreadInfo 列表/idle 剪枝/每 sample 新建 reader/ProcessExited/sample 不刷新 names/refresh_names 生效/sample 不再触碰 offsets.configure）、record（fold_key root-first 守护/线程前缀/排序/stub Sampler 的 collect_profile 计数与部分数据/绝对调度/dump stdout-stderr 分流；`version_warning` 经由 ProfileData 透传到 dump 层）、top（own/total 语义/idle 排除/当前帧跟踪/render 布局与 color=False 无 ANSI/非 tty rc 2；`version_warning` 在 dump 层输出）、api_exports（`__all__` 每个名字可从 `pyprobe` 命名空间解析 + `import *` 冒烟）。
+覆盖模块：offsets（版本键/configure/get/fallback；`TestOffsetsTable` 版本 × key 双维参数化——`_SHARED_KEYS` + `_VERSION_EXTRA_KEYS` 独立 oracle 覆盖全部已验证版本与版本间布局差异 key，并断言 oracle 版本集合与 `_VERIFIED_OFFSETS` 双向一致，是新版本接入的 TDD 入口（§6.3）；`TestDevOverride` 开发期覆盖整表替换语义（匹配 `_version` 替换、不匹配忽略，杜绝 3.12 陈旧 key 泄漏）；未验证版本改 raise `VersionNotSupported`——TODO §8.5）、types（格式化 + `color=True` 精确 ANSI 断言；docstring 收窄接受 `format()` 与 `colors` 耦合——TODO §8.9）、errors（异常层级；`VersionNotSupported` 现有真实 raise 点）、colors（帮助函数恒等性/包裹 + `should_color` 环境矩阵）、linetable（PEP 626 全 code 类型）、pyobject（PyLong/PyBytes/PyUnicode 各变体）、dict_iter（combined/unicode/split/managed）、memory（页缓存）、elf（仅 find_symbol/read_const 真实 ELF——`read_cmdline`/`decode_py_version` 迁出，TODO §8.6）、procmeta（`read_cmdline`/`decode_py_version`，从 elf.py 拆出）、process（`ProcessSession`/`resolve_process`：Sampler init 路径/错误路径/未验证版本告警恰好捕获到 session、不打 stderr——TODO §8.1/§8.5）、stack_dump（collect_frames/`_is_thread_idle`/`is_thread_idle_by_stat`/`read_thread_chain`（去下划线转正——TODO §8.2）/collect_thread idle_hint/format_process/错误路径/dump CLI 颜色/JSON 输出）、cli（参数解析/分发/`--color` 传递/record/top/`--json` 分发；`__version__` 走 `importlib.metadata`——TODO §8.7）、syscall_table（号↔名表抽查/flag 解码）、syscall_render（字符串转义截断/`_read_cstr`/`_read_timespec`/`_decode_args`/`_fill_out_args`/`TraceFilter`/`format_summary` 纯函数 FakeReader 注入——从 syscall_trace.py 拆出，TODO §8.3）、syscall_tracer（attach/detach/主循环 monkeypatch stub——从 syscall_trace.py 拆出，TODO §8.3）、sampler（FakeReader + monkeypatch 注入：init 解析/错误路径/未验证版本告警恰好捕获到 session/sample 返回 ThreadInfo 列表/idle 剪枝/每 sample 新建 reader/ProcessExited/sample 不刷新 names/refresh_names 生效/sample 不再触碰 offsets.configure）、record（fold_key root-first 守护/线程前缀/排序/stub Sampler 的 collect_profile 计数与部分数据/绝对调度/dump stdout-stderr 分流；`version_warning` 经由 ProfileData 透传到 dump 层）、top（own/total 语义/idle 排除/当前帧跟踪/render 布局与 color=False 无 ANSI/非 tty rc 2；`version_warning` 在 dump 层输出）、api_exports（`__all__` 每个名字可从 `pyprobe` 命名空间解析 + `import *` 冒烟）。
 
 ### 13.2 集成测试（`@pytest.mark.integration`）
 

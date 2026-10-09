@@ -400,6 +400,34 @@ class TestDumpPythonCli:
         captured = capsys.readouterr()
         assert "\x1b[31m[!]" in captured.err
 
+    def test_version_warning_printed_when_thread_collection_fails(
+            self, monkeypatch, capsys):
+        """The version warning must surface even when thread-chain reading
+        fails afterwards (e.g. wrong fallback offsets on an unverified
+        version) — otherwise the user sees "failed to read threads.head"
+        without the root cause."""
+        from pyprobe.errors import NoThreadState
+        from pyprobe.process import ProcessSession
+        proc = ProcessInfo(pid=123, cmdline="python app.py",
+                           exe_path="/usr/bin/python3", python_version="3.14.4")
+        session = ProcessSession(
+            pid=123, exe_path=proc.exe_path, runtime_addr=0,
+            interp_addr=0, trampoline_addr=0, proc_info=proc, names={},
+            version_warning="[!] CPython 3.14.4 is not a verified version")
+
+        def _boom(session):
+            raise NoThreadState()
+
+        monkeypatch.setattr("pyprobe.stack_dump.resolve_process",
+                            lambda pid, **kw: session)
+        monkeypatch.setattr("pyprobe.stack_dump._collect_threads_from_session",
+                            _boom)
+        rc = dump_python(123, color=False)
+        assert rc == 1
+        captured = capsys.readouterr()
+        assert "not a verified version" in captured.err
+        assert "failed to read threads.head" in captured.err
+
 
 class TestDumpNativeCli:
     def _stub_native(self, monkeypatch, exc):

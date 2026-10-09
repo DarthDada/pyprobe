@@ -10,7 +10,7 @@
 7. [工程基础设施](#7-工程基础设施)
 8. [代码模块化与解耦](#8-代码模块化与解耦)
 
-> **全局优先级**：功能（§2–§6）与基础设施（§7）两轨并行。上轮 P0（record/top + `--json`、§7 的 P0：pytest-cov 基线 / watch / 严格化）已交付；当前 P0 = CPython 3.14（§3.2，时间敏感，以 §3.1 参数化为前置）；P1 = §2 剩余项（info / 按名称匹配 / syscall `--json`，低成本）+ §7 剩余 P1（远程 CI / git hooks / 文档增补）；其余按章节内次序推进，§4 P0（生产环境可加载）作为已发布功能的健壮性问题可随需插入。
+> **全局优先级**：功能（§2–§6）与基础设施（§7）两轨并行。上轮 P0（CPython 3.14 支持，§3）已于 2026-10 交付（3.14.4 x86-64：`_VERSION_EXTRA_KEYS` oracle TDD 接入 + `TARGET_PYTHON` 集成全绿；并修复 `offsets.json` 开发期覆盖合并泄漏 3.12 陈旧 key、`dump_python` 吞版本告警两个 bug）；当前优先级 = §2 剩余项（info / 按名称匹配 / syscall `--json`，低成本）+ §7 剩余 P1（远程 CI / git hooks / 文档增补）并行；其余按章节内次序推进，§4 P0（生产环境可加载）作为已发布功能的健壮性问题可随需插入，aarch64（§3）待实际环境。
 
 ## 2. CLI 易用性与集成
 
@@ -22,12 +22,10 @@
 
 ## 3. 版本与架构覆盖
 
-> 现状：偏移量已验证 3.11–3.13 仅 x86-64（design.md §10）；syscall 追踪仅 x86-64；未验证版本回退 3.12 偏移量并告警。
+> 现状：偏移量已验证 3.11–3.14 仅 x86-64（design.md §10）；syscall 追踪仅 x86-64；未验证版本回退 3.12 偏移量并告警。
 
-- [ ] 1. 多版本偏移量测试参数化：`TestSupportedVersions` 已参数化（tests/test_offsets.py:23），但 `TestOffsetsTable` 三处仍硬编码 `configure("3.12")`（:78/:84/:90，现有参数化仅 key 维度）；改为版本 × key 双维参数化覆盖 `_VERIFIED_OFFSETS` 全部版本（key fixture 分共享 key + 版本特有 key，如 3.11 `PyObject.pre_values`、3.13 `ThreadState.current_frame`），使新版本支持可 TDD 式开发
-- [ ] 2. CPython 3.14 支持：时间敏感（已发布一年，用户迁移正在发生）；以前一条为前置，TDD 式接入：`scripts/gen_offsets.sh` 生成 → 先写 3.14 偏移量失败测试 → 验证后编入 `_VERIFIED_OFFSETS`；端到端可 `TARGET_PYTHON=python3.14` 走 conftest 集成 fixture（tests/conftest.py:43，无需改测试代码）
-- [ ] 3. aarch64 偏移量实际验证：与 x86-64 理论相同（均为 64 位 LP64），未实测
-- [ ] 4. aarch64 syscall 追踪：目前 `UnsupportedArchitecture`（syscall_table.py 仅 x86-64 表）；需 aarch64 syscall 号表 + 解码元数据 + 寄存器 ABI 适配（GETREGS 结构不同）
+- [ ] 1. aarch64 偏移量实际验证：与 x86-64 理论相同（均为 64 位 LP64），未实测
+- [ ] 2. aarch64 syscall 追踪：目前 `UnsupportedArchitecture`（syscall_table.py 仅 x86-64 表）；需 aarch64 syscall 号表 + 解码元数据 + 寄存器 ABI 适配（GETREGS 结构不同）
 
 ## 4. native 栈输出对齐 gdb
 
@@ -68,7 +66,7 @@
 
 ## 7. 工程基础设施
 
-> 现状：480 个测试（含参数化展开）+ FakeReader/对象构造器 + `target_pid`/`spin_pid` fixture（支持 `TARGET_PYTHON` 跨版本端到端）已具备；P0 已于 2026-09 落地——pytest-cov 覆盖率基线（`scripts/run_tests.sh --cov`，CI test 阶段强制，79% fail-under）、watch 模式（`scripts/run_tests.sh watch`，watchfiles 保存即重跑）、pytest 严格化（`-ra`/`--strict-markers`/`--strict-config` + `filterwarnings = ["error"]`）。以下为按红→绿→重构循环衡量的剩余缺口。TDD 是流程约束，靠自觉必退化。
+> 现状：637 个测试（含参数化展开）+ FakeReader/对象构造器 + `target_pid`/`spin_pid` fixture（支持 `TARGET_PYTHON` 跨版本端到端）已具备；P0 已于 2026-09 落地——pytest-cov 覆盖率基线（`scripts/run_tests.sh --cov`，CI test 阶段强制，79% fail-under）、watch 模式（`scripts/run_tests.sh watch`，watchfiles 保存即重跑）、pytest 严格化（`-ra`/`--strict-markers`/`--strict-config` + `filterwarnings = ["error"]`）。以下为按红→绿→重构循环衡量的剩余缺口。TDD 是流程约束，靠自觉必退化。
 
 ### P1 — 流程纪律强制
 
@@ -90,4 +88,4 @@
 
 ### P3 — 高成本重构（独立 PR，需安全网护航）
 
-- [ ] 1. `offsets` 去 global 化：`_active` 模块级可变单例（offsets.py:177），`get()` 未 configure 时隐式触发 configure（offsets.py:214-217，读路径带副作用）；71 处调用分布于 6 模块（stack_dump 30 / thread_names 12 / pyobject 11 / dict_iter 10 / sampler 7 / linetable 1）。改为 per-session 偏移量表对象随 reader/session 传递后：可同时探测不同 CPython 版本的进程、消除 tests/test_offsets.py:47 的手工复位。改动面大（59 处 `get`），以 §7.7 lint 为前置（覆盖率基线已交付）
+- [ ] 1. `offsets` 去 global 化：`_active` 模块级可变单例（offsets.py:177），`get()` 未 configure 时隐式触发 configure（offsets.py:214-217，读路径带副作用）；71 处调用分布于 6 模块（stack_dump 30 / thread_names 12 / pyobject 11 / dict_iter 10 / sampler 7 / linetable 1）。改为 per-session 偏移量表对象随 reader/session 传递后：可同时探测不同 CPython 版本的进程、消除 tests/test_offsets.py 的手工复位（`offsets._active = None`）。改动面大（59 处 `get`），以 §7.7 lint 为前置（覆盖率基线已交付）

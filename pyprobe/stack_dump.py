@@ -325,14 +325,22 @@ def dump_python(pid, color: bool | None = None, verbose: bool = False,
     err_color = should_color(sys.stderr) if color is None else color
     try:
         session = resolve_process(pid)
-        threads = _collect_threads_from_session(session)
     except (ProcessNotFound, SymbolNotFound,
-            NoInterpreterState, NoThreadState, OSError) as e:
+            NoInterpreterState, OSError) as e:
         print(red(f"[!] {e}", err_color), file=sys.stderr)
         return 1
 
+    # Surface the version warning before thread collection: when the latter
+    # fails with wrong fallback offsets (unverified version), the warning is
+    # the root cause and must not be swallowed by the early error return.
     if session.version_warning:
         print(red(session.version_warning, err_color), file=sys.stderr)
+
+    try:
+        threads = _collect_threads_from_session(session)
+    except (NoThreadState, OSError) as e:
+        print(red(f"[!] {e}", err_color), file=sys.stderr)
+        return 1
 
     if json_output:
         print(format_process_json(session.proc_info, threads))
