@@ -2,6 +2,17 @@
 - 所有关键命令均经 `scripts/` 实现，详见 README「开发脚本」；CI 一律走 `scripts/ci.sh`，勿手敲裸命令（`uv sync`/`uv build`/`pytest`/`ruff` 等均已有对应脚本）
 - 改构建依赖时同步 `pyproject.toml` 的 `[build-system].requires` 与 `scripts/_common.sh` 回退逻辑
 
+# 开发环境初始化（AI 行为约束）
+> 命令用途与离线/pip 回退细节见 README「快速开始」「开发脚本」，此处只写 agent 检查逻辑，不重复命令说明。
+
+会话开始或环境状态未知时，按序检查并初始化：
+1. **Python ≥ 3.11**：以 `pyproject.toml` `requires-python` 为准；不满足时报告并停止，勿自行改版本要求
+2. **`scripts/sync.sh`**：依赖同步；缺 `uv` 时脚本自动 pip 回退，无需预装 uv，勿绕过脚本手装
+3. **`scripts/gen_offsets.sh`**：`pyprobe/offsets.json` 已入库且带 `_version` 字段——本地 Python 的 `major.minor` 与其不符、文件缺失或损坏时重新生成（需 `cc` + Python 头文件）
+4. **C 参考实现**（`scripts/build.sh`，需 libdw/libelf/zlib）：仅交叉校验/`ci.sh full` 用，非必需；缺系统库时跳过并说明，勿阻塞主流程
+
+初始化后跑 `scripts/run_tests.sh unit` 验证环境可用，再进入正题。环境缺件（Python 过旧、缺编译器/头文件）只报告差距与修复方向，不擅自改 `pyproject.toml` 或绕过 `scripts/`。
+
 # Docs 写作约束
 
 文档分工单一事实来源，避免散弹式修改与内容重复：
