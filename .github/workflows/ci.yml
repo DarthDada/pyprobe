@@ -1,0 +1,34 @@
+# Remote CI (TODO §7.1): enforce all-green commits by running the exact same
+# pipeline as a local `scripts/ci.sh` (sync gen-offsets lint test smoke). The
+# workflow must not hand-type build/test commands — everything is orchestrated
+# by the scripts/ layer, so CI and local can't drift.
+#
+# UV_PYTHON_PREFERENCE=only-managed pins the pipeline to a uv-managed CPython
+# (matching the committed .python-version, 3.12): the gen-offsets stage needs
+# the interpreter's headers, and managed builds ship them while a bare distro
+# python3 does not (python3-dev is not installed on hosted runners).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      UV_PYTHON_PREFERENCE: only-managed
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: CI pipeline (sync gen-offsets lint test smoke)
+        run: scripts/ci.sh

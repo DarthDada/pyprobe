@@ -303,6 +303,7 @@ class TestSampler:
         assert spin and not spin[0].idle
         assert any(f.name == "burn" for f in spin[0].frames)
 
+    @pytest.mark.slow
     def test_process_exited(self):
         import subprocess
         import time as _time
@@ -329,8 +330,13 @@ class TestSampler:
             s.sample()  # memory gone after exit
 
 
+@pytest.mark.slow
 class TestRecord:
-    """record (folded profiling) against the spin target."""
+    """record (folded profiling) against the spin target.
+
+    Every test here samples the live process for a real ``duration``
+    (0.5–1.0s in ``collect_profile`` / ``dump_record``), hence ``slow``.
+    """
 
     def test_collect_profile_counts(self, spin_pid):
         from pyprobe import collect_profile

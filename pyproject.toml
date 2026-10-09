@@ -25,6 +25,7 @@ addopts = ["-ra", "--strict-markers", "--strict-config"]
 filterwarnings = ["error"]
 markers = [
     "integration: end-to-end tests that spawn a child process and read its memory (run: pytest -m integration)",
+    "slow: tests that block on real wall-clock time — profiling durations and real sleeps (skip: scripts/run_tests.sh -- -m 'not slow')",
 ]
 
 [dependency-groups]

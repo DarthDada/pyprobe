@@ -423,6 +423,7 @@ else:
 
 - `target_pid` session fixture（`conftest.py`）：`subprocess.Popen` 派生 `tests/targets/target_app.py`（主线程 + bg-worker 线程），通过 stdout 获取真实 PID。子进程是 pytest 后代，`process_vm_readv` 在 `ptrace_scope=1` 默认下可用。目标解释器默认为 `sys.executable`，可经 `TARGET_PYTHON` 环境变量指定其他版本（如 3.11/3.13）做跨版本端到端验证。
 - `spin_pid` session fixture：同模式派生 `tests/targets/spin_app.py`（主线程 sleep + `spin-worker` 纯 Python 忙循环）——采样测试必须命中已知 `burn` 帧，sleep 目标会被 idle 剪枝排除。
+- `@pytest.mark.slow`（叠加在 integration 上）：真实等待的测试——`TestRecord` 全部（`collect_profile`/`dump_record` 按真实 duration 采样，0.5–1.0s/测试）与 `TestSampler.test_process_exited`（真实 `sleep(0.3)` + 自派生子进程）。`scripts/run_tests.sh -- -m 'not slow'` 可跳过；单元测试一律 FakeClock，无真实等待。
 - 非 Linux 自动 skip；Native dump 与 syscall 追踪在 ptrace 权限不足时自动 skip（`AttachFailed`）。
 - Syscall（`TestSyscall`）：collect 断言 `clock_nanosleep` 事件 + 多 tid + elapsed > 0；dump 输出流式断言；`--summary` 表头断言；`--json` 可 `json.loads` 且事件字段完整；trace 后目标进程仍存活（干净 detach 验证）。
 - 采样引擎（`TestSampler`）：spin_pid 上 `sample()` 返回 ≥2 线程、连续采样稳定、`burn` 帧命中；临时 Popen + terminate 后 `sample()` 抛 `ProcessExited`。

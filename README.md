@@ -292,6 +292,7 @@ scripts/run_tests.sh unit --cov   # 覆盖率报告 + fail-under 基线（防覆
 scripts/run_tests.sh watch        # 保存即重跑单元测试（默认；Ctrl-C 退出）
 scripts/run_tests.sh watch all    # 同上，重跑全部测试
 scripts/run_tests.sh -- -x        # -- 之后的参数透传给 pytest
+scripts/run_tests.sh -- -m 'not slow'  # 跳过慢测试（真实采样/sleep 的集成测试，见 design.md §13.2）
 ```
 
 集成测试通过 `subprocess.Popen` 派生子进程（绕过 `ptrace_scope=1`）；非 Linux 或 ptrace 权限不足时自动 skip。
