@@ -253,6 +253,25 @@ class TestSyscall:
         assert "calls" in out
         assert "total" in out
 
+    def test_json_output(self, target_pid, capsys):
+        import json
+
+        from pyprobe import AttachFailed, dump_syscalls
+        try:
+            rc = dump_syscalls(target_pid, color=False, max_events=4,
+                               json_output=True)
+        except AttachFailed:
+            pytest.skip("ptrace attach not permitted in this environment")
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert out.lstrip().startswith("{")  # pure JSON doc, no text lines
+        data = json.loads(out)
+        assert len(data["events"]) >= 1
+        ev = data["events"][0]
+        assert ev["tid"] == target_pid or ev["tid"] > 0  # some traced thread
+        assert ev["name"]  # syscall name resolved
+        assert "ret" in ev and "elapsed" in ev and "error" in ev
+
     def test_nonexistent_pid_raises(self):
         from pyprobe import PyProbeError, collect_syscalls
         with pytest.raises(PyProbeError):

@@ -8,9 +8,10 @@ no mid-file imports left over from the prior two-files-stitched shape.
 
 Public surface used by ``pyprobe.__init__`` and the CLI:
 
-* :class:`TraceFilter`   — ``-e trace=`` expression compiler.
-* :class:`SyscallStat`   — per-syscall accumulator for ``format_summary``.
-* :func:`format_summary` — strace ``-c`` style summary table.
+* :class:`TraceFilter`        — ``-e trace=`` expression compiler.
+* :class:`SyscallStat`        — per-syscall accumulator for ``format_summary``.
+* :func:`format_summary`      — strace ``-c`` style summary table.
+* :func:`format_syscalls_json` — events → JSON document (``--json`` output).
 
 Internal helpers (``escape_bytes`` / ``truncate_escaped`` / ``render_str_arg``
 / ``_read_cstr`` / ``_read_available`` / ``_read_timespec`` / ``_decode_flags``
@@ -18,8 +19,10 @@ Internal helpers (``escape_bytes`` / ``truncate_escaped`` / ``render_str_arg``
 unit tests but not part of ``__all__``.
 """
 
+import json
 import re
 import struct
+from dataclasses import asdict
 
 from .syscall_table import (
     DECODE,
@@ -342,3 +345,15 @@ def format_summary(events, *, color: bool = False) -> str:
         f"{total_time:>10.6f} {total_time:>10.6f}"
     )
     return "\n".join(lines)
+
+
+def format_syscalls_json(events) -> str:
+    """Render collected events as a JSON document (``--json`` output).
+
+    Mirrors ``format_process_json`` / ``format_native_json``:
+    ``dataclasses.asdict`` + ``json.dumps(indent=2)``; ``rendered`` carries
+    the strace-style argument string, ``error`` is the errno or ``null``.
+    """
+    return json.dumps(
+        {"events": [asdict(ev) for ev in events]},
+        indent=2, ensure_ascii=False) + "\n"

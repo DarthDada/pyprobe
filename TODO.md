@@ -10,15 +10,14 @@
 7. [工程基础设施](#7-工程基础设施)
 8. [代码模块化与解耦](#8-代码模块化与解耦)
 
-> **全局优先级**：功能（§2–§6）与基础设施（§7）两轨并行。上轮 P0（CPython 3.14 支持，§3）已于 2026-10 交付（3.14.4 x86-64：`_VERSION_EXTRA_KEYS` oracle TDD 接入 + `TARGET_PYTHON` 集成全绿；并修复 `offsets.json` 开发期覆盖合并泄漏 3.12 陈旧 key、`dump_python` 吞版本告警两个 bug）；当前优先级 = §2 剩余项（info / 按名称匹配 / syscall `--json`，低成本）+ §7 剩余 P1（远程 CI / git hooks / 文档增补）并行；其余按章节内次序推进，§4 P0（生产环境可加载）作为已发布功能的健壮性问题可随需插入，aarch64（§3）待实际环境。
+> **全局优先级**：功能（§2–§6）与基础设施（§7）两轨并行。上轮 P0（CPython 3.14 支持，§3）已于 2026-10 交付（3.14.4 x86-64：`_VERSION_EXTRA_KEYS` oracle TDD 接入 + `TARGET_PYTHON` 集成全绿；并修复 `offsets.json` 开发期覆盖合并泄漏 3.12 陈旧 key、`dump_python` 吞版本告警两个 bug）；syscall `--json`（§2.3）已于 2026-10 交付（`format_syscalls_json` + `dump_syscalls(json_output=)`，与 `--summary` CLI 互斥）；当前优先级 = §2 剩余项（info / 按名称匹配，低成本）+ §7 剩余 P1（远程 CI / git hooks / 文档增补）并行；其余按章节内次序推进，§4 P0（生产环境可加载）作为已发布功能的健壮性问题可随需插入，aarch64（§3）待实际环境。
 
 ## 2. CLI 易用性与集成
 
-> 库能力（`collect_*` 返回结构化 dataclass）与 CLI 能力对齐，打通 IDE/工具链/CI 程序化消费。`stack` 已支持 `--json`；`syscall` 的 `SyscallEvent` 已是 dataclass，扩展成本极低。
+> 库能力（`collect_*` 返回结构化 dataclass）与 CLI 能力对齐，打通 IDE/工具链/CI 程序化消费。`stack` 与 `syscall` 均已支持 `--json`。
 
 - [ ] 1. `info` 子命令：解释器数、线程数、空闲/运行统计、`sys.argv`/`sys.executable`、GIL 状态等进程级概览，复用 `collect_python`
 - [ ] 2. 按名称匹配目标进程：`-m/--match <name>`（扫 `/proc/*/cmdline`），省去先 `pgrep` 再传 `-p`；并可对"目标不是 CPython 进程"给出早期友好报错（目前要到符号查找失败才发现）
-- [ ] 3. `--json` 扩展至 `syscall`：`SyscallEvent` 已含 errno 名/耗时字段，`dataclasses.asdict` 序列化即可，复用 `--json` 模式；record 的 folded 与 top 的 TUI 面向人/专用工具，暂不需要
 
 ## 3. 版本与架构覆盖
 

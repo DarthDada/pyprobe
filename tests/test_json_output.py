@@ -1,4 +1,4 @@
-"""Unit tests for --json output of the stack subcommand.
+"""Unit tests for --json output of the stack and syscall subcommands.
 
 Guards: JSON is parseable, colors never leak ANSI codes into it, data
 fields keep full paths (path shortening is a display-layer-only concern),
@@ -10,11 +10,14 @@ import json
 from pyprobe.errors import ProcessNotFound
 from pyprobe.native_dump import dump_native, format_native_json
 from pyprobe.stack_dump import dump_python, format_process_json
+from pyprobe.syscall_render import format_syscalls_json
+from pyprobe.syscall_tracer import dump_syscalls
 from pyprobe.types import (
     FrameInfo,
     NativeFrame,
     NativeThreadInfo,
     ProcessInfo,
+    SyscallEvent,
     ThreadInfo,
 )
 
@@ -137,7 +140,7 @@ class TestFormatNativeJson:
 class TestDumpNativeJson:
     def test_output_parses_and_no_text_header(self, monkeypatch, capsys):
         threads = [NativeThreadInfo(tid=100, comm="python3",
-                                    frames=[NativeFrame(0x4000, "main")])]
+                                     frames=[NativeFrame(0x4000, "main")])]
         monkeypatch.setattr("pyprobe.native_dump.collect_native",
                             lambda pid: threads)
         monkeypatch.setattr("pyprobe.native_dump.read_cmdline",
@@ -149,3 +152,118 @@ class TestDumpNativeJson:
         assert "Process 42: python3 app.py" not in out  # text header suppressed
         data = json.loads(out)
         assert data["threads"][0]["tid"] == 100
+
+
+def _syscall_events():
+    return [
+        SyscallEvent(tid=100, nr=257, name="openat",
+                     args=[0xFFFFFFFFFFFFFF10, 0x7F00, 0, 0, 0, 0],
+                     rendered='AT_FDCWD, "/tmp/x", O_RDONLY|O_CLOEXEC',
+                     ret=3, error=None, elapsed=0.000021),
+        SyscallEvent(tid=101, nr=257, name="openat",
+                     args=[0xFFFFFFFFFFFFFF10, 0x7F01, 0, 0, 0, 0],
+                     rendered='AT_FDCWD, "/nope", O_RDONLY',
+                     ret=-1, error=2, elapsed=0.000015),
+    ]
+
+
+class TestFormatSyscallsJson:
+    def test_shape(self):
+        data = json.loads(format_syscalls_json(_syscall_events()))
+        assert set(data.keys()) == {"events"}
+        assert len(data["events"]) == 2
+        ev0 = data["events"][0]
+        assert ev0["tid"] == 100
+        assert ev0["nr"] == 257
+        assert ev0["name"] == "openat"
+        assert ev0["args"][0] == 0xFFFFFFFFFFFFFF10
+        assert ev0["rendered"] == 'AT_FDCWD, "/tmp/x", O_RDONLY|O_CLOEXEC'
+        assert ev0["ret"] == 3
+        assert ev0["error"] is None
+        assert ev0["elapsed"] == 0.000021
+
+    def test_error_event_serializes_errno_and_minus_one(self):
+        data = json.loads(format_syscalls_json(_syscall_events()))
+        ev1 = data["events"][1]
+        assert ev1["error"] == 2
+        assert ev1["ret"] == -1
+
+    def test_empty_events(self):
+        assert json.loads(format_syscalls_json([])) == {"events": []}
+
+    def test_no_ansi(self):
+        out = format_syscalls_json(_syscall_events())
+        assert "\x1b" not in out
+
+
+class TestDumpSyscallsJson:
+    """dump_syscalls(json_output=True): single JSON doc, no text stream."""
+
+    def _stub(self, monkeypatch, events):
+        class FakeTracer:
+            def __init__(self, pid, verbose=False):
+                self.events = list(events)
+
+            def attach(self):
+                pass
+
+            def run(self, *, trace=None, max_events=None, on_event=None):
+                if on_event is not None:
+                    for ev in self.events:
+                        on_event(ev)
+                return self.events
+
+            def detach(self):
+                pass
+
+        monkeypatch.setattr("pyprobe.syscall_tracer.SyscallTracer",
+                            FakeTracer)
+
+    def test_output_parses_and_streaming_suppressed(self, monkeypatch, capsys):
+        self._stub(monkeypatch, _syscall_events())
+        rc = dump_syscalls(42, color=True, max_events=2, json_output=True)
+        assert rc == 0
+        out, _ = capsys.readouterr()
+        assert "\x1b" not in out  # JSON never colored, even with color=True
+        assert out.lstrip().startswith("{")  # exactly one JSON doc, no lines
+        data = json.loads(out)
+        assert [e["name"] for e in data["events"]] == ["openat", "openat"]
+        assert data["events"][1]["error"] == 2
+
+    def test_error_path_still_text_stderr(self, monkeypatch, capsys):
+        class FailingTracer:
+            def __init__(self, pid, verbose=False):
+                pass
+
+            def attach(self):
+                raise ProcessNotFound(999)
+
+        monkeypatch.setattr("pyprobe.syscall_tracer.SyscallTracer",
+                            FailingTracer)
+        rc = dump_syscalls(999, json_output=True)
+        assert rc == 1
+        _, err = capsys.readouterr()
+        assert "[!]" in err
+
+    def test_json_takes_precedence_over_summary(self, monkeypatch, capsys):
+        self._stub(monkeypatch, _syscall_events()[:1])
+        rc = dump_syscalls(42, summary=True, json_output=True)
+        assert rc == 0
+        out, _ = capsys.readouterr()
+        data = json.loads(out)
+        assert data["events"][0]["name"] == "openat"
+        assert "calls" not in out  # no strace -c table mixed in
+
+    def test_text_stream_mode_unchanged(self, monkeypatch, capsys):
+        self._stub(monkeypatch, _syscall_events()[:1])
+        rc = dump_syscalls(42, color=False, max_events=1)
+        assert rc == 0
+        out, _ = capsys.readouterr()
+        assert out.startswith("100  openat(")  # strace-style line, no JSON
+
+    def test_summary_mode_unchanged(self, monkeypatch, capsys):
+        self._stub(monkeypatch, _syscall_events())
+        rc = dump_syscalls(42, color=False, summary=True)
+        assert rc == 0
+        out, _ = capsys.readouterr()
+        assert out.startswith("syscall")  # strace -c table, no JSON

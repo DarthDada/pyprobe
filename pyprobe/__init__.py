@@ -83,6 +83,7 @@ from .syscall_render import (
     SyscallStat,
     TraceFilter,
     format_summary,
+    format_syscalls_json,
 )
 from .syscall_tracer import (
     collect_syscalls,
@@ -121,6 +122,7 @@ __all__ = [  # noqa: RUF022 — semantic section grouping, not alphabetical
     "format_native_json",
     # syscall tracing API
     "collect_syscalls", "dump_syscalls", "format_summary",
+    "format_syscalls_json",
     "TraceFilter", "SyscallStat",
     # sampling engine
     "Sampler",

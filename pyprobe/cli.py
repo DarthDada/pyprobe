@@ -111,10 +111,16 @@ def build_parser():
     syscall.add_argument(
         "--max-events", type=int, default=None, metavar="<n>",
         help="stop after <n> captured events (default: until Ctrl-C)")
-    syscall.add_argument(
+    output_mode = syscall.add_mutually_exclusive_group()
+    output_mode.add_argument(
         "--summary", action="store_true",
         help="print a strace -c style summary table instead of "
              "streaming events")
+    output_mode.add_argument(
+        "--json", action="store_true",
+        help="output machine-readable JSON instead of text: events "
+             "printed as one JSON document when tracing ends "
+             "(never colored)")
     syscall.add_argument(
         "-v", "--verbose", action="store_true",
         help="show full string arguments instead of 32-char truncation")
@@ -204,7 +210,8 @@ def main(argv=None):
             trace = trace[len("trace="):]
         return dump_syscalls(
             args.pid, color=color, verbose=args.verbose, trace=trace,
-            max_events=args.max_events, summary=args.summary)
+            max_events=args.max_events, summary=args.summary,
+            json_output=args.json)
 
     if args.command == "record":
         return dump_record(

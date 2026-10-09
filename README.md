@@ -145,6 +145,7 @@ pyprobe top -p <pid>              实时热点视图（终端刷新）
 pyprobe syscall -p 14695                       # 实时流式输出（Ctrl-C 结束）
 pyprobe syscall -p 14695 --max-events 30       # 收满 30 个事件后停止
 pyprobe syscall -p 14695 --summary --max-events 200   # strace -c 风格汇总
+pyprobe syscall -p 14695 --json --max-events 30       # 机器可读 JSON 输出
 pyprobe syscall -p 14695 -e trace=file         # 只看文件类系统调用
 pyprobe syscall -p 14695 -e trace=read,write   # 只看指定系统调用
 pyprobe syscall -p 14695 -e trace=!futex       # 排除某系统调用
@@ -155,6 +156,7 @@ pyprobe syscall -p 14695 -e trace=!futex       # 排除某系统调用
 | `-e, --trace <expr>` | 过滤表达式：类组名（`file`/`network`/`process`/`memory`/`signal`/`desc`）、逗号分隔的系统调用名，或 `!` 前缀排除 |
 | `--max-events <n>` | 捕获 n 个事件后停止（缺省直到 Ctrl-C） |
 | `--summary` | 输出 `strace -c` 风格统计表而非逐事件流 |
+| `--json` | 输出机器可读 JSON：追踪结束后打印单个 `{"events": [...]}` 文档（与 `--summary` 互斥，永不着色） |
 | `-v`, `--verbose` | 字符串参数不截断（缺省 32 字符 + `...`） |
 
 流式输出示例：

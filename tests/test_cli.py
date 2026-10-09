@@ -32,11 +32,11 @@ def stub_syscall(monkeypatch):
     calls = []
 
     def fake_dump_syscalls(pid, color=None, verbose=False, trace="",
-                           max_events=None, summary=False):
+                           max_events=None, summary=False, json_output=False):
         calls.append({
             "pid": pid, "color": color, "verbose": verbose,
             "trace": trace, "max_events": max_events,
-            "summary": summary,
+            "summary": summary, "json_output": json_output,
         })
         return 0
 
@@ -201,6 +201,31 @@ class TestSyscallDispatch:
     def test_summary(self, stub_syscall):
         cli.main(["syscall", "-p", "1", "--summary"])
         assert stub_syscall[0]["summary"] is True
+
+    def test_json_flag(self, stub_syscall):
+        rc = cli.main(["syscall", "-p", "1", "--json"])
+        assert rc == 0
+        call = stub_syscall[0]
+        assert call["json_output"] is True
+        assert call["summary"] is False
+
+    def test_json_with_max_events(self, stub_syscall):
+        cli.main(["syscall", "-p", "1", "--json", "--max-events", "5"])
+        call = stub_syscall[0]
+        assert call["json_output"] is True
+        assert call["max_events"] == 5
+
+    def test_json_and_summary_mutually_exclusive(self, capsys):
+        with pytest.raises(SystemExit):
+            cli.main(["syscall", "-p", "1", "--json", "--summary"])
+        err = capsys.readouterr().err
+        assert "not allowed with" in err
+
+    def test_summary_and_json_in_reverse_order_also_rejected(self, capsys):
+        with pytest.raises(SystemExit):
+            cli.main(["syscall", "-p", "1", "--summary", "--json"])
+        err = capsys.readouterr().err
+        assert "not allowed with" in err
 
     def test_verbose(self, stub_syscall):
         cli.main(["syscall", "-p", "1", "-v"])

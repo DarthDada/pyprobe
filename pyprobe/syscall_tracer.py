@@ -6,7 +6,7 @@ Layered design (mirrors stack_dump / native_dump):
   ``list[SyscallEvent]``.  Raises ``AttachFailed`` / ``ProcessNotFound`` /
   ``UnsupportedArchitecture``.  No printing.
 * ``dump_syscalls(pid, ...)`` — CLI wrapper: collect + stream events
-  (or print a ``-c`` summary).
+  (or print a ``-c`` summary / a ``--json`` document).
 
 Pure rendering helpers (string escaping/truncation, argument decoding,
 ``TraceFilter`` parsing, ``format_summary``) live in ``syscall_render.py``
@@ -32,6 +32,7 @@ from .syscall_render import (
     _decode_args,
     _fill_out_args,
     format_summary,
+    format_syscalls_json,
 )
 from .syscall_table import SYSCALL_NAMES, SYSCALL_NRS
 from .types import SyscallEvent
@@ -343,11 +344,16 @@ def collect_syscalls(pid, *, trace=None, max_events=None, verbose=False):
 
 
 def dump_syscalls(pid, *, color=None, verbose=False, trace="",
-                  max_events=None, summary=False):
+                  max_events=None, summary=False, json_output=False):
     """CLI entry point: collect + stream events (or print a -c summary).
 
     Returns the exit code.  KeyboardInterrupt detaches cleanly and still
     prints the summary of what was collected so far.
+
+    ``json_output`` suppresses the text stream and prints a single JSON
+    document (``format_syscalls_json``) after tracing ends — it takes
+    precedence over ``summary`` and is never colored (the CLI makes
+    ``--json`` / ``--summary`` mutually exclusive).
     """
     use_color = should_color(sys.stdout) if color is None else color
     tracer = SyscallTracer(pid, verbose=verbose)
@@ -361,14 +367,17 @@ def dump_syscalls(pid, *, color=None, verbose=False, trace="",
     try:
         events = tracer.run(
             trace=trace, max_events=max_events,
-            on_event=(None if summary else
+            on_event=(None if (summary or json_output) else
                       lambda ev: print(ev.format(color=use_color))))
     except KeyboardInterrupt:
         events = tracer.events
-        print()
+        if not json_output:
+            print()
     finally:
         tracer.detach()
 
-    if summary:
+    if json_output:
+        print(format_syscalls_json(events))
+    elif summary:
         print(format_summary(events, color=use_color))
     return 0

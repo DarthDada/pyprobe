@@ -81,9 +81,10 @@ tests/                    测试
 | 格式化 | `format_folded(profile)` | ProfileData → folded stacks 纯文本 | `str`（count 降序 + 字典序） |
 | 格式化 | `format_process_json(proc_info, threads)` | Python 栈 → JSON（§15.5） | `str`（可 `json.loads`） |
 | 格式化 | `format_native_json(pid, cmdline, threads)` | native 栈 → JSON（§15.5） | `str`（可 `json.loads`） |
+| 格式化 | `format_syscalls_json(events)` | 事件列表 → JSON（§15.5） | `str`（可 `json.loads`） |
 | CLI 封装 | `dump_python(pid, color=None, verbose=False, json_output=False)` | collect + format + print | 退出码 `int`，异常转 stderr |
 | CLI 封装 | `dump_native(pid, color=None, verbose=False, json_output=False)` | 同上（native） | 退出码 `int` |
-| CLI 封装 | `dump_syscalls(pid, *, color, verbose, trace, max_events, summary)` | collect + 流式打印或 summary | 退出码 `int`，KeyboardInterrupt 优雅 detach |
+| CLI 封装 | `dump_syscalls(pid, *, color, verbose, trace, max_events, summary, json_output)` | collect + 流式打印或 summary 或 JSON | 退出码 `int`，KeyboardInterrupt 优雅 detach |
 | CLI 封装 | `dump_record(pid, *, rate=50, duration=None, output=None, color=None)` | collect_profile + format_folded 输出 | 退出码 `int`；folded → stdout/`-o` 文件，进度/摘要 → stderr |
 | CLI 封装 | `dump_top(pid, *, rate=50, interval=1.0, color=None)` | 持续采样 + 终端刷新 | 退出码 `int`（非 tty → 2）；Ctrl-C/目标退出 → 0 |
 
@@ -412,7 +413,7 @@ else:
 - 对象构造器：`build_pyunicode` / `build_pybytes` / `build_pylong` / `build_code_object` / `build_frame` — 按配置偏移量写入字节。
 - `FakeRemoteReader`：子类化真实 `RemoteReader`，stub `_read_syscall` 提供罐头页数据，测试真实页缓存逻辑（LRU 淘汰、跨页、旁路）。
 
-覆盖模块：offsets（版本键/configure/get/fallback；`TestOffsetsTable` 版本 × key 双维参数化——`_SHARED_KEYS` + `_VERSION_EXTRA_KEYS` 独立 oracle 覆盖全部已验证版本与版本间布局差异 key，并断言 oracle 版本集合与 `_VERIFIED_OFFSETS` 双向一致，是新版本接入的 TDD 入口（§6.3）；`TestDevOverride` 开发期覆盖整表替换语义（匹配 `_version` 替换、不匹配忽略，杜绝 3.12 陈旧 key 泄漏）；未验证版本改 raise `VersionNotSupported`——TODO §8.5）、types（格式化 + `color=True` 精确 ANSI 断言；docstring 收窄接受 `format()` 与 `colors` 耦合——TODO §8.9）、errors（异常层级；`VersionNotSupported` 现有真实 raise 点）、colors（帮助函数恒等性/包裹 + `should_color` 环境矩阵）、linetable（PEP 626 全 code 类型）、pyobject（PyLong/PyBytes/PyUnicode 各变体）、dict_iter（combined/unicode/split/managed）、memory（页缓存）、elf（仅 find_symbol/read_const 真实 ELF——`read_cmdline`/`decode_py_version` 迁出，TODO §8.6）、procmeta（`read_cmdline`/`decode_py_version`，从 elf.py 拆出）、process（`ProcessSession`/`resolve_process`：Sampler init 路径/错误路径/未验证版本告警恰好捕获到 session、不打 stderr——TODO §8.1/§8.5）、stack_dump（collect_frames/`_is_thread_idle`/`is_thread_idle_by_stat`/`read_thread_chain`（去下划线转正——TODO §8.2）/collect_thread idle_hint/format_process/错误路径/dump CLI 颜色/JSON 输出）、cli（参数解析/分发/`--color` 传递/record/top/`--json` 分发；`__version__` 走 `importlib.metadata`——TODO §8.7）、syscall_table（号↔名表抽查/flag 解码）、syscall_render（字符串转义截断/`_read_cstr`/`_read_timespec`/`_decode_args`/`_fill_out_args`/`TraceFilter`/`format_summary` 纯函数 FakeReader 注入——从 syscall_trace.py 拆出，TODO §8.3）、syscall_tracer（attach/detach/主循环 monkeypatch stub——从 syscall_trace.py 拆出，TODO §8.3）、sampler（FakeReader + monkeypatch 注入：init 解析/错误路径/未验证版本告警恰好捕获到 session/sample 返回 ThreadInfo 列表/idle 剪枝/每 sample 新建 reader/ProcessExited/sample 不刷新 names/refresh_names 生效/sample 不再触碰 offsets.configure）、record（fold_key root-first 守护/线程前缀/排序/stub Sampler 的 collect_profile 计数与部分数据/绝对调度/dump stdout-stderr 分流；`version_warning` 经由 ProfileData 透传到 dump 层）、top（own/total 语义/idle 排除/当前帧跟踪/render 布局与 color=False 无 ANSI/非 tty rc 2；`version_warning` 在 dump 层输出）、api_exports（`__all__` 每个名字可从 `pyprobe` 命名空间解析 + `import *` 冒烟）。
+覆盖模块：offsets（版本键/configure/get/fallback；`TestOffsetsTable` 版本 × key 双维参数化——`_SHARED_KEYS` + `_VERSION_EXTRA_KEYS` 独立 oracle 覆盖全部已验证版本与版本间布局差异 key，并断言 oracle 版本集合与 `_VERIFIED_OFFSETS` 双向一致，是新版本接入的 TDD 入口（§6.3）；`TestDevOverride` 开发期覆盖整表替换语义（匹配 `_version` 替换、不匹配忽略，杜绝 3.12 陈旧 key 泄漏）；未验证版本改 raise `VersionNotSupported`——TODO §8.5）、types（格式化 + `color=True` 精确 ANSI 断言；docstring 收窄接受 `format()` 与 `colors` 耦合——TODO §8.9）、errors（异常层级；`VersionNotSupported` 现有真实 raise 点）、colors（帮助函数恒等性/包裹 + `should_color` 环境矩阵）、linetable（PEP 626 全 code 类型）、pyobject（PyLong/PyBytes/PyUnicode 各变体）、dict_iter（combined/unicode/split/managed）、memory（页缓存）、elf（仅 find_symbol/read_const 真实 ELF——`read_cmdline`/`decode_py_version` 迁出，TODO §8.6）、procmeta（`read_cmdline`/`decode_py_version`，从 elf.py 拆出）、process（`ProcessSession`/`resolve_process`：Sampler init 路径/错误路径/未验证版本告警恰好捕获到 session、不打 stderr——TODO §8.1/§8.5）、stack_dump（collect_frames/`_is_thread_idle`/`is_thread_idle_by_stat`/`read_thread_chain`（去下划线转正——TODO §8.2）/collect_thread idle_hint/format_process/错误路径/dump CLI 颜色/JSON 输出）、cli（参数解析/分发/`--color` 传递/record/top/`--json` 分发；`__version__` 走 `importlib.metadata`——TODO §8.7）、syscall_table（号↔名表抽查/flag 解码）、syscall_render（字符串转义截断/`_read_cstr`/`_read_timespec`/`_decode_args`/`_fill_out_args`/`TraceFilter`/`format_summary`/`format_syscalls_json` 纯函数 FakeReader 注入——从 syscall_trace.py 拆出，TODO §8.3）、syscall_tracer（attach/detach/主循环 monkeypatch stub——从 syscall_trace.py 拆出，TODO §8.3）、test_json_output（stack/native/syscall 三命令的 `format_*_json` 结构 + `dump_*` json_output 模式：流式抑制、错误路径文本 stderr、json 优先于 summary）、sampler（FakeReader + monkeypatch 注入：init 解析/错误路径/未验证版本告警恰好捕获到 session/sample 返回 ThreadInfo 列表/idle 剪枝/每 sample 新建 reader/ProcessExited/sample 不刷新 names/refresh_names 生效/sample 不再触碰 offsets.configure）、record（fold_key root-first 守护/线程前缀/排序/stub Sampler 的 collect_profile 计数与部分数据/绝对调度/dump stdout-stderr 分流；`version_warning` 经由 ProfileData 透传到 dump 层）、top（own/total 语义/idle 排除/当前帧跟踪/render 布局与 color=False 无 ANSI/非 tty rc 2；`version_warning` 在 dump 层输出）、api_exports（`__all__` 每个名字可从 `pyprobe` 命名空间解析 + `import *` 冒烟）。
 
 ### 13.2 集成测试（`@pytest.mark.integration`）
 
@@ -421,7 +422,7 @@ else:
 - `target_pid` session fixture（`conftest.py`）：`subprocess.Popen` 派生 `tests/targets/target_app.py`（主线程 + bg-worker 线程），通过 stdout 获取真实 PID。子进程是 pytest 后代，`process_vm_readv` 在 `ptrace_scope=1` 默认下可用。目标解释器默认为 `sys.executable`，可经 `TARGET_PYTHON` 环境变量指定其他版本（如 3.11/3.13）做跨版本端到端验证。
 - `spin_pid` session fixture：同模式派生 `tests/targets/spin_app.py`（主线程 sleep + `spin-worker` 纯 Python 忙循环）——采样测试必须命中已知 `burn` 帧，sleep 目标会被 idle 剪枝排除。
 - 非 Linux 自动 skip；Native dump 与 syscall 追踪在 ptrace 权限不足时自动 skip（`AttachFailed`）。
-- Syscall（`TestSyscall`）：collect 断言 `clock_nanosleep` 事件 + 多 tid + elapsed > 0；dump 输出流式断言；`--summary` 表头断言；trace 后目标进程仍存活（干净 detach 验证）。
+- Syscall（`TestSyscall`）：collect 断言 `clock_nanosleep` 事件 + 多 tid + elapsed > 0；dump 输出流式断言；`--summary` 表头断言；`--json` 可 `json.loads` 且事件字段完整；trace 后目标进程仍存活（干净 detach 验证）。
 - 采样引擎（`TestSampler`）：spin_pid 上 `sample()` 返回 ≥2 线程、连续采样稳定、`burn` 帧命中；临时 Popen + terminate 后 `sample()` 抛 `ProcessExited`。
 - record（`TestRecord`）：`collect_profile` 计数 > 0、folded 行格式正则、`"spin-worker"` 前缀键、`dump_record` 写文件 rc 0、stdout/stderr 分流；target_pid（sleep 目标）上活跃样本远小于总数（idle 排除宽松断言）。
 - TopStats 实测：spin_pid 采样 5 次 render 含 `spin-worker` / `burn`。
@@ -438,7 +439,7 @@ else:
 
 ## 14. Syscall 追踪架构（syscall_render.py / syscall_tracer.py / syscall_table.py）
 
-`pyprobe syscall -p <pid>` 实时追踪目标进程**所有线程**的系统调用（strace 风格），含 `--summary` 统计（strace -c 等价）。纯 Python + ctypes 调 `libc.ptrace`，零第三方依赖；仅 x86-64。
+`pyprobe syscall -p <pid>` 实时追踪目标进程**所有线程**的系统调用（strace 风格），含 `--summary` 统计（strace -c 等价）与 `--json` 机器可读输出（与 `--summary` 互斥）。纯 Python + ctypes 调 `libc.ptrace`，零第三方依赖；仅 x86-64。
 
 > 2026-09 模块拆分（TODO §8.3）：原 `syscall_trace.py`（682 行三合一）拆为 `syscall_render.py`（纯函数 + `TraceFilter` + `SyscallStat` + `format_summary`）与 `syscall_tracer.py`（`SyscallTracer` 引擎 + `collect_syscalls` / `dump_syscalls`），文件中部 import 上移至头部。`__init__.py` 与 `cli.py` 改 import 新模块。
 
@@ -471,6 +472,7 @@ else:
 - `_decode_args`（entry 渲染）+ `_fill_out_args`（exit 后拼接缓冲区内容 `0xaddr/"..."`）。
 - `TraceFilter`：`-e trace=` 表达式编译（类组名/逗号分隔 syscall 名/`!` 排除）。
 - `format_summary` + `SyscallStat`：strace -c 风格统计表（calls/errors/total/total/s/per-call，按总耗时降序）。
+- `format_syscalls_json`：事件列表 → `{"events": [...]}` JSON 文档（`asdict` 序列化，§15.5）。
 - `SyscallEvent.format()`：单事件行 `tid  name(args) = ret <elapsed>`，项目颜色语义（tid 黄、syscall 名绿、错误红）。
 
 ### 14.4 已知坑位
@@ -478,7 +480,7 @@ else:
 - `orig_rax` 可能符号扩展为 `-1`，取低 32 位恢复 nr。
 - x86-64 返回值错误判定用无符号比较（`ret > 0xFFFFFFFF00000000`）后再转有符号。
 - clone 事件里新线程 tid 需从 `waitid`/事件数据取，此处依赖随后 SIGSTOP delivery-stop 的 wpid（`tid not in self.tids` 分支）。
-- `waitpid` 可能被信号打断（`InterruptedError`），循环内 continue 重试；`KeyboardInterrupt` 时 `dump_syscalls` 仍 detach 并打印已收集 summary。
+- `waitpid` 可能被信号打断（`InterruptedError`），循环内 continue 重试；`KeyboardInterrupt` 时 `dump_syscalls` 仍 detach 并打印已收集 summary / JSON 文档。
 
 ---
 
@@ -533,13 +535,14 @@ MainThread;main;loop 42
 
 ### 15.5 JSON 输出（--json）
 
-`stack` 子命令 `--json` flag（`--native --json` 组合支持）。`format_process_json(proc_info, threads)` / `format_native_json(pid, cmdline, threads)`：`dataclasses.asdict` + `json.dumps(indent=2, ensure_ascii=False)`。
+`stack` 与 `syscall` 子命令支持 `--json` flag（`--native --json` 组合支持）。`format_process_json(proc_info, threads)` / `format_native_json(pid, cmdline, threads)` / `format_syscalls_json(events)`：`dataclasses.asdict` + `json.dumps(indent=2, ensure_ascii=False)`。
 
 决策：
 - JSON **无色**（颜色只在 format 文本层；`json_output=True` 忽略 `color`）。
 - 数据字段始终完整路径（§3.1 契约），JSON 天然全路径——`-v` 与 JSON 无关。
-- `None` 字段 → JSON `null`（`asdict` 自然保留）。
+- `None` 字段 → JSON `null`（`asdict` 自然保留；syscall 的 `error` 即 errno 或 `null`）。
 - 错误路径不变：异常走 stderr 文本 + rc 1（对齐现有 `dump_*` 模式）。
+- syscall `--json` 抑制文本流，追踪结束（`--max-events` / Ctrl-C / 目标退出）后输出单个 `{"events": [...]}` 文档；CLI 上与 `--summary` argparse 互斥，库 API 层 `json_output` 优先于 `summary`。
 
 ### 15.6 守护测试（防退化）
 
