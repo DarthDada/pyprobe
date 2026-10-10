@@ -1,7 +1,7 @@
-"""/proc metadata helpers — cmdline, task enumeration, thread names.
+"""/proc metadata helpers — cmdline, task enumeration, thread names,
+maps load-base parsing (P5, contracts.md 批 2).
 
-契约（contracts.md 批 1 表 P1–P4，含 A7 琐碎项修复 P3）。
-当前为骨架：函数返回哨兵，批次 1 实现填实。
+契约（contracts.md 批 1 表 P1–P4，含 A7 琐碎项修复 P3；批 2 表 P5）。
 """
 
 import os
@@ -49,3 +49,30 @@ def read_comm(pid: int, tid: int) -> str:
             return f.read().strip()
     except OSError:
         return ""
+
+
+def parse_load_base(maps_text: str, exe_path: str) -> int:
+    """Parse a /proc/<pid>/maps text for the load base of ``exe_path``.
+
+    Returns the start address of the **first** mapping whose path column
+    equals ``exe_path`` (a " (deleted)" suffix is tolerated), hex-decoded;
+    0 when no line matches (P5, contracts.md 批 2).
+    """
+    for line in maps_text.splitlines():
+        path_start = line.find("/")
+        if path_start < 0:
+            continue  # 匿名映射无路径列，不参与匹配 (P5)
+        path = line[path_start:].strip()
+        if path == exe_path or path == exe_path + " (deleted)":
+            # 首个匹配映射的起始地址即 ELF 加载基址 (P5)
+            return int(line.split("-")[0], 16)
+    return 0
+
+
+def load_base(pid: int, exe_path: str) -> int:
+    """Load base of ``exe_path`` in process ``pid``; 0 on any OSError (P5)."""
+    try:
+        with open(f"/proc/{pid}/maps") as f:
+            return parse_load_base(f.read(), exe_path)
+    except OSError:
+        return 0

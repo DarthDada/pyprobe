@@ -10,7 +10,13 @@ import os
 import pytest
 
 from pyprobe.errors import PermissionDenied, ProcessNotFound
-from pyprobe.kernel.procfs import list_tids, read_cmdline, read_comm
+from pyprobe.kernel.procfs import (
+    list_tids,
+    load_base,
+    parse_load_base,
+    read_cmdline,
+    read_comm,
+)
 
 DEAD_PID = 1 << 22  # beyond the default kernel pid_max — never a live process
 
@@ -93,3 +99,51 @@ class TestReadComm:
     def test_dead_pid_returns_empty(self):
         """P4 失败模式：整个进程不存在 → ""（与 dead tid 成对的边界）。"""
         assert read_comm(DEAD_PID, DEAD_PID) == ""
+
+
+# proc(5) maps 行格式：address perms offset dev inode pathname
+_MAPS_SAMPLE = """\
+55c4a1a00000-55c4a1a01000 r--p 00000000 08:01 131087 /usr/bin/python3.12
+55c4a1a01000-55c4a1a02000 r-xp 00001000 08:01 131087 /usr/bin/python3.12
+7f8b2c000000-7f8b2c021000 rw-p 00000000 00:00 0
+7f8b2c021000-7f8b2c022000 r--p 00000000 08:01 131088 /lib/x86_64-linux-gnu/libc.so.6
+"""
+
+
+class TestParseLoadBase:
+    """P5（contracts.md 批 2）：maps 行 → 加载基址，PIE 符号重定位的输入。"""
+
+    def test_first_matching_mapping_wins(self):
+        """P5：同一路径多个映射取首个起始地址（ELF 加载基址定义）。"""
+        assert parse_load_base(_MAPS_SAMPLE, "/usr/bin/python3.12") == \
+            0x55C4A1A00000
+
+    def test_anonymous_mappings_skipped(self):
+        """P5：无路径列的匿名映射不得误匹配（行内无 "/" 的条目跳过）。"""
+        assert parse_load_base(_MAPS_SAMPLE, "") == 0
+
+    def test_deleted_suffix_tolerated(self):
+        """P5：二进制被替换后 maps 显示 " (deleted)" 后缀仍可匹配（长驻
+        进程升级场景，旧语义保留）。"""
+        text = _MAPS_SAMPLE.replace("/usr/bin/python3.12",
+                                    "/usr/bin/python3.12 (deleted)")
+        assert parse_load_base(text, "/usr/bin/python3.12") == 0x55C4A1A00000
+
+    def test_no_match_returns_zero(self):
+        """P5 失败模式：路径不在 maps 中 → 0（调用方按 0 走无基址路径）。"""
+        assert parse_load_base(_MAPS_SAMPLE, "/opt/other/bin/python") == 0
+
+
+class TestLoadBase:
+    def test_real_python_exe_mapped(self):
+        """P5 (spec-oracle)：本进程解释器二进制在 /proc/self/maps 中必有
+        映射且基址非 0——包装函数全链路自检。生产路径的 exe_path 来自
+        /proc/pid/exe（内核已解析全路径），测试用 realpath 复现该前提
+        （sys.executable 是 venv 符号链接）。"""
+        import sys
+
+        assert load_base(os.getpid(), os.path.realpath(sys.executable)) != 0
+
+    def test_dead_pid_returns_zero(self):
+        """P5 失败模式：进程不存在（OSError）→ 0 而非异常。"""
+        assert load_base(DEAD_PID, "/usr/bin/python3.12") == 0

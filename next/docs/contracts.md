@@ -197,9 +197,66 @@ A5 落地后 dto 不再依赖颜色（2026-10 批次 1 契约细化，修订 TOD
 
 | 模块 | 职责 | 公开 API | 行为点清单 |
 |------|------|----------|------------|
-| `target/identity.py` | CPython 进程识别与版本判定 | TBD | TBD |
-| `target/layout.py` | A1：resolve_layout / Layout 值对象 / dev override | TBD | TBD |
-| `target/symbols.py` | ELF 符号与运行时结构定位 | TBD | TBD |
+| `target/identity.py` | CPython 进程识别与版本判定 | `exe_path_of(pid) -> str`；`detect_version(exe_path) -> str`；`decode_py_version(hexval) -> str` | 见 §5.1 批 2 表 |
+| `target/layout.py` | A1：resolve_layout / Layout 值对象 / dev override | `Layout(version, key, verified, table)`（`.get`/`.get_or`）；`resolve_layout(version_str, *, overrides_path=None) -> Layout`；`supported_versions()`；`DEFAULT_VERSION` | 见 §5.1 批 2 表 |
+| `target/symbols.py` | ELF 符号与运行时结构定位 | `find_symbol(exe_path, name, pid) -> int`；`read_const(exe_path, name, length) -> bytes \| None`；`ElfImage.open(path)`（`.lookup`/`.read_at_symbol`/`.e_type`） | 见 §5.1 批 2 表 |
+| `kernel/procfs.py`（增补） | maps 行 → 加载基址（ELF 重定位所需 /proc 知识） | `parse_load_base(maps_text, exe_path) -> int`；`load_base(pid, exe_path) -> int` | P5（见批 2 表） |
+
+#### 批 2 行为点清单（§5.1 实例）
+
+**target/layout.py**（旧 `offsets.py`；A1 核心：消灭 `_active` 全局单例与 `get()` 读路径副作用。契约变更记录：旧 `configure()` 对未验证版本"先填 fallback 后抛 VersionNotSupported"，新 API 不抛——`Layout.verified=False` 标记，警告串由批次 4 session 用 `VersionNotSupported` 消息组装（消息文本复刻已由 errors.py E2 钉住））
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| L1 | 已验证版本（"3.12.13" 全串与 "3.12" 短串）→ verified=True，table 为该版本表 | test_known_version_sets_active | test_layout.py |
+| L2 | version_key 提取（`_version_key` 私有函数直钉）："3.12.13"→"3.12"、"3.11"→"3.11"、"3"→"3"、""→""；**Layout.key 恒为 backing 表的版本**——verified 取其键、fallback 取 DEFAULT_VERSION、override 命中取 override 版本（无 minor 段的输入不原样保留，防误导诊断） | TestVersionKey | 同 |
+| L3 | 未验证版本 → DEFAULT_VERSION 表、verified=False、requested 版本保留；**不抛异常**（A1 契约变更，见上）；override 命中未验证版本时 verified 仍为 False（旧"raise 照发"语义） | test_unknown_version_raises_and_falls_back（语义改写） | 同 |
+| L4 | dev override：`_version` 匹配 → 整表替换（对 verified 与 fallback 基座同规则）；不匹配 → 忽略；`overrides_path` 显式传参 | TestDevOverride 三条 | 同 |
+| L5 | get 缺键 → KeyError；get_or 返回 default | test_keyerror_for_missing_key | 同 |
+| L6 | supported_versions 升序、含 3.11–3.14 | TestSupportedVersions | 同 |
+| L7 | DEFAULT_VERSION == "3.12" | test_default_version | 同 |
+| L8 | 表键集独立 oracle（_SHARED_KEYS + _VERSION_EXTRA_KEYS；防表回归而非自指确认；TDD 流程注释保留） | TestOffsetsTable 全量 | 同 |
+| L9 | spec-oracle：内置表[V] == 入库 offsets.json（去 `_version`）当 json._version==V（vs gen_offsets 真实头文件产物，§10.2-1） | （新增，§10.2-1） | 同 |
+| L10 | Layout 表不可变（MappingProxy；旧 test_active_is_copy 的"防污染验证表"语义由不可变性彻底保证） | test_active_is_copy | 同 |
+| L11 | 多版本 Layout 并存互不干扰（A1 核心收益：per-session 布局，可同时观测不同版本进程） | （旧全局态下不可能，新增守护） | 同 |
+| L12 | override 隔离：默认 overrides_path 可被 conftest 指向不存在路径（§10.2-7 落地——套件验证内置表而非 tracked json） | （§10.2-7，新增） | conftest  autouse fixture + 守护测试 |
+
+**target/identity.py**（旧 `procmeta.decode_py_version` + `process.resolve_process` 的 exe/版本段）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| I1 | decode_py_version 位提取（major 24-31 / minor 16-23 / micro 8-15，release level 丢弃） | TestDecodePyVersion 三条 | test_identity.py |
+| I2 | spec-oracle：运行中解释器 sys.version_info 重组 hexval 解码回同串 | test_known_py_version | 同 |
+| I3 | exe_path_of：readlink /proc/pid/exe；OSError → ProcessNotFound(pid)（from 链保留） | （旧 process.py L73-76） | 同 |
+| I4 | detect_version：read_const Py_Version 8 字节小端解码；读不到 → "?" 哨兵（ProcessInfo.python_version 默认值语义来源） | （旧 process.py L82-85） | 同 |
+
+**target/symbols.py**（旧 `elf.py` 全量）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| S1 | ELF 校验：非 ELF → ValueError("not an ELF file")；非 ELF64 → ValueError("not ELF64") | （旧 _read_ehdr） | test_symbols.py（合成 ELF） |
+| S2 | ehdr 字段定位：e_type@16 / e_shoff@40 / e_shnum@60 / e_shstrndx@62 | （旧 _read_ehdr） | 同 |
+| S3 | 符号搜索序：.symtab（SHT_SYMTAB=2）先于 .dynsym（SHT_DYNSYM=11） | （旧 find_symbol L114） | 同 |
+| S4 | 符号类型过滤：仅 STT_NOTYPE(0)/STT_OBJECT(1) 参与匹配 | （旧 _search_symbols L97-98） | 同 |
+| S5 | ET_DYN(3) → st_value + load_base（/proc/pid/maps 首个匹配映射，含 " (deleted)" 后缀）；ET_EXEC 不加 | （旧 find_symbol L110-111 + _get_load_base） | 同 |
+| S6 | 找不到 → find_symbol 返回 0 | test_find_missing_symbol | 同 |
+| S7 | read_const：file_off = st_value − sh_addr + sh_offset；**以节剩余字节（sh_size）为界**，越界/短读/缺符号 → None（批次 2 验收澄清：旧树仅 EOF 界，节后会读到节头垃圾——新语义更严且消费方 Py_Version 8 字节不受影响） | test_read_missing_const | 同 |
+| S8 | 解析缓存：(path, mtime) 键，二次调用不重读文件 | （旧 _elf_cache） | 同 |
+| S9 | spec-oracle：真实解释器 _PyRuntime 非 0；Py_Version 8 字节解码 == platform 版本 | TestFindSymbolRealPython / TestReadConstRealPython | 同 |
+
+**kernel/procfs.py 增补**（旧 `elf._get_load_base` 的 /proc 侧——maps 行解析属 procfs 职责）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| P5 | parse_load_base：取**首个** path 匹配行（含 " (deleted)" 后缀）的起始地址 hex 解码；无匹配 → 0；load_base 包装 /proc/pid/maps 读取，OSError → 0；**字面匹配，调用方负责提供内核解析后的路径**（生产路径来自 /proc/pid/exe readlink，天然已解析；批次 2 验收驳回 realpath 内建——路径解析策略不入 kernel 层） | （旧 _get_load_base L143-156） | test_procfs.py 增补 + 真实 /proc/self/maps spec 测试 |
+
+#### 批 2 旧测试标注（§5.2 实例）
+
+| 旧测试文件 | 覆盖判定 | 放弃理由 |
+|------------|----------|----------|
+| tests/test_offsets.py | 已覆盖（test_layout.py）；`configure`/`get`/`get_or` 模块函数与 `_active` 复位测试不移植 | 全局单例即 A1 要消灭的对象；L3 语义改写（不抛异常）已入契约 |
+| tests/test_elf.py | 已覆盖（test_symbols.py，另增合成 ELF 单测——旧树只有真实二进制 spec 测试，解析逻辑无单元级守护） | — |
+| tests/test_procmeta.py | decode_py_version 已覆盖（test_identity.py I1/I2）；read_cmdline 批次 1 已覆盖（test_procfs.py P1） | — |
 
 ### 批次 3 — `cpython/`
 

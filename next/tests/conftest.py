@@ -15,6 +15,8 @@ Purging that finder here (conftest runs before any test module imports
 import sys
 from pathlib import Path
 
+import pytest
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
@@ -34,3 +36,14 @@ def _purge_legacy_editable_finder() -> None:
 
 
 _purge_legacy_editable_finder()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_layout_overrides(monkeypatch):
+    """契约 L12（§10.2-7 override 隔离）：把 target.layout 的默认 dev
+    override 路径指向不存在文件，防套件静默验证 tracked offsets.json 而非
+    内置表——显式 overrides_path 的测试不受此影响（A1 显式传参的意义）。"""
+    import pyprobe.target.layout as layout_mod
+
+    monkeypatch.setattr(layout_mod, "_DEFAULT_OVERRIDES_PATH",
+                        "/nonexistent/pyprobe-offsets-override.json")

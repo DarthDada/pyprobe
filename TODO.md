@@ -123,7 +123,7 @@
 
 ### 10.1 架构决策记录（ADR——重构允许的全部架构变更）
 
-- [ ] A1. **Layout 值对象化**（吞并 §8.1）：`resolve_layout(version) -> Layout` 显式传递，消灭 `_active` 全局单例与读路径副作用；可同时观测不同 CPython 版本进程；dev override（offsets.json）语义保留
+- [x] A1. **Layout 值对象化**（吞并 §8.1）：`resolve_layout(version) -> Layout` 显式传递，消灭 `_active` 全局单例与读路径副作用；可同时观测不同 CPython 版本进程；dev override（offsets.json）语义保留（批次 2 落地 `target/layout.py`；旧 `configure()` 抛异常语义改为 `Layout.verified` 标记，警告组装归批次 4 session）
 - [ ] A2. **ptrace 统一引擎**（`kernel/ptrace.py`）：一套 seize/interrupt/wait 状态机 + GETREGS + detach，syscall 追踪与 native 回溯共享；native 侧 ATTACH→SEIZE（与 design.md §14.2 相同的安全 detach 理由）；消灭 native_dump 与 syscall_tracer 两套 attach 逻辑
 - [ ] A3. **CPython 对象模型层**（`cpython/`）：PyLong/Unicode/Bytes/Dict/Code/Frame/ThreadState/InterpreterState 各有绑定 Layout 的 typed reader；遍历代码零裸偏移运算（消灭 stack_dump 内 co_lo/co_hi 式跨度心算），版本差异只住 Layout
 - [x] A4. **内存视图分离**：`SnapshotView`（页级 LRU，单次快照语义）/ `LiveView`（不缓存，长时观测）替代"RemoteReader 缓存 + read_uncached + _UncachedReader + 每 sample 手工新建 reader"四个零散机制；每种观测声明自己的一致性需求（批次 1 落地 `kernel/views.py`）
@@ -140,7 +140,7 @@
 - [ ] 4. **存活集成测试**：target/spin/fast-syscall 三 fixture；session→snapshot→sampling→tracing 端到端；integration ≤15s 预算
 - [ ] 5. **差异对比测试**：旧新 CLI 子进程（§10.5-1）
 - [ ] 6. **结构契约测试**：公共 API 面 + 子包 import 方向（A8）机械强制
-- [ ] 7. conftest/fixture 重设计（原 D6）：override 隔离（`_OVERRIDES_PATH` 指不存在路径，防套件静默验证 tracked offsets.json 而非内置表）、就绪轮询替代固定 `sleep(0.5)`、fast syscall target（0.2s 级 sleep，保住 elapsed≥0.1s 断言）、`run_tests.sh` mode 与透传 `-m` 合并为 and 表达式（pytest 多个 `-m` 后者胜的静默覆盖坑）
+- [ ] 7. conftest/fixture 重设计（原 D6）：~~override 隔离~~（批次 2 已落地：A1 显式 `overrides_path` 参数 + conftest autouse 指不存在路径，契约 L12）、就绪轮询替代固定 `sleep(0.5)`、fast syscall target（0.2s 级 sleep，保住 elapsed≥0.1s 断言）、`run_tests.sh` mode 与透传 `-m` 合并为 and 表达式（pytest 多个 `-m` 后者胜的静默覆盖坑）
 
 ### 10.3 行为点清单机制（"参考旧代码"的落地）
 
@@ -152,7 +152,7 @@
 
 - [ ] 0. 脚手架：`next/{pyprobe,tests,pyproject.toml}` 布局（包名仍 `pyprobe` 替换免改名；两套件独立 pytest 进程隔离，旧↔新对比走 CLI 子进程）、`scripts/next.sh`、CI next 作业、AGENTS.md TDD 工作流节（§7.3 并入）、`next/docs/contracts.md`（ADR 全文 + 模块契约骨架 + 行为点清单模板）、`next/pyprobe/offsets.json` 从根拷贝
 - [x] 1. `kernel/` + errors + dto：mem 传输 / Snapshot·Live 视图（A4）/ procfs / **统一 ptrace 引擎**（A2，批内最大件，状态机 stub 测试全绿）
-- [ ] 2. `target/`：identity / layout（A1 落地）/ symbols
+- [x] 2. `target/`：identity / layout（A1 落地）/ symbols
 - [ ] 3. `cpython/`：objects / dicts / code / frames / runtime / names（A3 落地；spec-oracle 测试同步上）
 - [ ] 4. `observe/`：session / snapshot / sampling / profile / topstats（A7 中 TopStats 修复；首个端到端里程碑：snapshot 对 live target 出栈）
 - [ ] 5. `observe/`：syscalls / native（共享批 1 ptrace 引擎；A7 中 syscall 修复）
