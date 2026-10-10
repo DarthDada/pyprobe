@@ -1,0 +1,1083 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/admin/projects/pyprobe/next
+configfile: pyproject.toml
+plugins: cov-7.1.0, anyio-4.15.1
+collected 672 items
+
+tests/test_code.py ............................                          [  4%]
+tests/test_dicts.py ....................................                 [  9%]
+tests/test_dto.py .........                                              [ 10%]
+tests/test_errors.py ......................                              [ 14%]
+tests/test_frames.py ........................................            [ 20%]
+tests/test_identity.py .........                                         [ 21%]
+tests/test_layout.py ................................................... [ 29%]
+........................................................................ [ 39%]
+........................................................................ [ 50%]
+................                                                         [ 52%]
+tests/test_mem.py ..........                                             [ 54%]
+tests/test_names.py ..........                                           [ 55%]
+tests/test_objects.py .................................................. [ 63%]
+......................................                                   [ 68%]
+tests/test_procfs.py ................F.F                                 [ 71%]
+tests/test_profile.py FFFFFFFFFF.                                        [ 73%]
+tests/test_ptrace.py ...............................                     [ 77%]
+tests/test_runtime.py ............................................       [ 84%]
+tests/test_sampling.py FFF.F.F..F                                        [ 86%]
+tests/test_scaffold.py ...                                               [ 86%]
+tests/test_session.py FFFFFFFF                                           [ 87%]
+tests/test_session_snapshot.py FFFFF                                     [ 88%]
+tests/test_snapshot.py FFFFF.F.FFFFF....F..                              [ 91%]
+tests/test_structure.py ...                                              [ 91%]
+tests/test_symbols.py ..................                                 [ 94%]
+tests/test_topstats.py FFFFFFFF                                          [ 95%]
+tests/test_views.py .............................                        [100%]
+
+=================================== FAILURES ===================================
+______________ TestReadStatState.test_self_state_is_valid_letter _______________
+
+self = <tests.test_procfs.TestReadStatState object at 0x7f9337294c20>
+
+    def test_self_state_is_valid_letter(self):
+        """P6：真实 /proc 自检——本进程主线程状态为合法状态字母。"""
+        pid = os.getpid()
+>       assert read_stat_state(pid, pid) in set("RSDZXTtWxKWIP")
+E       AssertionError: assert None in {'D', 'I', 'K', 'P', 'R', 'S', ...}
+E        +  where None = read_stat_state(34776, 34776)
+E        +  and   {'D', 'I', 'K', 'P', 'R', 'S', ...} = set('RSDZXTtWxKWIP')
+
+tests/test_procfs.py:159: AssertionError
+______________ TestReadStatState.test_comm_with_parens_and_spaces ______________
+
+self = <tests.test_procfs.TestReadStatState object at 0x7f9337296360>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f9336f97b00>
+
+    def test_comm_with_parens_and_spaces(self, monkeypatch):
+        """P6 解析健壮性：comm 含空格与括号时仍取末 ")" 后的状态字段
+        （proc(5)：comm 本身可含 ')'，只认最后一个）。"""
+        import builtins
+    
+        real_open = builtins.open
+    
+        def fake_open(path, mode="r", *a, **kw):
+            if path.endswith("/stat"):
+                import io
+                return io.StringIO("1234 (weird ) name) S 1 2 3")
+            return real_open(path, mode, *a, **kw)
+    
+        monkeypatch.setattr(builtins, "open", fake_open)
+>       assert read_stat_state(1234, 1234) == "S"
+E       AssertionError: assert None == 'S'
+E        +  where None = read_stat_state(1234, 1234)
+
+tests/test_procfs.py:179: AssertionError
+_________________________ TestFoldKey.test_root_first __________________________
+
+self = <tests.test_profile.TestFoldKey object at 0x7f93372ba0f0>
+
+    def test_root_first(self):
+        """PF1：帧从 leaf→root 反转为 root→leaf（flamegraph 折叠格式的
+        栈底在前约定，复刻约束）。"""
+        t = _thread(frames=[_frame("leaf"), _frame("mid"), _frame("root")])
+>       assert fold_key(t) == 'tid-101;root;mid;leaf'
+E       AssertionError: assert '' == 'tid-101;root;mid;leaf'
+E         
+E         - tid-101;root;mid;leaf
+
+tests/test_profile.py:32: AssertionError
+_____________________ TestFoldKey.test_thread_name_prefix ______________________
+
+self = <tests.test_profile.TestFoldKey object at 0x7f93372ba0c0>
+
+    def test_thread_name_prefix(self):
+        """PF1：有名线程前缀为带引号的名字（聚合键的人读性）。"""
+        t = _thread(name="worker", frames=[_frame("f")])
+>       assert fold_key(t) == '"worker";f'
+E       assert '' == '"worker";f'
+E         
+E         - "worker";f
+
+tests/test_profile.py:37: AssertionError
+___________________ TestFoldKey.test_tid_prefix_when_unnamed ___________________
+
+self = <tests.test_profile.TestFoldKey object at 0x7f93372ba540>
+
+    def test_tid_prefix_when_unnamed(self):
+        """PF1：无名线程前缀 tid-<native_tid>（键仍稳定唯一）。"""
+        t = _thread(native_tid=4321, frames=[_frame("f")])
+>       assert fold_key(t).startswith("tid-4321;")
+E       AssertionError: assert False
+E        +  where False = <built-in method startswith of str object at 0x153b6e8>('tid-4321;')
+E        +    where <built-in method startswith of str object at 0x153b6e8> = ''.startswith
+E        +      where '' = fold_key(ThreadInfo(native_tid=4321, thread_id=0, name='', frames=[FrameInfo(name='f', filename='app/x.py', line=1)], idle=False))
+
+tests/test_profile.py:42: AssertionError
+_________________ TestFoldKey.test_none_frame_name_placeholder _________________
+
+self = <tests.test_profile.TestFoldKey object at 0x7f93372ba9f0>
+
+    def test_none_frame_name_placeholder(self):
+        """PF1：None 帧名 → "?"（C 帧/陈旧帧占位，键不因 None 崩坏）。"""
+        t = _thread(frames=[_frame(None), _frame("root")])
+>       assert fold_key(t) == "tid-101;root;?"
+E       AssertionError: assert '' == 'tid-101;root;?'
+E         
+E         - tid-101;root;?
+
+tests/test_profile.py:47: AssertionError
+______________ TestCollectProfile.test_counts_and_idle_exclusion _______________
+
+self = <tests.test_profile.TestCollectProfile object at 0x7f93372baf00>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f9337016960>
+
+    def test_counts_and_idle_exclusion(self, monkeypatch):
+        """PF3：active 入 counts+samples；idle 只计 idle_samples 不入键。"""
+        active = _thread(name="w", frames=[_frame("f")])
+        idle = _thread(native_tid=102, idle=True)
+        rounds = [[active, idle]] * 3
+        profile, _ = _run(monkeypatch, rounds)
+>       assert profile.samples == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = ProfileData(proc_info=ProcessInfo(pid=4242, cmdline='', exe_path='', python_version='?'), counts={}, samples=0, idle_samples=0, elapsed=0.0, version_warning=None).samples
+
+tests/test_profile.py:96: AssertionError
+_____________ TestCollectProfile.test_absolute_scheduling_no_drift _____________
+
+self = <tests.test_profile.TestCollectProfile object at 0x7f93372bb230>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f9337017290>
+
+    def test_absolute_scheduling_no_drift(self, monkeypatch):
+        """PF2：绝对时间调度——sample 零耗时下 rate=10 恰好 0.1s 一格，
+        duration 0.35 采 4 轮（0/0.1/0.2/0.3s），不漂移不少采。"""
+        rounds = [[_thread(frames=[_frame("f")])]] * 10
+        profile, clock = _run(monkeypatch, rounds)
+>       assert profile.samples == 4
+E       AssertionError: assert 0 == 4
+E        +  where 0 = ProfileData(proc_info=ProcessInfo(pid=4242, cmdline='', exe_path='', python_version='?'), counts={}, samples=0, idle_samples=0, elapsed=0.0, version_warning=None).samples
+
+tests/test_profile.py:105: AssertionError
+___________ TestCollectProfile.test_behind_schedule_resets_baseline ____________
+
+self = <tests.test_profile.TestCollectProfile object at 0x7f93372bb530>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f9337017c50>
+
+    def test_behind_schedule_resets_baseline(self, monkeypatch):
+        """PF2：单轮采样耗时超 interval → 重置基线而非补发爆发（旧
+        record 的防抖动语义：落后不追，采样率不失真）。"""
+        clock = FakeClock()
+    
+        class SlowSampler(StubSampler):
+            def sample(self):
+                clock.t += 0.25  # 单轮耗时 0.25s > interval 0.1s
+                return super().sample()
+    
+        monkeypatch.setattr(prof_mod, "time", clock)
+        rounds = [[_thread(frames=[_frame("f")])]] * 10
+        factory = lambda pid: SlowSampler(pid, rounds, clock)
+        profile = collect_profile(PID, rate=10, duration=0.3,
+                                  sampler_factory=factory)
+        # t: 0 → sample(0.25) → 重置 → 0.25 → sample(0.5) → 0.5 ≥ 0.3 停
+>       assert profile.samples == 2
+E       AssertionError: assert 0 == 2
+E        +  where 0 = ProfileData(proc_info=ProcessInfo(pid=4242, cmdline='', exe_path='', python_version='?'), counts={}, samples=0, idle_samples=0, elapsed=0.0, version_warning=None).samples
+
+tests/test_profile.py:124: AssertionError
+__________ TestCollectProfile.test_keyboardinterrupt_returns_partial ___________
+
+self = <tests.test_profile.TestCollectProfile object at 0x7f93372bb830>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f9337017620>
+
+    def test_keyboardinterrupt_returns_partial(self, monkeypatch):
+        """PF4：Ctrl-C 吸收 → 已采部分保留返回（record 的中断语义）。"""
+        rounds = [[_thread(frames=[_frame("f")])],
+                  [_thread(frames=[_frame("f")])],
+                  KeyboardInterrupt()]
+        profile, _ = _run(monkeypatch, rounds, duration=None)
+>       assert profile.samples == 2
+E       AssertionError: assert 0 == 2
+E        +  where 0 = ProfileData(proc_info=ProcessInfo(pid=4242, cmdline='', exe_path='', python_version='?'), counts={}, samples=0, idle_samples=0, elapsed=0.0, version_warning=None).samples
+
+tests/test_profile.py:132: AssertionError
+____________ TestCollectProfile.test_process_exited_returns_partial ____________
+
+self = <tests.test_profile.TestCollectProfile object at 0x7f93372bbb60>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f9337016a50>
+
+    def test_process_exited_returns_partial(self, monkeypatch):
+        """PF4：目标中途退出吸收 → 部分数据 + warning 透传（会话警告
+        不随退出丢失，dump 层要显示）。"""
+        rounds = [[_thread(frames=[_frame("f")])], ProcessExited(PID)]
+        profile, _ = _run(monkeypatch, rounds, duration=None)
+>       assert profile.samples == 1
+E       AssertionError: assert 0 == 1
+E        +  where 0 = ProfileData(proc_info=ProcessInfo(pid=4242, cmdline='', exe_path='', python_version='?'), counts={}, samples=0, idle_samples=0, elapsed=0.0, version_warning=None).samples
+
+tests/test_profile.py:140: AssertionError
+____________ TestCollectProfile.test_duration_none_until_interrupt _____________
+
+self = <tests.test_profile.TestCollectProfile object at 0x7f93372bbe60>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f9337016540>
+
+    def test_duration_none_until_interrupt(self, monkeypatch):
+        """PF5：duration=None 时只有中断/退出能终止循环（守护不会
+        意外提前退出）。"""
+        rounds = [[_thread(frames=[_frame("f")])]] * 5 + [KeyboardInterrupt()]
+        profile, _ = _run(monkeypatch, rounds, duration=None)
+>       assert profile.samples == 5
+E       AssertionError: assert 0 == 5
+E        +  where 0 = ProfileData(proc_info=ProcessInfo(pid=4242, cmdline='', exe_path='', python_version='?'), counts={}, samples=0, idle_samples=0, elapsed=0.0, version_warning=None).samples
+
+tests/test_profile.py:148: AssertionError
+_________________ TestSample.test_returns_sorted_named_threads _________________
+
+self = <tests.test_sampling.TestSample object at 0x7f933730b8f0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f93373095e0>
+
+    def test_returns_sorted_named_threads(self, monkeypatch):
+        """SA4：native_tid 升序 + names 按 thread_id 贴名（链序打乱，
+        输出必须升序）。"""
+        mem = FakeMemory()
+        _add_tstate(mem, TSTATE_BASE, thread_id=2, native_tid=102,
+                    next_addr=TSTATE_BASE + 0x1000)
+        _add_tstate(mem, TSTATE_BASE + 0x1000, thread_id=1, native_tid=101)
+        _link_head(mem, TSTATE_BASE)
+        sampler, _ = _make_sampler(monkeypatch, mem, {1: "main"})
+        threads = sampler.sample()
+>       assert [t.native_tid for t in threads] == [101, 102]
+E       assert [] == [101, 102]
+E         
+E         Right contains 2 more items, first extra item: 101
+E         Use -v to get more diff
+
+tests/test_sampling.py:87: AssertionError
+_____________________ TestSample.test_new_view_per_sample ______________________
+
+self = <tests.test_sampling.TestSample object at 0x7f933730aae0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f9337072d80>
+
+    def test_new_view_per_sample(self, monkeypatch):
+        """SA1（A4）：每次 sample 经 view_factory 新建视图（跨样本复用
+        会供陈旧数据——调用计数即守护）。"""
+        mem = FakeMemory()
+        _link_head(mem, 0)
+        sampler, session = _make_sampler(monkeypatch, mem)
+        sampler.sample()
+        sampler.sample()
+>       assert session.view_calls == 2
+E       assert 0 == 2
+E        +  where 0 = <tests.test_sampling.StubSession object at 0x7f9337072870>.view_calls
+
+tests/test_sampling.py:99: AssertionError
+____________ TestSample.test_no_thread_state_becomes_process_exited ____________
+
+self = <tests.test_sampling.TestSample object at 0x7f9337322810>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f93370706e0>
+
+    def test_no_thread_state_becomes_process_exited(self, monkeypatch):
+        """SA2：线程链读失败 → ProcessExited 且链式保留 NoThreadState
+        原因（目标退出与解析故障的诊断区分）。"""
+        sampler, _ = _make_sampler(monkeypatch, FakeMemory())
+>       with pytest.raises(ProcessExited) as ei:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ProcessExited
+
+tests/test_sampling.py:105: Failed
+_________________ TestSample.test_idle_hint_prunes_frame_walk __________________
+
+self = <tests.test_sampling.TestSample object at 0x7f93373211c0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f93370714f0>
+
+    def test_idle_hint_prunes_frame_walk(self, monkeypatch):
+        """SA3：stat-idle 线程 idle_hint 剪枝——其 current_frame 指向垃圾
+        地址，若走了帧遍历必然失败；idle=True 且空帧即剪枝证据。"""
+        mem = FakeMemory()
+        _add_tstate(mem, TSTATE_BASE, thread_id=2, native_tid=102,
+                    frame_addr=0xDEAD00)
+        _link_head(mem, TSTATE_BASE)
+        monkeypatch.setattr(samp_mod, "is_thread_idle_by_stat",
+                            lambda pid, tid: True)
+        sampler, _ = _make_sampler(monkeypatch, mem)
+        threads = sampler.sample()
+>       assert len(threads) == 1
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+tests/test_sampling.py:128: AssertionError
+________________ TestSample.test_refresh_names_updates_session _________________
+
+self = <tests.test_sampling.TestSample object at 0x7f9337322cf0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f9337071f40>
+
+    def test_refresh_names_updates_session(self, monkeypatch):
+        """SA5：refresh_names() 显式刷新并回写 session.names（top 的
+        显示节奏通道）。"""
+        mem = FakeMemory()
+        _link_head(mem, 0)
+        monkeypatch.setattr(samp_mod, "get_thread_names",
+                            lambda v, l, i: {2: "renamed"})
+        sampler, session = _make_sampler(monkeypatch, mem, {2: "old"})
+        sampler.refresh_names()
+>       assert session.names == {2: "renamed"}
+E       AssertionError: assert {2: 'old'} == {2: 'renamed'}
+E         
+E         Differing items:
+E         {2: 'old'} != {2: 'renamed'}
+E         Use -v to get more diff
+
+tests/test_sampling.py:154: AssertionError
+_____________ TestThreadStateRefUsage.test_tref_fields_drive_build _____________
+
+self = <tests.test_sampling.TestThreadStateRefUsage object at 0x7f9337323710>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f9337072c00>
+
+    def test_tref_fields_drive_build(self, monkeypatch):
+        """SA4 配套：ThreadStateRef 三字段原样进入 ThreadInfo
+        （thread_id 是 names 贴名的键，错配即张冠李戴）。"""
+        mem = FakeMemory()
+        _add_tstate(mem, TSTATE_BASE, thread_id=42, native_tid=777)
+        _link_head(mem, TSTATE_BASE)
+        sampler, _ = _make_sampler(monkeypatch, mem, {42: "answer"})
+>       t = sampler.sample()[0]
+            ^^^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+tests/test_sampling.py:188: IndexError
+__________________ TestOpenFlow.test_resolves_all_invariants ___________________
+
+self = <tests.test_session.TestOpenFlow object at 0x7f9337320b90>, seams = None
+
+    def test_resolves_all_invariants(self, seams):
+        """SE1/SE4/SE6：open 一次性解析全部存活期不变量并落盘到 Session
+        （下层解析结果被忠实搬运，layout 随会话显式携带——A1 落点）。"""
+>       s = open_session(PID)
+            ^^^^^^^^^^^^^^^^^
+
+tests/test_session.py:44: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+pid = 4242, view_factory = None
+
+    def open_session(pid: int, *, view_factory=None) -> Session:
+        """Resolve all process-lifetime-invariant data for ``pid`` (SE1–SE6).
+    
+        Raises ``ProcessNotFound`` / ``SymbolNotFound`` /
+        ``NoInterpreterState``; never prints.
+        """
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/observe/session.py:53: NotImplementedError
+______________________ TestOpenFlow.test_symbol_not_found ______________________
+
+self = <tests.test_session.TestOpenFlow object at 0x7f9337320a10>, seams = None
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f9337309b20>
+
+    def test_symbol_not_found(self, seams, monkeypatch):
+        """SE1 失败模式：_PyRuntime 缺失 → SymbolNotFound 带符号与路径
+        （CLI `[!]` 诊断链，属性 pin 见 errors 契约）。"""
+        monkeypatch.setattr(sess_mod, "find_symbol", lambda exe, name, pid: 0)
+        with pytest.raises(SymbolNotFound) as ei:
+>           open_session(PID)
+
+tests/test_session.py:61: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+pid = 4242, view_factory = None
+
+    def open_session(pid: int, *, view_factory=None) -> Session:
+        """Resolve all process-lifetime-invariant data for ``pid`` (SE1–SE6).
+    
+        Raises ``ProcessNotFound`` / ``SymbolNotFound`` /
+        ``NoInterpreterState``; never prints.
+        """
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/observe/session.py:53: NotImplementedError
+_________ TestOpenFlow.test_default_view_factory_builds_snapshot_view __________
+
+self = <tests.test_session.TestOpenFlow object at 0x7f9337322e40>, seams = None
+
+    def test_default_view_factory_builds_snapshot_view(self, seams):
+        """SE5：默认 view_factory 产出 SnapshotView(Transport)（A4 单次
+        快照语义的默认声明）。"""
+>       s = open_session(PID)
+            ^^^^^^^^^^^^^^^^^
+
+tests/test_session.py:68: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+pid = 4242, view_factory = None
+
+    def open_session(pid: int, *, view_factory=None) -> Session:
+        """Resolve all process-lifetime-invariant data for ``pid`` (SE1–SE6).
+    
+        Raises ``ProcessNotFound`` / ``SymbolNotFound`` /
+        ``NoInterpreterState``; never prints.
+        """
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/observe/session.py:53: NotImplementedError
+___________________ TestOpenFlow.test_view_factory_injection ___________________
+
+self = <tests.test_session.TestOpenFlow object at 0x7f9337323620>, seams = None
+
+    def test_view_factory_injection(self, seams):
+        """SE5：注入点——自定义 factory 原样入会话（测试/特殊观测的通道）。"""
+        marker = object()
+>       s = open_session(PID, view_factory=lambda pid: marker)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_session.py:77: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+pid = 4242
+view_factory = <function TestOpenFlow.test_view_factory_injection.<locals>.<lambda> at 0x7f933706ade0>
+
+    def open_session(pid: int, *, view_factory=None) -> Session:
+        """Resolve all process-lifetime-invariant data for ``pid`` (SE1–SE6).
+    
+        Raises ``ProcessNotFound`` / ``SymbolNotFound`` /
+        ``NoInterpreterState``; never prints.
+        """
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/observe/session.py:53: NotImplementedError
+_________ TestVersionWarning.test_unverified_version_warning_verbatim __________
+
+self = <tests.test_session.TestVersionWarning object at 0x7f9337323a70>
+seams = None
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f9337072960>
+
+    def test_unverified_version_warning_verbatim(self, seams, monkeypatch):
+        """SE2（逐字复刻）：未验证版本 → "[!] " + VersionNotSupported 消息，
+        且 layout 为 fallback（verified=False，A1 契约承接点）。"""
+        monkeypatch.setattr(sess_mod, "detect_version", lambda exe: "9.9.1")
+>       s = open_session(PID)
+            ^^^^^^^^^^^^^^^^^
+
+tests/test_session.py:86: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+pid = 4242, view_factory = None
+
+    def open_session(pid: int, *, view_factory=None) -> Session:
+        """Resolve all process-lifetime-invariant data for ``pid`` (SE1–SE6).
+    
+        Raises ``ProcessNotFound`` / ``SymbolNotFound`` /
+        ``NoInterpreterState``; never prints.
+        """
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/observe/session.py:53: NotImplementedError
+___________ TestVersionWarning.test_unknown_version_warning_verbatim ___________
+
+self = <tests.test_session.TestVersionWarning object at 0x7f9337328050>
+seams = None
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f9337072d20>
+
+    def test_unknown_version_warning_verbatim(self, seams, monkeypatch):
+        """SE2（逐字复刻）：Py_Version 读不出（"?"）→ 专用"无法判定"文案，
+        与未验证版本文案区分（两种失败对用户含义不同）。"""
+        monkeypatch.setattr(sess_mod, "detect_version", lambda exe: "?")
+>       s = open_session(PID)
+            ^^^^^^^^^^^^^^^^^
+
+tests/test_session.py:98: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+pid = 4242, view_factory = None
+
+    def open_session(pid: int, *, view_factory=None) -> Session:
+        """Resolve all process-lifetime-invariant data for ``pid`` (SE1–SE6).
+    
+        Raises ``ProcessNotFound`` / ``SymbolNotFound`` /
+        ``NoInterpreterState``; never prints.
+        """
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/observe/session.py:53: NotImplementedError
+_____________ TestVersionWarning.test_verified_version_no_warning ______________
+
+self = <tests.test_session.TestVersionWarning object at 0x7f9337329490>
+seams = None
+
+    def test_verified_version_no_warning(self, seams):
+        """SE2：已验证版本 → None（无 warning 字段污染输出）。"""
+>       assert open_session(PID).version_warning is None
+               ^^^^^^^^^^^^^^^^^
+
+tests/test_session.py:107: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+pid = 4242, view_factory = None
+
+    def open_session(pid: int, *, view_factory=None) -> Session:
+        """Resolve all process-lifetime-invariant data for ``pid`` (SE1–SE6).
+    
+        Raises ``ProcessNotFound`` / ``SymbolNotFound`` /
+        ``NoInterpreterState``; never prints.
+        """
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/observe/session.py:53: NotImplementedError
+___________ TestCmdlineFallback.test_cmdline_none_falls_back_to_exe ____________
+
+self = <tests.test_session.TestCmdlineFallback object at 0x7f93373298b0>
+seams = None
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f9337070ce0>
+
+    def test_cmdline_none_falls_back_to_exe(self, seams, monkeypatch):
+        """SE3：/proc cmdline 读不出（zombie 窗口期）→ exe_path 兜底，
+        proc_info 不留空 cmdline。"""
+        monkeypatch.setattr(sess_mod, "read_cmdline", lambda pid: None)
+>       s = open_session(PID)
+            ^^^^^^^^^^^^^^^^^
+
+tests/test_session.py:115: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+pid = 4242, view_factory = None
+
+    def open_session(pid: int, *, view_factory=None) -> Session:
+        """Resolve all process-lifetime-invariant data for ``pid`` (SE1–SE6).
+    
+        Raises ``ProcessNotFound`` / ``SymbolNotFound`` /
+        ``NoInterpreterState``; never prints.
+        """
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/observe/session.py:53: NotImplementedError
+____________ TestOpenSessionLive.test_session_resolves_live_target _____________
+
+self = <tests.test_session_snapshot.TestOpenSessionLive object at 0x7f9337323260>
+target_pid = 34777
+
+    def test_session_resolves_live_target(self, target_pid):
+        """E2E2：真实进程全解析——版本已验证、无 warning、interp 非 0、
+        proc_info 版本与目标解释器一致（TARGET_PYTHON 默认即本解释器）。"""
+>       s = open_session(target_pid)
+            ^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_session_snapshot.py:21: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+pid = 34777, view_factory = None
+
+    def open_session(pid: int, *, view_factory=None) -> Session:
+        """Resolve all process-lifetime-invariant data for ``pid`` (SE1–SE6).
+    
+        Raises ``ProcessNotFound`` / ``SymbolNotFound`` /
+        ``NoInterpreterState``; never prints.
+        """
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/observe/session.py:53: NotImplementedError
+_____________ TestOpenSessionLive.test_thread_names_resolved_live ______________
+
+self = <tests.test_session_snapshot.TestOpenSessionLive object at 0x7f9337323fb0>
+target_pid = 34777
+
+    def test_thread_names_resolved_live(self, target_pid):
+        """E2E2/N 系集成：threading._active 遍历在真实解释器上解析出
+        bg-worker 名（单元级矩阵之外的活体验证）。"""
+>       s = open_session(target_pid)
+            ^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_session_snapshot.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+pid = 34777, view_factory = None
+
+    def open_session(pid: int, *, view_factory=None) -> Session:
+        """Resolve all process-lifetime-invariant data for ``pid`` (SE1–SE6).
+    
+        Raises ``ProcessNotFound`` / ``SymbolNotFound`` /
+        ``NoInterpreterState``; never prints.
+        """
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/observe/session.py:53: NotImplementedError
+________________ TestCollectSnapshotLive.test_snapshot_threads _________________
+
+self = <tests.test_session_snapshot.TestCollectSnapshotLive object at 0x7f93373087a0>
+target_pid = 34777
+
+    def test_snapshot_threads(self, target_pid):
+        """E2E3：≥2 线程、bg-worker 名解析、native_tid 升序、主线程
+        idle（双启发式在活体上的表现）。"""
+>       s = open_session(target_pid)
+            ^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_session_snapshot.py:42: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+pid = 34777, view_factory = None
+
+    def open_session(pid: int, *, view_factory=None) -> Session:
+        """Resolve all process-lifetime-invariant data for ``pid`` (SE1–SE6).
+    
+        Raises ``ProcessNotFound`` / ``SymbolNotFound`` /
+        ``NoInterpreterState``; never prints.
+        """
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/observe/session.py:53: NotImplementedError
+________ TestCollectSnapshotLive.test_snapshot_frames_reference_target _________
+
+self = <tests.test_session_snapshot.TestCollectSnapshotLive object at 0x7f9337329640>
+target_pid = 34777
+
+    def test_snapshot_frames_reference_target(self, target_pid):
+        """E2E3：bg-worker 帧含 worker 函数与 target_app.py 文件名
+        （帧遍历、code 头、行号解析的活体互证）；行号为正。"""
+>       s = open_session(target_pid)
+            ^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_session_snapshot.py:55: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+pid = 34777, view_factory = None
+
+    def open_session(pid: int, *, view_factory=None) -> Session:
+        """Resolve all process-lifetime-invariant data for ``pid`` (SE1–SE6).
+    
+        Raises ``ProcessNotFound`` / ``SymbolNotFound`` /
+        ``NoInterpreterState``; never prints.
+        """
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/observe/session.py:53: NotImplementedError
+____________ TestCollectSnapshotLive.test_repeated_snapshots_stable ____________
+
+self = <tests.test_session_snapshot.TestCollectSnapshotLive object at 0x7f9337329d30>
+target_pid = 34777
+
+    def test_repeated_snapshots_stable(self, target_pid):
+        """E2E3/A4 活体：两次快照结构一致（每次新建 SnapshotView，
+        结果可复现）。"""
+>       s = open_session(target_pid)
+            ^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_session_snapshot.py:67: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+pid = 34777, view_factory = None
+
+    def open_session(pid: int, *, view_factory=None) -> Session:
+        """Resolve all process-lifetime-invariant data for ``pid`` (SE1–SE6).
+    
+        Raises ``ProcessNotFound`` / ``SymbolNotFound`` /
+        ``NoInterpreterState``; never prints.
+        """
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/observe/session.py:53: NotImplementedError
+______________ TestCollectSnapshot.test_threads_sorted_and_named _______________
+
+self = <tests.test_snapshot.TestCollectSnapshot object at 0x7f933730b380>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_threads_sorted_and_named(self, layout):
+        """SN2：names 按 thread_id 贴名；native_tid 升序（复刻约束——
+        链序 102→101 打乱，输出必须升序）。"""
+        mem = FakeMemory()
+        _build_thread_graph(mem, layout, TSTATE_BASE, FRAME_BASE,
+                            CODE_BASE, thread_id=102, native_tid=102,
+                            name="worker", next_addr=TSTATE_BASE + 0x1000)
+        _build_thread_graph(mem, layout, TSTATE_BASE + 0x1000,
+                            FRAME_BASE + 0x1000, CODE_BASE + 0x2000,
+                            thread_id=101, native_tid=101, name="run")
+        _link_head(mem, layout, TSTATE_BASE)
+        threads = collect_snapshot(_session(layout, mem))
+>       assert [t.native_tid for t in threads] == [101, 102]
+E       assert [] == [101, 102]
+E         
+E         Right contains 2 more items, first extra item: 101
+E         Use -v to get more diff
+
+tests/test_snapshot.py:95: AssertionError
+_________________ TestCollectSnapshot.test_fresh_view_per_call _________________
+
+self = <tests.test_snapshot.TestCollectSnapshot object at 0x7f933732ae70>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_fresh_view_per_call(self, layout):
+        """SN1（A4）：每次调用经 view_factory 新建视图——跨调用复用会
+        供陈旧数据，工厂调用计数即守护。"""
+        mem = FakeMemory()
+        _link_head(mem, layout, 0)  # head=0 → 空链，隔离构图干扰
+        calls = []
+        s = _session(layout, mem)
+        s.view_factory = lambda pid: (calls.append(pid), mem)[1]
+        collect_snapshot(s)
+        collect_snapshot(s)
+>       assert calls == [PID, PID]
+E       assert [] == [4242, 4242]
+E         
+E         Right contains 2 more items, first extra item: 4242
+E         Use -v to get more diff
+
+tests/test_snapshot.py:111: AssertionError
+_____________ TestCollectSnapshot.test_no_thread_state_propagates ______________
+
+self = <tests.test_snapshot.TestCollectSnapshot object at 0x7f933732abd0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_no_thread_state_propagates(self, layout):
+        """SN1：threads.head 读失败 → NoThreadState 原样传播（快照语义；
+        ProcessExited 转换是 sampling 的策略，两层不混）。"""
+>       with pytest.raises(NoThreadState):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE NoThreadState
+
+tests/test_snapshot.py:116: Failed
+____________________ TestBuildThread.test_frames_and_fields ____________________
+
+self = <tests.test_snapshot.TestBuildThread object at 0x7f933732a8a0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_frames_and_fields(self, layout):
+        """SN3：current_frame → walk_frames → ThreadInfo 全字段
+        （thread_id 传递是 names 贴名的前提）。"""
+        mem = FakeMemory()
+        _build_thread_graph(mem, layout, TSTATE_BASE, FRAME_BASE,
+                            CODE_BASE, thread_id=7, native_tid=101,
+                            name="worker")
+        from pyprobe.cpython.runtime import ThreadStateRef
+    
+        tref = ThreadStateRef(TSTATE_BASE, 7, 101)
+        t = build_thread(_session(layout, mem), mem, tref)
+        assert t.native_tid == 101
+>       assert t.thread_id == 7
+E       AssertionError: assert 0 == 7
+E        +  where 0 = ThreadInfo(native_tid=101, thread_id=0, name='', frames=[], idle=False).thread_id
+
+tests/test_snapshot.py:133: AssertionError
+_______________ TestBuildThread.test_idle_hint_skips_frame_walk ________________
+
+self = <tests.test_snapshot.TestBuildThread object at 0x7f933732a480>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_idle_hint_skips_frame_walk(self, layout):
+        """SN3：idle_hint=True → 空帧 idle ThreadInfo——帧区故意不建，
+        走了帧遍历就会失败（剪枝路径的负向守护）。"""
+        mem = FakeMemory()
+        import struct
+    
+        end = layout.get("ThreadState.current_frame") + 8
+        blob = bytearray(end)
+        struct.pack_into("<Q", blob,
+                         layout.get("ThreadState.current_frame"), 0xDEAD00)
+        mem.add(TSTATE_BASE, bytes(blob))
+        from pyprobe.cpython.runtime import ThreadStateRef
+    
+        t = build_thread(_session(layout, mem), mem,
+                         ThreadStateRef(TSTATE_BASE, 7, 101),
+                         idle_hint=True)
+>       assert t.idle is True
+E       AssertionError: assert False is True
+E        +  where False = ThreadInfo(native_tid=101, thread_id=0, name='', frames=[], idle=False).idle
+
+tests/test_snapshot.py:152: AssertionError
+_____________________ TestIdleByFrames.test_wait_threading _____________________
+
+self = <tests.test_snapshot.TestIdleByFrames object at 0x7f933732b590>
+
+    def test_wait_threading(self):
+        """SN4：threading.wait 是典型空闲（锁等待）。"""
+>       assert is_thread_idle_by_frames(
+            self._frames("wait", "threading.py")) is True
+E       AssertionError: assert False is True
+E        +  where False = is_thread_idle_by_frames([FrameInfo(name='wait', filename='threading.py', line=1)])
+E        +    where [FrameInfo(name='wait', filename='threading.py', line=1)] = _frames('wait', 'threading.py')
+E        +      where _frames = <tests.test_snapshot.TestIdleByFrames object at 0x7f933732b590>._frames
+
+tests/test_snapshot.py:168: AssertionError
+____________________ TestIdleByFrames.test_select_selectors ____________________
+
+self = <tests.test_snapshot.TestIdleByFrames object at 0x7f93372385f0>
+
+    def test_select_selectors(self):
+        """SN4：selectors.select 是典型空闲（事件循环等待）。"""
+>       assert is_thread_idle_by_frames(
+            self._frames("select", "selectors.py")) is True
+E       AssertionError: assert False is True
+E        +  where False = is_thread_idle_by_frames([FrameInfo(name='select', filename='selectors.py', line=1)])
+E        +    where [FrameInfo(name='select', filename='selectors.py', line=1)] = _frames('select', 'selectors.py')
+E        +      where _frames = <tests.test_snapshot.TestIdleByFrames object at 0x7f93372385f0>._frames
+
+tests/test_snapshot.py:178: AssertionError
+________________ TestIdleByFrames.test_poll_family[asyncore.py] ________________
+
+self = <tests.test_snapshot.TestIdleByFrames object at 0x7f9337238a10>
+filename = 'asyncore.py'
+
+    @pytest.mark.parametrize("filename", [
+        "asyncore.py", "/vendor/zmq/loop.py", "gevent/hub.py",
+        "tornado/ioloop.py"])
+    def test_poll_family(self, filename):
+        """SN4：poll + asyncore/zmq/gevent/tornado 文件名族。"""
+>       assert is_thread_idle_by_frames(
+            self._frames("poll", filename)) is True
+E       AssertionError: assert False is True
+E        +  where False = is_thread_idle_by_frames([FrameInfo(name='poll', filename='asyncore.py', line=1)])
+E        +    where [FrameInfo(name='poll', filename='asyncore.py', line=1)] = _frames('poll', 'asyncore.py')
+E        +      where _frames = <tests.test_snapshot.TestIdleByFrames object at 0x7f9337238a10>._frames
+
+tests/test_snapshot.py:186: AssertionError
+____________ TestIdleByFrames.test_poll_family[/vendor/zmq/loop.py] ____________
+
+self = <tests.test_snapshot.TestIdleByFrames object at 0x7f9337238bc0>
+filename = '/vendor/zmq/loop.py'
+
+    @pytest.mark.parametrize("filename", [
+        "asyncore.py", "/vendor/zmq/loop.py", "gevent/hub.py",
+        "tornado/ioloop.py"])
+    def test_poll_family(self, filename):
+        """SN4：poll + asyncore/zmq/gevent/tornado 文件名族。"""
+>       assert is_thread_idle_by_frames(
+            self._frames("poll", filename)) is True
+E       AssertionError: assert False is True
+E        +  where False = is_thread_idle_by_frames([FrameInfo(name='poll', filename='/vendor/zmq/loop.py', line=1)])
+E        +    where [FrameInfo(name='poll', filename='/vendor/zmq/loop.py', line=1)] = _frames('poll', '/vendor/zmq/loop.py')
+E        +      where _frames = <tests.test_snapshot.TestIdleByFrames object at 0x7f9337238bc0>._frames
+
+tests/test_snapshot.py:186: AssertionError
+_______________ TestIdleByFrames.test_poll_family[gevent/hub.py] _______________
+
+self = <tests.test_snapshot.TestIdleByFrames object at 0x7f9337238c80>
+filename = 'gevent/hub.py'
+
+    @pytest.mark.parametrize("filename", [
+        "asyncore.py", "/vendor/zmq/loop.py", "gevent/hub.py",
+        "tornado/ioloop.py"])
+    def test_poll_family(self, filename):
+        """SN4：poll + asyncore/zmq/gevent/tornado 文件名族。"""
+>       assert is_thread_idle_by_frames(
+            self._frames("poll", filename)) is True
+E       AssertionError: assert False is True
+E        +  where False = is_thread_idle_by_frames([FrameInfo(name='poll', filename='gevent/hub.py', line=1)])
+E        +    where [FrameInfo(name='poll', filename='gevent/hub.py', line=1)] = _frames('poll', 'gevent/hub.py')
+E        +      where _frames = <tests.test_snapshot.TestIdleByFrames object at 0x7f9337238c80>._frames
+
+tests/test_snapshot.py:186: AssertionError
+_____________ TestIdleByFrames.test_poll_family[tornado/ioloop.py] _____________
+
+self = <tests.test_snapshot.TestIdleByFrames object at 0x7f9337238d70>
+filename = 'tornado/ioloop.py'
+
+    @pytest.mark.parametrize("filename", [
+        "asyncore.py", "/vendor/zmq/loop.py", "gevent/hub.py",
+        "tornado/ioloop.py"])
+    def test_poll_family(self, filename):
+        """SN4：poll + asyncore/zmq/gevent/tornado 文件名族。"""
+>       assert is_thread_idle_by_frames(
+            self._frames("poll", filename)) is True
+E       AssertionError: assert False is True
+E        +  where False = is_thread_idle_by_frames([FrameInfo(name='poll', filename='tornado/ioloop.py', line=1)])
+E        +    where [FrameInfo(name='poll', filename='tornado/ioloop.py', line=1)] = _frames('poll', 'tornado/ioloop.py')
+E        +      where _frames = <tests.test_snapshot.TestIdleByFrames object at 0x7f9337238d70>._frames
+
+tests/test_snapshot.py:186: AssertionError
+________________ TestIdleByStat.test_non_running_state_is_idle _________________
+
+self = <tests.test_snapshot.TestIdleByStat object at 0x7f9337329d00>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f933519b8c0>
+
+    def test_non_running_state_is_idle(self, monkeypatch):
+        """SN4：state != "R"（如 S 睡眠）→ idle。"""
+        monkeypatch.setattr(snap_mod, "read_stat_state",
+                            lambda pid, tid: "S")
+>       assert is_thread_idle_by_stat(PID, 101) is True
+E       assert False is True
+E        +  where False = is_thread_idle_by_stat(4242, 101)
+
+tests/test_snapshot.py:219: AssertionError
+________________________ TestUpdate.test_own_and_total _________________________
+
+self = <tests.test_topstats.TestUpdate object at 0x7f933723b9e0>
+
+    def test_own_and_total(self):
+        """TS1：own 计叶子帧、total 计栈内出现（去重——同帧递归出现
+        两次只计一次 total，复刻旧语义）。"""
+        s = TopStats()
+        s.update([_thread(frames=[_frame("leaf"), _frame("root"),
+                                  _frame("leaf")])])
+>       assert s.own == {"leaf": 1}
+E       AssertionError: assert {} == {'leaf': 1}
+E         
+E         Right contains 1 more item:
+E         {'leaf': 1}
+E         Use -v to get more diff
+
+tests/test_topstats.py:29: AssertionError
+____________ TestUpdate.test_none_name_normalized_to_question_mark _____________
+
+self = <tests.test_topstats.TestUpdate object at 0x7f933723ab70>
+
+    def test_none_name_normalized_to_question_mark(self):
+        """TS1：None 帧名归一 "?"（update 侧归一是 render 侧 A7 P1-8
+        修复的前提——两处必须共用同一键）。"""
+        s = TopStats()
+        s.update([_thread(frames=[_frame(None)])])
+>       assert s.own == {"?": 1}
+E       AssertionError: assert {} == {'?': 1}
+E         
+E         Right contains 1 more item:
+E         {'?': 1}
+E         Use -v to get more diff
+
+tests/test_topstats.py:38: AssertionError
+__________________ TestUpdate.test_idle_excluded_from_counts ___________________
+
+self = <tests.test_topstats.TestUpdate object at 0x7f933732ad50>
+
+    def test_idle_excluded_from_counts(self):
+        """TS3/TS4 边界：idle 线程只计 idle_samples，不进 own/total/samples。"""
+        s = TopStats()
+        s.update([_thread(idle=True)])
+        assert s.samples == 0
+>       assert s.idle_samples == 1
+E       assert 0 == 1
+E        +  where 0 = <pyprobe.observe.topstats.TopStats object at 0x7f9337016c30>.idle_samples
+
+tests/test_topstats.py:46: AssertionError
+____________________ TestUpdate.test_current_frame_tracked _____________________
+
+self = <tests.test_topstats.TestUpdate object at 0x7f933725fa70>
+
+    def test_current_frame_tracked(self):
+        """TS3：active 线程 current 记录顶帧与线程名（Active 表数据源）。"""
+        s = TopStats()
+        s.update([_thread(name="worker", frames=[_frame("f")])])
+>       top, name = s.current[101]
+                    ^^^^^^^^^^^^^^
+E       KeyError: 101
+
+tests/test_topstats.py:53: KeyError
+_______________ TestUpdate.test_empty_stack_active_counts_sample _______________
+
+self = <tests.test_topstats.TestUpdate object at 0x7f933725d4c0>
+
+    def test_empty_stack_active_counts_sample(self):
+        """TS4：空帧 active 线程计 samples 且 current 记 (None, name)
+        （C 代码中的线程是合法活跃态，不是 idle）。"""
+        s = TopStats()
+        s.update([_thread(name="c-thread", frames=[])])
+>       assert s.samples == 1
+E       assert 0 == 1
+E        +  where 0 = <pyprobe.observe.topstats.TopStats object at 0x7f9337071cd0>.samples
+
+tests/test_topstats.py:62: AssertionError
+___________ TestIdleTrackingA7.test_same_idle_thread_not_duplicated ____________
+
+self = <tests.test_topstats.TestIdleTrackingA7 object at 0x7f933725d820>
+
+    def test_same_idle_thread_not_duplicated(self):
+        """TS2：同一 idle 线程连续两个采样周期只记录一次（旧守卫误查
+        current → 每周期重复 append，50Hz 下无限膨胀刷屏）。"""
+        s = TopStats()
+        s.update([_thread(native_tid=5, idle=True)])
+        s.update([_thread(native_tid=5, idle=True)])
+        s.update([_thread(native_tid=5, idle=True)])
+>       assert s.idle_threads == [5]
+E       assert [] == [5]
+E         
+E         Right contains one more item: 5
+E         Use -v to get more diff
+
+tests/test_topstats.py:77: AssertionError
+______________ TestIdleTrackingA7.test_active_to_idle_transition _______________
+
+self = <tests.test_topstats.TestIdleTrackingA7 object at 0x7f933725dbe0>
+
+    def test_active_to_idle_transition(self):
+        """TS2：曾活跃线程转 idle——从 current 移除（不带陈旧帧留
+        Active 表）并进入 idle_threads（一次）。"""
+        s = TopStats()
+        s.update([_thread(native_tid=5, frames=[_frame("f")])])
+>       assert 5 in s.current
+E       assert 5 in {}
+E        +  where {} = <pyprobe.observe.topstats.TopStats object at 0x7f9335134d10>.current
+
+tests/test_topstats.py:85: AssertionError
+______________ TestIdleTrackingA7.test_idle_to_active_transition _______________
+
+self = <tests.test_topstats.TestIdleTrackingA7 object at 0x7f933725dfa0>
+
+    def test_idle_to_active_transition(self):
+        """TS3：idle 线程转活跃——从 idle_threads 移除并回到 current。"""
+        s = TopStats()
+        s.update([_thread(native_tid=5, idle=True)])
+        s.update([_thread(native_tid=5, frames=[_frame("f")])])
+        assert s.idle_threads == []
+>       assert 5 in s.current
+E       assert 5 in {}
+E        +  where {} = <pyprobe.observe.topstats.TopStats object at 0x7f93370721e0>.current
+
+tests/test_topstats.py:96: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_procfs.py::TestReadStatState::test_self_state_is_valid_letter
+FAILED tests/test_procfs.py::TestReadStatState::test_comm_with_parens_and_spaces
+FAILED tests/test_profile.py::TestFoldKey::test_root_first - AssertionError: ...
+FAILED tests/test_profile.py::TestFoldKey::test_thread_name_prefix - assert '...
+FAILED tests/test_profile.py::TestFoldKey::test_tid_prefix_when_unnamed - Ass...
+FAILED tests/test_profile.py::TestFoldKey::test_none_frame_name_placeholder
+FAILED tests/test_profile.py::TestCollectProfile::test_counts_and_idle_exclusion
+FAILED tests/test_profile.py::TestCollectProfile::test_absolute_scheduling_no_drift
+FAILED tests/test_profile.py::TestCollectProfile::test_behind_schedule_resets_baseline
+FAILED tests/test_profile.py::TestCollectProfile::test_keyboardinterrupt_returns_partial
+FAILED tests/test_profile.py::TestCollectProfile::test_process_exited_returns_partial
+FAILED tests/test_profile.py::TestCollectProfile::test_duration_none_until_interrupt
+FAILED tests/test_sampling.py::TestSample::test_returns_sorted_named_threads
+FAILED tests/test_sampling.py::TestSample::test_new_view_per_sample - assert ...
+FAILED tests/test_sampling.py::TestSample::test_no_thread_state_becomes_process_exited
+FAILED tests/test_sampling.py::TestSample::test_idle_hint_prunes_frame_walk
+FAILED tests/test_sampling.py::TestSample::test_refresh_names_updates_session
+FAILED tests/test_sampling.py::TestThreadStateRefUsage::test_tref_fields_drive_build
+FAILED tests/test_session.py::TestOpenFlow::test_resolves_all_invariants - No...
+FAILED tests/test_session.py::TestOpenFlow::test_symbol_not_found - NotImplem...
+FAILED tests/test_session.py::TestOpenFlow::test_default_view_factory_builds_snapshot_view
+FAILED tests/test_session.py::TestOpenFlow::test_view_factory_injection - Not...
+FAILED tests/test_session.py::TestVersionWarning::test_unverified_version_warning_verbatim
+FAILED tests/test_session.py::TestVersionWarning::test_unknown_version_warning_verbatim
+FAILED tests/test_session.py::TestVersionWarning::test_verified_version_no_warning
+FAILED tests/test_session.py::TestCmdlineFallback::test_cmdline_none_falls_back_to_exe
+FAILED tests/test_session_snapshot.py::TestOpenSessionLive::test_session_resolves_live_target
+FAILED tests/test_session_snapshot.py::TestOpenSessionLive::test_thread_names_resolved_live
+FAILED tests/test_session_snapshot.py::TestCollectSnapshotLive::test_snapshot_threads
+FAILED tests/test_session_snapshot.py::TestCollectSnapshotLive::test_snapshot_frames_reference_target
+FAILED tests/test_session_snapshot.py::TestCollectSnapshotLive::test_repeated_snapshots_stable
+FAILED tests/test_snapshot.py::TestCollectSnapshot::test_threads_sorted_and_named
+FAILED tests/test_snapshot.py::TestCollectSnapshot::test_fresh_view_per_call
+FAILED tests/test_snapshot.py::TestCollectSnapshot::test_no_thread_state_propagates
+FAILED tests/test_snapshot.py::TestBuildThread::test_frames_and_fields - Asse...
+FAILED tests/test_snapshot.py::TestBuildThread::test_idle_hint_skips_frame_walk
+FAILED tests/test_snapshot.py::TestIdleByFrames::test_wait_threading - Assert...
+FAILED tests/test_snapshot.py::TestIdleByFrames::test_select_selectors - Asse...
+FAILED tests/test_snapshot.py::TestIdleByFrames::test_poll_family[asyncore.py]
+FAILED tests/test_snapshot.py::TestIdleByFrames::test_poll_family[/vendor/zmq/loop.py]
+FAILED tests/test_snapshot.py::TestIdleByFrames::test_poll_family[gevent/hub.py]
+FAILED tests/test_snapshot.py::TestIdleByFrames::test_poll_family[tornado/ioloop.py]
+FAILED tests/test_snapshot.py::TestIdleByStat::test_non_running_state_is_idle
+FAILED tests/test_topstats.py::TestUpdate::test_own_and_total - AssertionErro...
+FAILED tests/test_topstats.py::TestUpdate::test_none_name_normalized_to_question_mark
+FAILED tests/test_topstats.py::TestUpdate::test_idle_excluded_from_counts - a...
+FAILED tests/test_topstats.py::TestUpdate::test_current_frame_tracked - KeyEr...
+FAILED tests/test_topstats.py::TestUpdate::test_empty_stack_active_counts_sample
+FAILED tests/test_topstats.py::TestIdleTrackingA7::test_same_idle_thread_not_duplicated
+FAILED tests/test_topstats.py::TestIdleTrackingA7::test_active_to_idle_transition
+FAILED tests/test_topstats.py::TestIdleTrackingA7::test_idle_to_active_transition
+======================== 51 failed, 621 passed in 0.98s ========================

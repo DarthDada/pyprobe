@@ -137,10 +137,10 @@
 - [ ] 1. **spec-oracle 测试**（最高价值，新增）：linetable 解析 vs CPython 自带 `co_lines()`（2026-10 审查验证过的方法）；layout 表 vs gen_offsets 真实头文件产物；errno/flag/syscall 号常量 vs 系统头文件；syscall 渲染样例 vs strace 真实输出；native 线程头/符号样例 vs gdb 输出
 - [x] 2. **构造内存单测**：FakeMemory 构造器由 Layout 驱动（禁止从被测常量照抄）；版本布局 × 对象变体矩阵参数化（批次 3 落地：next/tests/fakemem.py + 3.11–3.14 矩阵）
 - [x] 3. **状态机单测**：统一 ptrace 引擎以 stubbed libc/waitpid 覆盖全状态路径（CLONE/EXEC/信号转发/detach 幂等）——批次 1 落地（next/tests/test_ptrace.py）
-- [ ] 4. **存活集成测试**：target/spin/fast-syscall 三 fixture；session→snapshot→sampling→tracing 端到端；integration ≤15s 预算
+- [ ] 4. **存活集成测试**：~~target~~（批次 4 已落地：READY 行就绪握手）/spin/fast-syscall 三 fixture；session→snapshot→sampling→tracing 端到端（session→snapshot 批次 4 已通）；integration ≤15s 预算
 - [ ] 5. **差异对比测试**：旧新 CLI 子进程（§10.5-1）
 - [ ] 6. **结构契约测试**：公共 API 面 + 子包 import 方向（A8）机械强制
-- [ ] 7. conftest/fixture 重设计（原 D6）：~~override 隔离~~（批次 2 已落地：A1 显式 `overrides_path` 参数 + conftest autouse 指不存在路径，契约 L12）、就绪轮询替代固定 `sleep(0.5)`、fast syscall target（0.2s 级 sleep，保住 elapsed≥0.1s 断言）、`run_tests.sh` mode 与透传 `-m` 合并为 and 表达式（pytest 多个 `-m` 后者胜的静默覆盖坑）
+- [ ] 7. conftest/fixture 重设计（原 D6）：~~override 隔离~~（批次 2 已落地：A1 显式 `overrides_path` 参数 + conftest autouse 指不存在路径，契约 L12）、~~就绪轮询替代固定 `sleep(0.5)`~~（批次 4 已落地：target_app READY 行握手）、fast syscall target（0.2s 级 sleep，保住 elapsed≥0.1s 断言）、`run_tests.sh` mode 与透传 `-m` 合并为 and 表达式（pytest 多个 `-m` 后者胜的静默覆盖坑）
 
 ### 10.3 行为点清单机制（"参考旧代码"的落地）
 
@@ -154,7 +154,7 @@
 - [x] 1. `kernel/` + errors + dto：mem 传输 / Snapshot·Live 视图（A4）/ procfs / **统一 ptrace 引擎**（A2，批内最大件，状态机 stub 测试全绿）
 - [x] 2. `target/`：identity / layout（A1 落地）/ symbols
 - [x] 3. `cpython/`：objects / dicts / code / frames / runtime / names（A3 落地；spec-oracle 测试同步上）
-- [ ] 4. `observe/`：session / snapshot / sampling / profile / topstats（A7 中 TopStats 修复；首个端到端里程碑：snapshot 对 live target 出栈）
+- [x] 4. `observe/`：session / snapshot / sampling / profile / topstats（A7 中 TopStats 修复；首个端到端里程碑：snapshot 对 live target 出栈）
 - [ ] 5. `observe/`：syscalls / native（共享批 1 ptrace 引擎；A7 中 syscall 修复）
 - [ ] 6. `present/` + `cli` + 打包：text / jsonout / color（A5 落地）/ argparse 薄壳 / package-data
 - [ ] 7. 对齐验收（§10.5 全量）+ 替换（§10.6 runbook）

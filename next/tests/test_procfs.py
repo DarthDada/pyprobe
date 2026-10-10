@@ -16,6 +16,7 @@ from pyprobe.kernel.procfs import (
     parse_load_base,
     read_cmdline,
     read_comm,
+    read_stat_state,
 )
 
 DEAD_PID = 1 << 22  # beyond the default kernel pid_max — never a live process
@@ -147,3 +148,32 @@ class TestLoadBase:
     def test_dead_pid_returns_zero(self):
         """P5 失败模式：进程不存在（OSError）→ 0 而非异常。"""
         assert load_base(DEAD_PID, "/usr/bin/python3.12") == 0
+
+
+class TestReadStatState:
+    """P6（contracts.md 批 4）：stat 状态字段（空闲双启发式的 /proc 侧输入）。"""
+
+    def test_self_state_is_valid_letter(self):
+        """P6：真实 /proc 自检——本进程主线程状态为合法状态字母。"""
+        pid = os.getpid()
+        assert read_stat_state(pid, pid) in set("RSDZXTtWxKWIP")
+
+    def test_dead_tid_returns_none(self):
+        """P6 失败模式：tid 不存在 → None（调用方保守判非 idle）。"""
+        assert read_stat_state(os.getpid(), DEAD_PID) is None
+
+    def test_comm_with_parens_and_spaces(self, monkeypatch):
+        """P6 解析健壮性：comm 含空格与括号时仍取末 ")" 后的状态字段
+        （proc(5)：comm 本身可含 ')'，只认最后一个）。"""
+        import builtins
+
+        real_open = builtins.open
+
+        def fake_open(path, mode="r", *a, **kw):
+            if path.endswith("/stat"):
+                import io
+                return io.StringIO("1234 (weird ) name) S 1 2 3")
+            return real_open(path, mode, *a, **kw)
+
+        monkeypatch.setattr(builtins, "open", fake_open)
+        assert read_stat_state(1234, 1234) == "S"

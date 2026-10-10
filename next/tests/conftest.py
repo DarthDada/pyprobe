@@ -47,3 +47,40 @@ def _isolate_layout_overrides(monkeypatch):
 
     monkeypatch.setattr(layout_mod, "_DEFAULT_OVERRIDES_PATH",
                         "/nonexistent/pyprobe-offsets-override.json")
+
+
+@pytest.fixture(scope="session")
+def target_pid():
+    """契约 E2E1：spawn target_app 并 yield 其 PID。
+
+    就绪经子进程 stdout 的 READY 行握手（就绪轮询替代固定 sleep,
+    §10.2-7）——该行在 bg-worker 线程启动后才打印，fixture 返回时目标
+    线程图已完整。子进程是 pytest 的后代，默认 ptrace_scope=1 下
+    process_vm_readv 可用。TARGET_PYTHON 选择目标解释器（跨版本端到端，
+    pyprobe 自身仍跑 venv 解释器）。
+    """
+    import os
+    import subprocess
+    import sys
+
+    if sys.platform != "linux":
+        pytest.skip("integration tests require Linux process_vm_readv")
+
+    interpreter = os.environ.get("TARGET_PYTHON") or sys.executable
+    script = Path(__file__).parent / "targets" / "target_app.py"
+    child = subprocess.Popen(
+        [interpreter, str(script)],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    try:
+        line = child.stdout.readline()  # 阻塞至 READY 或 EOF（即就绪轮询）
+        if not line.startswith("READY"):
+            pytest.skip(f"target process failed to start: {line!r}")
+        yield int(line.split()[1])
+    finally:
+        child.terminate()
+        try:
+            child.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait()
+        child.stdout.close()

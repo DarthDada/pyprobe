@@ -363,11 +363,88 @@ reader 内部消费；跨度装配（如 CodeObject 头、ThreadState 字段簇�
 
 | 模块 | 职责 | 公开 API | 行为点清单 |
 |------|------|----------|------------|
-| `observe/session.py` | 观测会话（绑定 target + view 一致性声明） | TBD | TBD |
-| `observe/snapshot.py` | 单次快照栈采集 | TBD | TBD |
-| `observe/sampling.py` | 采样器 | TBD | TBD |
-| `observe/profile.py` | record 折叠栈 | TBD | TBD |
-| `observe/topstats.py` | top 统计（A7 idle 修复） | TBD | TBD |
+| `observe/session.py` | 观测会话：进程存活期不变量一次性解析 + view 工厂注入 | `Session`（pid/exe_path/runtime_addr/interp_addr/trampoline_addr/layout/proc_info/names/version_warning/view_factory）；`open_session(pid, *, view_factory=None) -> Session` | 见 §5.1 批 4 表 |
+| `observe/snapshot.py` | 单次快照栈采集 + 空闲双启发式 | `collect_snapshot(session) -> list[dto.ThreadInfo]`；`build_thread(...)`；`is_thread_idle_by_stat(pid, tid)`；`is_thread_idle_by_frames(frames)` | 同上 |
+| `observe/sampling.py` | 采样器（热路径） | `Sampler(pid, *, view_factory=None)`（`.sample()`/`.refresh_names()`；`.session`） | 同上 |
+| `observe/profile.py` | record 折叠栈聚合 | `fold_key(thread) -> str`；`collect_profile(pid, *, rate=50, duration=None, sampler_factory=Sampler) -> dto.ProfileData` | 同上 |
+| `observe/topstats.py` | top 增量聚合（A7 P0-1 修复；纯数据，render 归 present） | `TopStats`（`.update(threads)`；状态：own/total/samples/idle_samples/current/idle_threads） | 同上 |
+| `kernel/procfs.py`（增补） | /proc stat 状态字段 | `read_stat_state(pid, tid) -> str \| None` | P6（见批 4 表） |
+
+A4 一致性声明落点：session 不持有 view，只持 `view_factory`；每次快照/采样新建
+SnapshotView（单次快照语义），长时追踪（批次 5 syscalls）用 LiveView——每种观测
+声明自己的一致性需求。
+
+#### 批 4 行为点清单（§5.1 实例）
+
+**observe/session.py**（旧 `process.py` resolve_process/ProcessSession；A1 警告组装落点）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| SE1 | open 流程：exe_path_of → find_symbol(_PyRuntime)（0 → SymbolNotFound("_PyRuntime", exe_path)）→ detect_version → resolve_layout → interp/trampoline/names/proc_info | test_sampler TestInit 四条 | test_session.py |
+| SE2 | version_warning 组装（A1 契约变更的承接，**逐字复刻**）："?" → "[!] Warning: cannot determine target CPython version, using default offsets — output may be incorrect."；未验证 → "[!] " + VersionNotSupported 消息；已验证 → None | test_unverified_version_warns_exactly_once（间接） | 同（两种文案 pin） |
+| SE3 | read_cmdline 为 None → proc_info.cmdline 回退 exe_path | （旧 process.py L89） | 同 |
+| SE4 | Session 携带 layout 与 view_factory（A1/A4 落点）；存活期不变量一次性解析 | （旧 ProcessSession docstring） | 同 |
+| SE5 | view_factory 注入点（测试）；默认 SnapshotView(Transport(pid)) | （旧 reader_factory） | 同 |
+| SE6 | interp 经 runtime.resolve_interpreter（R5）、trampoline 经 resolve_trampoline（R6）、names 经 cpython.names（N 系） | （旧 process.py L96-115） | 同（组合测试） |
+
+**observe/snapshot.py**（旧 `stack_dump.py` collect_python/_collect_threads_from_session/collect_thread/idle 启发式）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| SN1 | collect_snapshot(session)：每次调用新建 SnapshotView（A4）；NoThreadState 原样传播（快照语义；ProcessExited 转换是 sampling 的策略 SA2，两层不混） | （旧 collect_python） | test_snapshot.py |
+| SN2 | names 按 thread_id 贴名；native_tid 升序（复刻约束 线程升序） | test_threads_sorted_by_tid（集成） | 同 |
+| SN3 | build_thread：current_frame_of → walk_frames → ThreadInfo；idle_hint=True → 空帧 idle ThreadInfo 不走帧遍历（采样剪枝入口）；thread_id 传递 | test_build_threadinfo/idle_hint 两条/thread_id_propagated | 同 |
+| SN4 | **空闲双启发式**（复刻约束）：by_stat（/proc stat state != "R" → idle；OSError/IndexError → False 保守——旧 docstring 语义）+ by_frames（wait+threading.py / select+selectors.py / poll+(asyncore\|zmq\|gevent\|tornado)；filename None → False；仅查顶帧） | TestIsThreadIdleByFrames 全量 12 条 + TestIsThreadIdleByStat | 同 |
+| SN5 | by_stat 经 procfs.read_stat_state（P6 增补：stat 末 ")" 后字段；OSError/解析失败 → None） | test_self_running/nonexistent_tid | 同（P6 测试随 procfs） |
+
+**observe/sampling.py**（旧 `sampler.py`）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| SA1 | sample() 每次新建 view（A4：跨样本复用会供陈旧数据） | test_new_reader_per_call | test_sampling.py |
+| SA2 | NoThreadState → ProcessExited(pid) from e（目标退出语义化） | test_process_exited | 同 |
+| SA3 | stat-idle 线程 idle_hint 剪枝不走帧遍历（热路径性能守护） | test_prunes_idle_threads | 同 |
+| SA4 | native_tid 升序 + names 按 thread_id 贴名 | test_returns_thread_infos | 同 |
+| SA5 | sample() 不刷新 names（record 聚合键稳定性）；refresh_names() 显式刷新并回写 session.names | test_names_not_refreshed/test_refresh_names | 同 |
+| SA6 | 空线程链 → [] | test_empty_thread_chain | 同 |
+
+**observe/profile.py**（旧 `record.py` collect_profile/_fold_key；format/dump 归批次 6）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| PF1 | fold_key：name → `"name"`，无名 → `tid-<native_tid>`；帧反转 leaf→root 成 root→leaf；None 帧名 → "?"（复刻约束 folded 键形） | TestFoldKey 四条 | test_profile.py |
+| PF2 | 绝对时间调度（next += interval 不漂移；落后 >1 interval 重置基线不补发） | test_absolute_scheduling/behind_schedule | 同 |
+| PF3 | idle 线程计 idle_samples 不入 counts；active 入 counts+samples | test_counts_and_idle_exclusion | 同 |
+| PF4 | KeyboardInterrupt/ProcessExited 吸收 → 部分 ProfileData（elapsed/version_warning 保留） | test_keyboardinterrupt/process_exited | 同 |
+| PF5 | duration=None 采样至中断；有 duration 到点停止 | （旧 L65） | 同 |
+
+**observe/topstats.py**（旧 `top.py` TopStats；**A7 P0-1 修复落地处**；render 归 present 批次 6，A7 P1-8 "?" 归一随之）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| TS1 | own=叶子帧名计数（None→"?"归一——update 侧已有）；total=栈内去重名计数 | test_own_and_total | test_topstats.py |
+| TS2 | **A7 P0-1 修复**：idle 守卫查 idle_threads 去重（旧误查 current——idle 线程永不入 current，同 tid 每周期重复 append 无限膨胀）；idle 线程同时从 current 移除（曾活跃转 idle 不带陈旧帧留 Active 表） | （旧 §9 P0-1 实测复现） | 同（同 tid 连续 idle 两次不重复 + active→idle 转换两条守护） |
+| TS3 | active：从 idle_threads 移除；samples++；current[tid]=(top\|None, name) | test_current_frame_tracked/idle_excluded | 同 |
+| TS4 | 空帧 active：current[tid]=(None,name)，samples 计数 | test_empty_stack_active | 同 |
+| TS5 | TopStats 纯数据状态，无 render（A5；渲染与 A7 P1-8 "?" 归一归 present 批次 6） | （架构约束） | test_structure.py 机械强制 |
+
+**端到端里程碑（§10.2-4 首批）**
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| E2E1 | target fixture：子进程经 stdout 就绪行握手（**就绪轮询替代固定 sleep，§10.2-7 子项落地**），finally terminate+wait(5)；TARGET_PYTHON 跨版本机制保留 | （旧 conftest target_pid） | next/tests/conftest.py + targets/target_app.py |
+| E2E2 | open_session 对 live target：版本已验证、warning 为 None、interp 非 0 | TestCollectPython::test_returns_process_info | test_session_snapshot.py（integration） |
+| E2E3 | collect_snapshot 对 live target：≥2 线程、bg-worker 名解析、目标函数名/文件名出现在帧、native_tid 升序、主线程 idle | TestCollectPython 九条 | 同（integration，≤15s 预算） |
+
+#### 批 4 旧测试标注（§5.2 实例）
+
+| 旧测试文件 | 覆盖判定 | 放弃理由 |
+|------------|----------|----------|
+| tests/test_stack_dump.py | idle 启发式 + collect_thread 已覆盖（test_snapshot）；TestFormatProcess/TestDumpPythonCli 属批次 6 | format/CLI 在 present/cli |
+| tests/test_sampler.py | 已覆盖（TestInit 决议部分 → test_session；TestSample → test_sampling）；test_offsets_not_reconfigured_in_sample 不移植 | 全局 configure 已被 A1 消灭，该测试守护的对象不存在了 |
+| tests/test_record.py | FoldKey/CollectProfile 已覆盖（test_profile）；FormatFolded/DumpRecord 属批次 6 | 同上 |
+| tests/test_top.py | TestUpdate 已覆盖（test_topstats，A7 修复语义）；TestRender/TestDumpTop 属批次 6 | 同上 |
+| tests/test_integration.py | TestCollectPython 已覆盖（test_session_snapshot 集成）；format/CLI/native/syscall 段属批次 5/6 | 分层后职责在 observe/present |
 
 ### 批次 5 — `observe/`（ptrace 消费方）
 

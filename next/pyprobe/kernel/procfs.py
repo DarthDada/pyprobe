@@ -76,3 +76,23 @@ def load_base(pid: int, exe_path: str) -> int:
             return parse_load_base(f.read(), exe_path)
     except OSError:
         return 0
+
+
+def read_stat_state(pid: int, tid: int) -> str | None:
+    """Read the state field of ``/proc/<pid>/task/<tid>/stat``.
+
+    The state letter follows the final ``)`` of the comm field (proc(5)).
+    Returns ``None`` on any ``OSError`` or malformed content (P6,
+    contracts.md 批 4).
+    """
+    try:
+        with open(f"/proc/{pid}/task/{tid}/stat") as f:
+            stat = f.read()
+    except OSError:
+        return None
+    # P6 — comm may itself contain spaces and ')' characters; only the
+    # last ')' delimits it, so the state letter sits at comm_end + 2.
+    comm_end = stat.rfind(")")
+    if comm_end < 0 or comm_end + 2 >= len(stat):
+        return None
+    return stat[comm_end + 2]
