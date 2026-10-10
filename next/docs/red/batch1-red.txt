@@ -1,0 +1,1150 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/admin/projects/pyprobe/next
+configfile: pyproject.toml
+plugins: cov-7.1.0, anyio-4.15.1
+collected 117 items / 1 deselected / 116 selected
+
+tests/test_dto.py .........                                              [  7%]
+tests/test_errors.py ..........FFFF..FFFFF.                              [ 26%]
+tests/test_mem.py FFF...FF.                                              [ 34%]
+tests/test_procfs.py F.FFFFFF..                                          [ 43%]
+tests/test_ptrace.py FFFFFFFF.FFFFFFFFF.FFFF.FF.F...                     [ 69%]
+tests/test_scaffold.py ...                                               [ 72%]
+tests/test_structure.py ...                                              [ 75%]
+tests/test_views.py FFFFFFFFFFFFFFFFFFFFF........                        [100%]
+
+=================================== FAILURES ===================================
+____________________________ test_process_not_found ____________________________
+
+    def test_process_not_found():
+        e = ProcessNotFound(1234)
+        assert e.pid == 1234
+>       assert str(e) == "Process 1234 not found"
+E       AssertionError: assert 'TBD' == 'Process 1234 not found'
+E         
+E         - Process 1234 not found
+E         + TBD
+
+tests/test_errors.py:48: AssertionError
+____________________________ test_permission_denied ____________________________
+
+    def test_permission_denied():
+        e = PermissionDenied(1234)
+        assert e.pid == 1234
+>       assert str(e) == "Permission denied reading process 1234"
+E       AssertionError: assert 'TBD' == 'Permission d... process 1234'
+E         
+E         - Permission denied reading process 1234
+E         + TBD
+
+tests/test_errors.py:54: AssertionError
+_______________________ test_symbol_not_found_with_path ________________________
+
+    def test_symbol_not_found_with_path():
+        e = SymbolNotFound("_PyRuntime", "/usr/bin/python3")
+        assert e.symbol == "_PyRuntime"
+        assert e.exe_path == "/usr/bin/python3"
+>       assert str(e) == "cannot find symbol: _PyRuntime in /usr/bin/python3"
+E       AssertionError: assert 'TBD' == 'cannot find ...r/bin/python3'
+E         
+E         - cannot find symbol: _PyRuntime in /usr/bin/python3
+E         + TBD
+
+tests/test_errors.py:61: AssertionError
+_________________ test_symbol_not_found_without_path_omits_in __________________
+
+    def test_symbol_not_found_without_path_omits_in():
+        e = SymbolNotFound("_PyRuntime")
+        assert e.exe_path == ""
+>       assert str(e) == "cannot find symbol: _PyRuntime"
+E       AssertionError: assert 'TBD' == 'cannot find ...l: _PyRuntime'
+E         
+E         - cannot find symbol: _PyRuntime
+E         + TBD
+
+tests/test_errors.py:67: AssertionError
+__________________________ test_version_not_supported __________________________
+
+    def test_version_not_supported():
+        e = VersionNotSupported("3.15.0", "3.13")
+        assert e.version == "3.15.0"
+        assert e.fallback == "3.13"
+>       assert str(e) == (
+            "CPython 3.15.0 is not a verified version; "
+            "falling back to 3.13 offsets (output may be incorrect)"
+        )
+E       AssertionError: assert 'TBD' == 'CPython 3.15...be incorrect)'
+E         
+E         - CPython 3.15.0 is not a verified version; falling back to 3.13 offsets (output may be incorrect)
+E         + TBD
+
+tests/test_errors.py:83: AssertionError
+________________________ test_attach_failed_with_detail ________________________
+
+    def test_attach_failed_with_detail():
+        e = AttachFailed(1234, "Operation not permitted")
+        assert e.pid == 1234
+>       assert str(e) == "ptrace attach failed for process 1234: Operation not permitted"
+E       AssertionError: assert 'TBD' == 'ptrace attac...not permitted'
+E         
+E         - ptrace attach failed for process 1234: Operation not permitted
+E         + TBD
+
+tests/test_errors.py:92: AssertionError
+________________ test_attach_failed_without_detail_omits_colon _________________
+
+    def test_attach_failed_without_detail_omits_colon():
+>       assert str(AttachFailed(1234)) == "ptrace attach failed for process 1234"
+E       AssertionError: assert 'TBD' == 'ptrace attac... process 1234'
+E         
+E         - ptrace attach failed for process 1234
+E         + TBD
+
+tests/test_errors.py:96: AssertionError
+________________________ test_unsupported_architecture _________________________
+
+    def test_unsupported_architecture():
+        e = UnsupportedArchitecture("syscall tracing", "aarch64")
+        assert e.feature == "syscall tracing"
+        assert e.arch == "aarch64"
+        assert e.supported == "x86-64"
+>       assert str(e) == (
+            "syscall tracing is not supported on aarch64 (supported: x86-64)"
+        )
+E       AssertionError: assert 'TBD' == 'syscall trac...rted: x86-64)'
+E         
+E         - syscall tracing is not supported on aarch64 (supported: x86-64)
+E         + TBD
+
+tests/test_errors.py:104: AssertionError
+_____________________________ test_process_exited ______________________________
+
+    def test_process_exited():
+        e = ProcessExited(1234)
+        assert e.pid == 1234
+>       assert str(e) == "Process 1234 exited during sampling"
+E       AssertionError: assert 'TBD' == 'Process 1234...ring sampling'
+E         
+E         - Process 1234 exited during sampling
+E         + TBD
+
+tests/test_errors.py:112: AssertionError
+__________________________ test_full_read_single_call __________________________
+
+    def test_full_read_single_call():
+        sc = ScriptedSyscall([b"abcdefgh"])
+        t = Transport(PID, syscall=sc)
+>       assert t.read(0x1000, 8) == b"abcdefgh"
+E       AssertionError: assert None == b'abcdefgh'
+E        +  where None = read(4096, 8)
+E        +    where read = <pyprobe.kernel.mem.Transport object at 0x72f102761a60>.read
+
+tests/test_mem.py:32: AssertionError
+__________________________ test_partial_then_complete __________________________
+
+    def test_partial_then_complete():
+        """M1: a short read resumes at addr+got with length-got."""
+        sc = ScriptedSyscall([b"ab", b"cd"])
+        t = Transport(PID, syscall=sc)
+>       assert t.read(0x1000, 4) == b"abcd"
+E       AssertionError: assert None == b'abcd'
+E        +  where None = read(4096, 4)
+E        +    where read = <pyprobe.kernel.mem.Transport object at 0x72f1027609b0>.read
+
+tests/test_mem.py:40: AssertionError
+__________________ test_short_read_returned_when_kernel_stops __________________
+
+    def test_short_read_returned_when_kernel_stops():
+        """M4: zero-read terminates the loop; accumulated bytes are returned."""
+        sc = ScriptedSyscall([b"ab", b""])
+        t = Transport(PID, syscall=sc)
+>       assert t.read(0x1000, 8) == b"ab"
+E       AssertionError: assert None == b'ab'
+E        +  where None = read(4096, 8)
+E        +    where read = <pyprobe.kernel.mem.Transport object at 0x72f102760a10>.read
+
+tests/test_mem.py:48: AssertionError
+_________________________ test_zero_length_no_syscall __________________________
+
+    def test_zero_length_no_syscall():
+        """M6: length 0 -> b"" without touching the kernel."""
+        sc = ScriptedSyscall([])
+        t = Transport(PID, syscall=sc)
+>       assert t.read(0x1000, 0) == b""
+E       AssertionError: assert None == b''
+E        +  where None = read(4096, 0)
+E        +    where read = <pyprobe.kernel.mem.Transport object at 0x72f102761f10>.read
+
+tests/test_mem.py:76: AssertionError
+______________________ test_default_syscall_eintr_retried ______________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f102762b40>
+
+    def test_default_syscall_eintr_retried(monkeypatch):
+        """M5: EINTR (4) inside one read attempt is retried, not an error."""
+        fake = FakeLibc([(b"", 4), (b"xy", 0)])
+        monkeypatch.setattr(mem, "_libc", fake)
+        t = Transport(PID)
+>       assert t.read(0x1000, 2) == b"xy"
+E       AssertionError: assert None == b'xy'
+E        +  where None = read(4096, 2)
+E        +    where read = <pyprobe.kernel.mem.Transport object at 0x72f102762ae0>.read
+
+tests/test_mem.py:107: AssertionError
+________________ TestReadCmdline.test_self_cmdline_is_decodable ________________
+
+self = <tests.test_procfs.TestReadCmdline object at 0x72f1028c5d00>
+
+    def test_self_cmdline_is_decodable(self):
+        out = read_cmdline(os.getpid())
+>       assert isinstance(out, str) and out
+E       assert (False)
+E        +  where False = isinstance(None, str)
+
+tests/test_procfs.py:21: AssertionError
+_________ TestReadCmdline.test_nul_becomes_space_and_trailing_stripped _________
+
+self = <tests.test_procfs.TestReadCmdline object at 0x72f1028c6300>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f1027ac0b0>
+tmp_path = PosixPath('/tmp/pytest-of-admin/pytest-7/test_nul_becomes_space_and_tra0')
+
+    def test_nul_becomes_space_and_trailing_stripped(self, monkeypatch, tmp_path):
+        # P1 pinned against a synthetic cmdline file (authoritative format:
+        # proc(5) — NUL-separated argv, trailing NUL).
+        import builtins
+    
+        real_open = builtins.open
+    
+        def fake_open(path, mode="r", *a, **kw):
+            if path == f"/proc/{DEAD_PID}/cmdline":
+                return real_open(tmp_path / "cmdline", mode, *a, **kw)
+            return real_open(path, mode, *a, **kw)
+    
+        (tmp_path / "cmdline").write_bytes(b"python3\x00-x\x00print(1)\x00")
+        monkeypatch.setattr(builtins, "open", fake_open)
+>       assert read_cmdline(DEAD_PID) == "python3 -x print(1)"
+E       AssertionError: assert None == 'python3 -x print(1)'
+E        +  where None = read_cmdline(4194304)
+
+tests/test_procfs.py:41: AssertionError
+_______________ TestListTids.test_self_tids_sorted_and_nonempty ________________
+
+self = <tests.test_procfs.TestListTids object at 0x72f1028f7b90>
+
+    def test_self_tids_sorted_and_nonempty(self):
+        tids = list_tids(os.getpid())
+        assert tids == sorted(tids)
+        assert all(isinstance(t, int) for t in tids)
+>       assert tids  # every process has at least its main thread
+        ^^^^^^^^^^^
+E       assert []
+
+tests/test_procfs.py:49: AssertionError
+_____________ TestListTids.test_dead_pid_raises_process_not_found ______________
+
+self = <tests.test_procfs.TestListTids object at 0x72f1028f5eb0>
+
+    def test_dead_pid_raises_process_not_found(self):
+>       with pytest.raises(ProcessNotFound) as ei:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ProcessNotFound
+
+tests/test_procfs.py:52: Failed
+_________ TestListTids.test_permission_error_raises_permission_denied __________
+
+self = <tests.test_procfs.TestListTids object at 0x72f1028c5a60>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f102762270>
+
+    def test_permission_error_raises_permission_denied(self, monkeypatch):
+        """P3 (A7 fix): /proc permission failure must not escape as a raw
+        PermissionError traceback — it becomes PermissionDenied."""
+        def denied(path):
+            raise PermissionError(13, "Permission denied", path)
+    
+        monkeypatch.setattr(os, "listdir", denied)
+>       with pytest.raises(PermissionDenied) as ei:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE PermissionDenied
+
+tests/test_procfs.py:63: Failed
+__________ TestListTids.test_file_not_found_raises_process_not_found ___________
+
+self = <tests.test_procfs.TestListTids object at 0x72f1028c5e80>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f102762870>
+
+    def test_file_not_found_raises_process_not_found(self, monkeypatch):
+        def gone(path):
+            raise FileNotFoundError(2, "No such file or directory", path)
+    
+        monkeypatch.setattr(os, "listdir", gone)
+>       with pytest.raises(ProcessNotFound):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ProcessNotFound
+
+tests/test_procfs.py:72: Failed
+_____________________ TestReadComm.test_self_comm_nonempty _____________________
+
+self = <tests.test_procfs.TestReadComm object at 0x72f1028c5af0>
+
+    def test_self_comm_nonempty(self):
+        pid = os.getpid()
+>       assert read_comm(pid, pid) != ""
+E       AssertionError: assert '' != ''
+E        +  where '' = read_comm(9612, 9612)
+
+tests/test_procfs.py:79: AssertionError
+________________ TestSeize.test_seize_all_threads_with_options _________________
+
+self = <tests.test_ptrace.TestSeize object at 0x72f1028c46e0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f1028c4110>
+
+    def test_seize_all_threads_with_options(self, monkeypatch):
+        """T1: every thread seized, options passed as the SEIZE data arg."""
+        stub = StubKernel()
+        engine = make_engine(monkeypatch, stub, tids=[100, 101, 102])
+        engine.seize(self.OPTS)
+        seizes = stub.requests(pt.PTRACE_SEIZE)
+>       assert [c[1] for c in seizes] == [100, 101, 102]
+E       assert [] == [100, 101, 102]
+E         
+E         Right contains 3 more items, first extra item: 100
+E         Use -v to get more diff
+
+tests/test_ptrace.py:127: AssertionError
+_________________ TestSeize.test_rescan_picks_up_racer_threads _________________
+
+self = <tests.test_ptrace.TestSeize object at 0x72f1028c4a70>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f1027329c0>
+
+    def test_rescan_picks_up_racer_threads(self, monkeypatch):
+        """T1: threads appearing mid-scan are seized by the re-scan loop."""
+        stub = StubKernel()
+        engine = make_engine(
+            monkeypatch, stub, tid_scans=[[100], [100, 101], [100, 101]])
+        engine.seize(0)
+        seizes = stub.requests(pt.PTRACE_SEIZE)
+>       assert [c[1] for c in seizes] == [100, 101]
+E       assert [] == [100, 101]
+E         
+E         Right contains 2 more items, first extra item: 100
+E         Use -v to get more diff
+
+tests/test_ptrace.py:138: AssertionError
+___________ TestSeize.test_main_thread_failure_raises_attach_failed ____________
+
+self = <tests.test_ptrace.TestSeize object at 0x72f1028c6150>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f1027333e0>
+
+    def test_main_thread_failure_raises_attach_failed(self, monkeypatch):
+        """T3: failing to seize the main thread is a hard AttachFailed."""
+        stub = StubKernel(seize_rc={100: -13})  # EPERM
+        engine = make_engine(monkeypatch, stub, tids=[100])
+>       with pytest.raises(AttachFailed) as ei:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AttachFailed
+
+tests/test_ptrace.py:145: Failed
+__________________ TestSeize.test_racer_thread_death_skipped ___________________
+
+self = <tests.test_ptrace.TestSeize object at 0x72f1028c7f20>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f1027ae870>
+
+    def test_racer_thread_death_skipped(self, monkeypatch):
+        """T3: a non-main thread dying mid-scan is skipped, not fatal."""
+        stub = StubKernel(seize_rc={101: -3})  # ESRCH
+        engine = make_engine(monkeypatch, stub, tids=[100, 101])
+        engine.seize(0)
+>       assert engine.tids == {100}
+E       assert {100, 101} == {100}
+E         
+E         Extra items in the left set:
+E         101
+E         Use -v to get more diff
+
+tests/test_ptrace.py:155: AssertionError
+___________________ TestSeize.test_rollback_on_attach_failed ___________________
+
+self = <tests.test_ptrace.TestSeize object at 0x72f102890170>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f1027af830>
+
+    def test_rollback_on_attach_failed(self, monkeypatch):
+        """T2: AttachFailed after partial progress detaches seized threads."""
+        stub = StubKernel(seize_rc={101: -13})
+        engine = make_engine(monkeypatch, stub, pid=101, tids=[100, 101])
+>       with pytest.raises(AttachFailed):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AttachFailed
+
+tests/test_ptrace.py:161: Failed
+___________________ TestSeize.test_rollback_on_any_exception ___________________
+
+self = <tests.test_ptrace.TestSeize object at 0x72f102890860>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f1027d8350>
+
+    def test_rollback_on_any_exception(self, monkeypatch):
+        """T2 (A7 P1-4): rollback covers *any* exception — here the re-scan
+        raising ProcessNotFound (target exits mid-attach). The old tree only
+        caught AttachFailed and leaked the seized thread."""
+        stub = StubKernel()
+        engine = make_engine(
+            monkeypatch, stub, tid_scans=[[100], ProcessNotFound(100)])
+>       with pytest.raises(ProcessNotFound):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ProcessNotFound
+
+tests/test_ptrace.py:174: Failed
+___________ TestSeize.test_missing_process_propagates_without_ptrace ___________
+
+self = <tests.test_ptrace.TestSeize object at 0x72f102891010>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f1027d8cb0>
+
+    def test_missing_process_propagates_without_ptrace(self, monkeypatch):
+        stub = StubKernel()
+        engine = make_engine(
+            monkeypatch, stub, pid=9999, tid_scans=[ProcessNotFound(9999)])
+>       with pytest.raises(ProcessNotFound):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ProcessNotFound
+
+tests/test_ptrace.py:184: Failed
+___________ TestStopAndRestart.test_stop_all_interrupts_and_collects ___________
+
+self = <tests.test_ptrace.TestStopAndRestart object at 0x72f102891340>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f1027d9610>
+
+    def test_stop_all_interrupts_and_collects(self, monkeypatch):
+        """T4: INTERRUPT per thread + blocking wait to collect the stop."""
+        stops = {t: [_stop_status(pt.SIGTRAP)] for t in (100, 101, 102)}
+        stub = StubKernel(stops=stops)
+        engine = make_engine(monkeypatch, stub, tids=[100, 101, 102])
+        engine.stop_all()
+        interrupts = stub.requests(pt.PTRACE_INTERRUPT)
+>       assert {c[1] for c in interrupts} == {100, 101, 102}
+E       assert set() == {100, 101, 102}
+E         
+E         Extra items in the right set:
+E         100
+E         101
+E         102
+E         Use -v to get more diff
+
+tests/test_ptrace.py:197: AssertionError
+_____________ TestStopAndRestart.test_restart_all_uses_restart_op ______________
+
+self = <tests.test_ptrace.TestStopAndRestart object at 0x72f1028919a0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f1027af3b0>
+
+    def test_restart_all_uses_restart_op(self, monkeypatch):
+        stub = StubKernel()
+        engine = make_engine(monkeypatch, stub, tids=[100, 101])
+        engine.restart_all()
+        restarts = stub.requests(pt.PTRACE_SYSCALL)
+>       assert {c[1] for c in restarts} == {100, 101}
+E       assert set() == {100, 101}
+E         
+E         Extra items in the right set:
+E         100
+E         101
+E         Use -v to get more diff
+
+tests/test_ptrace.py:211: AssertionError
+________________ TestStopAndRestart.test_resume_forwards_signal ________________
+
+self = <tests.test_ptrace.TestStopAndRestart object at 0x72f102891cd0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f1027aede0>
+
+    def test_resume_forwards_signal(self, monkeypatch):
+        stub = StubKernel()
+        engine = make_engine(monkeypatch, stub, tids=[100])
+        engine.resume(100, 9)
+>       assert (pt.PTRACE_SYSCALL, 100, 0, 9) in stub.calls
+E       assert (24, 100, 0, 9) in []
+E        +  where [] = <tests.test_ptrace.StubKernel object at 0x72f1027aed50>.calls
+
+tests/test_ptrace.py:218: AssertionError
+___________ TestWaitEvent.test_syscall_stop_returned_without_resume ____________
+
+self = <tests.test_ptrace.TestWaitEvent object at 0x72f102892030>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f102733f20>
+
+    def test_syscall_stop_returned_without_resume(self, monkeypatch):
+        """T5: a syscall-stop is handed to the consumer, which owns resume."""
+        stub = StubKernel(stops={100: [_syscall_stop_status()]})
+        engine = make_engine(monkeypatch, stub, tids=[100])
+        ev = engine.wait_event()
+>       assert ev == SyscallStop(100)
+E       assert None == SyscallStop(tid=100)
+E        +  where SyscallStop(tid=100) = SyscallStop(100)
+
+tests/test_ptrace.py:227: AssertionError
+___________________ TestWaitEvent.test_group_stop_swallowed ____________________
+
+self = <tests.test_ptrace.TestWaitEvent object at 0x72f102892360>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f102890ce0>
+
+    def test_group_stop_swallowed(self, monkeypatch):
+        """T6: PTRACE_EVENT_STOP group-stop restarts without forwarding."""
+        stub = StubKernel(stops={
+            100: [_event_stop_status(pt.SIGSTOP, pt.PTRACE_EVENT_STOP),
+                  _exit_status(0)]})
+        engine = make_engine(monkeypatch, stub, tids=[100])
+        ev = engine.wait_event()
+>       assert isinstance(ev, Exited)
+E       assert False
+E        +  where False = isinstance(None, Exited)
+
+tests/test_ptrace.py:237: AssertionError
+___________________ TestWaitEvent.test_real_signal_forwarded ___________________
+
+self = <tests.test_ptrace.TestWaitEvent object at 0x72f102892690>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f1028c5eb0>
+
+    def test_real_signal_forwarded(self, monkeypatch):
+        """T7: signal-delivery-stop forwards the signal via restart data."""
+        stub = StubKernel(stops={100: [_stop_status(10), _exit_status(0)]})
+        engine = make_engine(monkeypatch, stub, tids=[100])
+        ev = engine.wait_event()
+>       assert isinstance(ev, Exited)
+E       assert False
+E        +  where False = isinstance(None, Exited)
+
+tests/test_ptrace.py:246: AssertionError
+____________ TestWaitEvent.test_fresh_clone_child_sigstop_swallowed ____________
+
+self = <tests.test_ptrace.TestWaitEvent object at 0x72f1028c5cd0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f102760320>
+
+    def test_fresh_clone_child_sigstop_swallowed(self, monkeypatch):
+        """T8: SIGSTOP delivery-stop of a TRACECLONE child is swallowed
+        and the new tid registered."""
+        stub = StubKernel(stops={200: [_stop_status(pt.SIGSTOP)],
+                                 100: [_exit_status(0)]})
+        engine = make_engine(monkeypatch, stub, tids=[100])
+        ev = engine.wait_event()
+>       assert isinstance(ev, Exited)
+E       assert False
+E        +  where False = isinstance(None, Exited)
+
+tests/test_ptrace.py:256: AssertionError
+________________ TestWaitEvent.test_non_event_sigtrap_forwarded ________________
+
+self = <tests.test_ptrace.TestWaitEvent object at 0x72f1028f7bc0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f102762a50>
+
+    def test_non_event_sigtrap_forwarded(self, monkeypatch):
+        """T9: a plain SIGTRAP (breakpoint etc.) is forwarded, not swallowed."""
+        stub = StubKernel(stops={100: [_stop_status(pt.SIGTRAP),
+                                       _exit_status(0)]})
+        engine = make_engine(monkeypatch, stub, tids=[100])
+        ev = engine.wait_event()
+>       assert isinstance(ev, Exited)
+E       assert False
+E        +  where False = isinstance(None, Exited)
+
+tests/test_ptrace.py:266: AssertionError
+____________ TestWaitEvent.test_exec_event_returned_without_resume _____________
+
+self = <tests.test_ptrace.TestWaitEvent object at 0x72f102892540>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f102761f40>
+
+    def test_exec_event_returned_without_resume(self, monkeypatch):
+        """T10: PTRACE_EVENT_EXEC is handed to the consumer (owns resume)."""
+        stub = StubKernel(stops={
+            100: [_event_stop_status(pt.SIGTRAP, pt.PTRACE_EVENT_EXEC)]})
+        engine = make_engine(monkeypatch, stub, tids=[100])
+        ev = engine.wait_event()
+>       assert ev == ExecEvent(100)
+E       assert None == ExecEvent(tid=100)
+E        +  where ExecEvent(tid=100) = ExecEvent(100)
+
+tests/test_ptrace.py:275: AssertionError
+____________ TestWaitEvent.test_clone_restarts_parent_without_event ____________
+
+self = <tests.test_ptrace.TestWaitEvent object at 0x72f102892120>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f102762c60>
+
+    def test_clone_restarts_parent_without_event(self, monkeypatch):
+        """T11: PTRACE_EVENT_CLONE restarts the parent; the child's own
+        SIGSTOP arrives separately (covered by T8)."""
+        stub = StubKernel(stops={
+            100: [_event_stop_status(pt.SIGTRAP, pt.PTRACE_EVENT_CLONE),
+                  _exit_status(0)]})
+        engine = make_engine(monkeypatch, stub, tids=[100])
+        ev = engine.wait_event()
+>       assert isinstance(ev, Exited)
+E       assert False
+E        +  where False = isinstance(None, Exited)
+
+tests/test_ptrace.py:286: AssertionError
+_________________ TestWaitEvent.test_interrupted_wait_retried __________________
+
+self = <tests.test_ptrace.TestWaitEvent object at 0x72f1028914c0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f1027d95e0>
+
+    def test_interrupted_wait_retried(self, monkeypatch):
+        """T12: InterruptedError (EINTR waitpid) is retried transparently."""
+        stub = StubKernel(stops={100: [_syscall_stop_status()]},
+                          errors=[InterruptedError])
+        engine = make_engine(monkeypatch, stub, tids=[100])
+>       assert engine.wait_event() == SyscallStop(100)
+E       assert None == SyscallStop(tid=100)
+E        +  where None = wait_event()
+E        +    where wait_event = <pyprobe.kernel.ptrace.PtraceEngine object at 0x72f1027d9640>.wait_event
+E        +  and   SyscallStop(tid=100) = SyscallStop(100)
+
+tests/test_ptrace.py:300: AssertionError
+____________ TestWaitEvent.test_exited_reports_code_and_deregisters ____________
+
+self = <tests.test_ptrace.TestWaitEvent object at 0x72f102890f20>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f1027d90d0>
+
+    def test_exited_reports_code_and_deregisters(self, monkeypatch):
+        """T12: exit status decoded; tid removed from the engine set."""
+        stub = StubKernel(stops={100: [_exit_status(3)]})
+        engine = make_engine(monkeypatch, stub, tids=[100])
+        ev = engine.wait_event()
+>       assert ev == Exited(100, 3, False)
+E       assert None == Exited(tid=100, exit_code=3, signaled=False)
+E        +  where Exited(tid=100, exit_code=3, signaled=False) = Exited(100, 3, False)
+
+tests/test_ptrace.py:307: AssertionError
+__________________ TestWaitEvent.test_signaled_reports_signal __________________
+
+self = <tests.test_ptrace.TestWaitEvent object at 0x72f1028909b0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f1027d9d60>
+
+    def test_signaled_reports_signal(self, monkeypatch):
+        stub = StubKernel(stops={100: [_signal_status(9)]})
+        engine = make_engine(monkeypatch, stub, tids=[100])
+        ev = engine.wait_event()
+>       assert ev == Exited(100, 9, True)
+E       assert None == Exited(tid=100, exit_code=9, signaled=True)
+E        +  where Exited(tid=100, exit_code=9, signaled=True) = Exited(100, 9, True)
+
+tests/test_ptrace.py:314: AssertionError
+__________________ TestGetregs.test_getregs_returns_user_regs __________________
+
+self = <tests.test_ptrace.TestGetregs object at 0x72f102892960>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f1027da6c0>
+
+    def test_getregs_returns_user_regs(self, monkeypatch):
+        """T15/T17: x86-64 layout fields are addressable by name."""
+        stub = StubKernel()
+        engine = make_engine(monkeypatch, stub, tids=[100])
+        regs = engine.getregs(100)
+>       assert isinstance(regs, UserRegs)
+E       assert False
+E        +  where False = isinstance(None, UserRegs)
+
+tests/test_ptrace.py:323: AssertionError
+______________ TestDetach.test_detach_interrupts_and_detaches_all ______________
+
+self = <tests.test_ptrace.TestDetach object at 0x72f102892fc0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f102762c90>
+
+    def test_detach_interrupts_and_detaches_all(self, monkeypatch):
+        """T14: INTERRUPT + bounded stop-collect + DETACH per thread."""
+        stops = {t: [_stop_status(pt.SIGTRAP)] for t in (100, 101)}
+        stub = StubKernel(stops=stops)
+        engine = make_engine(monkeypatch, stub, tids=[100, 101])
+        engine.detach()
+        interrupts = stub.requests(pt.PTRACE_INTERRUPT)
+>       assert {c[1] for c in interrupts} == {100, 101}
+E       assert set() == {100, 101}
+E         
+E         Extra items in the right set:
+E         100
+E         101
+E         Use -v to get more diff
+
+tests/test_ptrace.py:353: AssertionError
+______________________ TestDetach.test_detach_idempotent _______________________
+
+self = <tests.test_ptrace.TestDetach object at 0x72f1028932f0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f102762de0>
+
+    def test_detach_idempotent(self, monkeypatch):
+        """T14: a second detach is a no-op."""
+        stub = StubKernel(stops={100: [_stop_status(pt.SIGTRAP)]})
+        engine = make_engine(monkeypatch, stub, tids=[100])
+        engine.detach()
+        engine.detach()
+>       assert len(stub.requests(pt.PTRACE_DETACH)) == 1
+E       assert 0 == 1
+E        +  where 0 = len([])
+E        +    where [] = requests(17)
+E        +      where requests = <tests.test_ptrace.StubKernel object at 0x72f1027605f0>.requests
+E        +      and   17 = pt.PTRACE_DETACH
+
+tests/test_ptrace.py:364: AssertionError
+__________ TestArchCheck.test_unsupported_arch_raises_on_construction __________
+
+self = <tests.test_ptrace.TestArchCheck object at 0x72f102893980>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x72f102761280>
+
+    def test_unsupported_arch_raises_on_construction(self, monkeypatch):
+        """T16 (A7 P0-2): the check lives in the engine, so *every* entry
+        path (library or CLI) fails with UnsupportedArchitecture instead of
+        reading registers with the wrong layout."""
+        monkeypatch.setattr(pt.platform, "machine", lambda: "aarch64")
+>       with pytest.raises(UnsupportedArchitecture) as ei:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE UnsupportedArchitecture
+
+tests/test_ptrace.py:379: Failed
+_____________ TestSnapshotView.test_zero_length_no_transport_call ______________
+
+self = <tests.test_views.TestSnapshotView object at 0x72f102731670>
+
+    def test_zero_length_no_transport_call(self):
+        t = FakeTransport({0: make_page()})
+>       assert SnapshotView(t).read(0, 0) == b""
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_views.py:43: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <pyprobe.kernel.views.SnapshotView object at 0x72f102893890>, addr = 0
+length = 0
+
+    def read(self, addr: int, length: int) -> bytes | None:
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/kernel/views.py:43: NotImplementedError
+____________________ TestSnapshotView.test_single_page_hit _____________________
+
+self = <tests.test_views.TestSnapshotView object at 0x72f102731940>
+
+    def test_single_page_hit(self):
+        page = bytes(range(256)) * 16
+        v = SnapshotView(FakeTransport({0: page}))
+>       assert v.read(10, 4) == page[10:14]
+               ^^^^^^^^^^^^^
+
+tests/test_views.py:49: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <pyprobe.kernel.views.SnapshotView object at 0x72f1027af350>, addr = 10
+length = 4
+
+    def read(self, addr: int, length: int) -> bytes | None:
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/kernel/views.py:43: NotImplementedError
+______________ TestSnapshotView.test_unreadable_page_returns_none ______________
+
+self = <tests.test_views.TestSnapshotView object at 0x72f102731c10>
+
+    def test_unreadable_page_returns_none(self):
+        v = SnapshotView(FakeTransport({}))
+>       assert v.read(0, 4) is None
+               ^^^^^^^^^^^^
+
+tests/test_views.py:53: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <pyprobe.kernel.views.SnapshotView object at 0x72f1027d82f0>, addr = 0
+length = 4
+
+    def read(self, addr: int, length: int) -> bytes | None:
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/kernel/views.py:43: NotImplementedError
+________________ TestSnapshotView.test_partial_page_not_cached _________________
+
+self = <tests.test_views.TestSnapshotView object at 0x72f102731ee0>
+
+    def test_partial_page_not_cached(self):
+        """V3: short page (end-of-mapping) passes through, stays uncached."""
+        short = bytes(range(100))
+        t = FakeTransport({0: short})
+        v = SnapshotView(t)
+>       assert v.read(0, 50) == short[:50]
+               ^^^^^^^^^^^^^
+
+tests/test_views.py:60: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <pyprobe.kernel.views.SnapshotView object at 0x72f1027d9a60>, addr = 0
+length = 50
+
+    def read(self, addr: int, length: int) -> bytes | None:
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/kernel/views.py:43: NotImplementedError
+_____________ TestSnapshotView.test_cached_page_no_second_syscall ______________
+
+self = <tests.test_views.TestSnapshotView object at 0x72f102891e20>
+
+    def test_cached_page_no_second_syscall(self):
+        """V1: second read in the same page is served from cache."""
+        t = FakeTransport({0: make_page(0x42)})
+        v = SnapshotView(t)
+>       v.read(0, 8)
+
+tests/test_views.py:68: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <pyprobe.kernel.views.SnapshotView object at 0x72f1027d9520>, addr = 0
+length = 8
+
+    def read(self, addr: int, length: int) -> bytes | None:
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/kernel/views.py:43: NotImplementedError
+____________________ TestSnapshotView.test_multi_page_read _____________________
+
+self = <tests.test_views.TestSnapshotView object at 0x72f102890740>
+
+    def test_multi_page_read(self):
+        """V4: a read spanning pages assembles from both cached pages."""
+        p0 = bytes([0xA0] * PAGE_SIZE)
+        p1 = bytes([0xB0] * PAGE_SIZE)
+        v = SnapshotView(FakeTransport({0: p0, PAGE_SIZE: p1}))
+>       assert v.read(PAGE_SIZE - 4, 8) == p0[-4:] + p1[:4]
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_views.py:78: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <pyprobe.kernel.views.SnapshotView object at 0x72f1027db5c0>, addr = 4092
+length = 8
+
+    def read(self, addr: int, length: int) -> bytes | None:
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/kernel/views.py:43: NotImplementedError
+____________ TestSnapshotView.test_multi_page_missing_returns_none _____________
+
+self = <tests.test_views.TestSnapshotView object at 0x72f102892e70>
+
+    def test_multi_page_missing_returns_none(self):
+        """V4: any missing page in the span fails the whole read."""
+        v = SnapshotView(FakeTransport({0: make_page()}))
+>       assert v.read(PAGE_SIZE - 4, 8) is None
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_views.py:83: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <pyprobe.kernel.views.SnapshotView object at 0x72f1027dbfb0>, addr = 4092
+length = 8
+
+    def read(self, addr: int, length: int) -> bytes | None:
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/kernel/views.py:43: NotImplementedError
+_______________ TestSnapshotView.test_large_read_bypasses_cache ________________
+
+self = <tests.test_views.TestSnapshotView object at 0x72f102893bc0>
+
+    def test_large_read_bypasses_cache(self):
+        """V5: reads >= BYPASS_CACHE_THRESHOLD never populate the cache."""
+        t = FakeTransport({0: make_page(0x55)})
+        v = SnapshotView(t)
+>       v.read(0, BYPASS_CACHE_THRESHOLD)
+
+tests/test_views.py:89: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <pyprobe.kernel.views.SnapshotView object at 0x72f1027d9d90>, addr = 0
+length = 4096
+
+    def read(self, addr: int, length: int) -> bytes | None:
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/kernel/views.py:43: NotImplementedError
+___________________ TestSnapshotView.test_lru_evicts_oldest ____________________
+
+self = <tests.test_views.TestSnapshotView object at 0x72f102731df0>
+
+    def test_lru_evicts_oldest(self):
+        """V6: beyond max_pages, the least-recently-used page is evicted."""
+        pages = {i * PAGE_SIZE: make_page(i) for i in range(4)}
+        t = FakeTransport(pages)
+        v = SnapshotView(t, max_pages=3)
+        for i in range(4):
+>           v.read(i * PAGE_SIZE, 1)
+
+tests/test_views.py:102: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <pyprobe.kernel.views.SnapshotView object at 0x72f1027da810>, addr = 0
+length = 1
+
+    def read(self, addr: int, length: int) -> bytes | None:
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/kernel/views.py:43: NotImplementedError
+_______________ TestSnapshotView.test_lru_hit_refreshes_position _______________
+
+self = <tests.test_views.TestSnapshotView object at 0x72f102731bb0>
+
+    def test_lru_hit_refreshes_position(self):
+        """V6: a cache hit marks the page as recently used."""
+        pages = {i * PAGE_SIZE: make_page(i) for i in range(4)}
+        t = FakeTransport(pages)
+        v = SnapshotView(t, max_pages=3)
+>       v.read(0, 1)
+
+tests/test_views.py:112: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <pyprobe.kernel.views.SnapshotView object at 0x72f1027afdd0>, addr = 0
+length = 1
+
+    def read(self, addr: int, length: int) -> bytes | None:
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/kernel/views.py:43: NotImplementedError
+_________________ TestLiveView.test_every_read_hits_transport __________________
+
+self = <tests.test_views.TestLiveView object at 0x72f1027315b0>
+
+    def test_every_read_hits_transport(self):
+        """V8: no caching — long-running observation sees fresh bytes."""
+        t = FakeTransport({0: make_page()})
+        v = LiveView(t)
+>       v.read(0, 8)
+
+tests/test_views.py:127: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <pyprobe.kernel.views.LiveView object at 0x72f1028f77a0>, addr = 0
+length = 8
+
+    def read(self, addr: int, length: int) -> bytes | None:
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/kernel/views.py:43: NotImplementedError
+_______________ TestLiveView.test_zero_length_no_transport_call ________________
+
+self = <tests.test_views.TestLiveView object at 0x72f102732120>
+
+    def test_zero_length_no_transport_call(self):
+        t = FakeTransport({})
+>       assert LiveView(t).read(0, 0) == b""
+               ^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_views.py:133: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <pyprobe.kernel.views.LiveView object at 0x72f102760680>, addr = 0
+length = 0
+
+    def read(self, addr: int, length: int) -> bytes | None:
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/kernel/views.py:43: NotImplementedError
+__________________ TestLiveView.test_unreadable_returns_none ___________________
+
+self = <tests.test_views.TestLiveView object at 0x72f1027323f0>
+
+    def test_unreadable_returns_none(self):
+>       assert LiveView(FakeTransport({})).read(0, 4) is None
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_views.py:137: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <pyprobe.kernel.views.LiveView object at 0x72f102762510>, addr = 0
+length = 4
+
+    def read(self, addr: int, length: int) -> bytes | None:
+>       raise NotImplementedError
+E       NotImplementedError
+
+pyprobe/kernel/views.py:43: NotImplementedError
+_________________ TestTypedHelpers.test_read_ptr[SnapshotView] _________________
+
+self = <tests.test_views.TestTypedHelpers object at 0x72f1027327b0>
+view_cls = <class 'pyprobe.kernel.views.SnapshotView'>
+
+    @pytest.mark.parametrize("view_cls", [SnapshotView, LiveView])
+    def test_read_ptr(self, view_cls):
+        v = view_cls(FakeTransport({0: self._page_with("<Q", 16, 0xDEADBEEF)}))
+>       assert v.read_ptr(16) == 0xDEADBEEF
+E       assert None == 3735928559
+E        +  where None = read_ptr(16)
+E        +    where read_ptr = <pyprobe.kernel.views.SnapshotView object at 0x72f1027a29f0>.read_ptr
+
+tests/test_views.py:154: AssertionError
+___________________ TestTypedHelpers.test_read_ptr[LiveView] ___________________
+
+self = <tests.test_views.TestTypedHelpers object at 0x72f102732900>
+view_cls = <class 'pyprobe.kernel.views.LiveView'>
+
+    @pytest.mark.parametrize("view_cls", [SnapshotView, LiveView])
+    def test_read_ptr(self, view_cls):
+        v = view_cls(FakeTransport({0: self._page_with("<Q", 16, 0xDEADBEEF)}))
+>       assert v.read_ptr(16) == 0xDEADBEEF
+E       assert None == 3735928559
+E        +  where None = read_ptr(16)
+E        +    where read_ptr = <pyprobe.kernel.views.LiveView object at 0x72f1027a0aa0>.read_ptr
+
+tests/test_views.py:154: AssertionError
+_________________ TestTypedHelpers.test_read_u32[SnapshotView] _________________
+
+self = <tests.test_views.TestTypedHelpers object at 0x72f102732c60>
+view_cls = <class 'pyprobe.kernel.views.SnapshotView'>
+
+    @pytest.mark.parametrize("view_cls", [SnapshotView, LiveView])
+    def test_read_u32(self, view_cls):
+        v = view_cls(FakeTransport({0: self._page_with("<I", 32, 0x12345678)}))
+>       assert v.read_u32(32) == 0x12345678
+E       assert None == 305419896
+E        +  where None = read_u32(32)
+E        +    where read_u32 = <pyprobe.kernel.views.SnapshotView object at 0x72f1027a12b0>.read_u32
+
+tests/test_views.py:159: AssertionError
+___________________ TestTypedHelpers.test_read_u32[LiveView] ___________________
+
+self = <tests.test_views.TestTypedHelpers object at 0x72f102732db0>
+view_cls = <class 'pyprobe.kernel.views.LiveView'>
+
+    @pytest.mark.parametrize("view_cls", [SnapshotView, LiveView])
+    def test_read_u32(self, view_cls):
+        v = view_cls(FakeTransport({0: self._page_with("<I", 32, 0x12345678)}))
+>       assert v.read_u32(32) == 0x12345678
+E       assert None == 305419896
+E        +  where None = read_u32(32)
+E        +    where read_u32 = <pyprobe.kernel.views.LiveView object at 0x72f1027a1c70>.read_u32
+
+tests/test_views.py:159: AssertionError
+_________________ TestTypedHelpers.test_read_u64[SnapshotView] _________________
+
+self = <tests.test_views.TestTypedHelpers object at 0x72f102733110>
+view_cls = <class 'pyprobe.kernel.views.SnapshotView'>
+
+    @pytest.mark.parametrize("view_cls", [SnapshotView, LiveView])
+    def test_read_u64(self, view_cls):
+        v = view_cls(FakeTransport({0: self._page_with("<Q", 40, 0xCAFEBABE)}))
+>       assert v.read_u64(40) == 0xCAFEBABE
+E       assert None == 3405691582
+E        +  where None = read_u64(40)
+E        +    where read_u64 = <pyprobe.kernel.views.SnapshotView object at 0x72f1027a25a0>.read_u64
+
+tests/test_views.py:164: AssertionError
+___________________ TestTypedHelpers.test_read_u64[LiveView] ___________________
+
+self = <tests.test_views.TestTypedHelpers object at 0x72f102733260>
+view_cls = <class 'pyprobe.kernel.views.LiveView'>
+
+    @pytest.mark.parametrize("view_cls", [SnapshotView, LiveView])
+    def test_read_u64(self, view_cls):
+        v = view_cls(FakeTransport({0: self._page_with("<Q", 40, 0xCAFEBABE)}))
+>       assert v.read_u64(40) == 0xCAFEBABE
+E       assert None == 3405691582
+E        +  where None = read_u64(40)
+E        +    where read_u64 = <pyprobe.kernel.views.LiveView object at 0x72f1027a2fc0>.read_u64
+
+tests/test_views.py:164: AssertionError
+_____________ TestTypedHelpers.test_read_int_signed[SnapshotView] ______________
+
+self = <tests.test_views.TestTypedHelpers object at 0x72f1027335c0>
+view_cls = <class 'pyprobe.kernel.views.SnapshotView'>
+
+    @pytest.mark.parametrize("view_cls", [SnapshotView, LiveView])
+    def test_read_int_signed(self, view_cls):
+        v = view_cls(FakeTransport({0: self._page_with("<i", 48, -42)}))
+>       assert v.read_int(48) == -42
+E       assert None == -42
+E        +  where None = read_int(48)
+E        +    where read_int = <pyprobe.kernel.views.SnapshotView object at 0x72f1027621b0>.read_int
+
+tests/test_views.py:169: AssertionError
+_______________ TestTypedHelpers.test_read_int_signed[LiveView] ________________
+
+self = <tests.test_views.TestTypedHelpers object at 0x72f102733710>
+view_cls = <class 'pyprobe.kernel.views.LiveView'>
+
+    @pytest.mark.parametrize("view_cls", [SnapshotView, LiveView])
+    def test_read_int_signed(self, view_cls):
+        v = view_cls(FakeTransport({0: self._page_with("<i", 48, -42)}))
+>       assert v.read_int(48) == -42
+E       assert None == -42
+E        +  where None = read_int(48)
+E        +    where read_int = <pyprobe.kernel.views.LiveView object at 0x72f102890ce0>.read_int
+
+tests/test_views.py:169: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_errors.py::test_process_not_found - AssertionError: assert ...
+FAILED tests/test_errors.py::test_permission_denied - AssertionError: assert ...
+FAILED tests/test_errors.py::test_symbol_not_found_with_path - AssertionError...
+FAILED tests/test_errors.py::test_symbol_not_found_without_path_omits_in - As...
+FAILED tests/test_errors.py::test_version_not_supported - AssertionError: ass...
+FAILED tests/test_errors.py::test_attach_failed_with_detail - AssertionError:...
+FAILED tests/test_errors.py::test_attach_failed_without_detail_omits_colon - ...
+FAILED tests/test_errors.py::test_unsupported_architecture - AssertionError: ...
+FAILED tests/test_errors.py::test_process_exited - AssertionError: assert 'TB...
+FAILED tests/test_mem.py::test_full_read_single_call - AssertionError: assert...
+FAILED tests/test_mem.py::test_partial_then_complete - AssertionError: assert...
+FAILED tests/test_mem.py::test_short_read_returned_when_kernel_stops - Assert...
+FAILED tests/test_mem.py::test_zero_length_no_syscall - AssertionError: asser...
+FAILED tests/test_mem.py::test_default_syscall_eintr_retried - AssertionError...
+FAILED tests/test_procfs.py::TestReadCmdline::test_self_cmdline_is_decodable
+FAILED tests/test_procfs.py::TestReadCmdline::test_nul_becomes_space_and_trailing_stripped
+FAILED tests/test_procfs.py::TestListTids::test_self_tids_sorted_and_nonempty
+FAILED tests/test_procfs.py::TestListTids::test_dead_pid_raises_process_not_found
+FAILED tests/test_procfs.py::TestListTids::test_permission_error_raises_permission_denied
+FAILED tests/test_procfs.py::TestListTids::test_file_not_found_raises_process_not_found
+FAILED tests/test_procfs.py::TestReadComm::test_self_comm_nonempty - Assertio...
+FAILED tests/test_ptrace.py::TestSeize::test_seize_all_threads_with_options
+FAILED tests/test_ptrace.py::TestSeize::test_rescan_picks_up_racer_threads - ...
+FAILED tests/test_ptrace.py::TestSeize::test_main_thread_failure_raises_attach_failed
+FAILED tests/test_ptrace.py::TestSeize::test_racer_thread_death_skipped - ass...
+FAILED tests/test_ptrace.py::TestSeize::test_rollback_on_attach_failed - Fail...
+FAILED tests/test_ptrace.py::TestSeize::test_rollback_on_any_exception - Fail...
+FAILED tests/test_ptrace.py::TestSeize::test_missing_process_propagates_without_ptrace
+FAILED tests/test_ptrace.py::TestStopAndRestart::test_stop_all_interrupts_and_collects
+FAILED tests/test_ptrace.py::TestStopAndRestart::test_restart_all_uses_restart_op
+FAILED tests/test_ptrace.py::TestStopAndRestart::test_resume_forwards_signal
+FAILED tests/test_ptrace.py::TestWaitEvent::test_syscall_stop_returned_without_resume
+FAILED tests/test_ptrace.py::TestWaitEvent::test_group_stop_swallowed - asser...
+FAILED tests/test_ptrace.py::TestWaitEvent::test_real_signal_forwarded - asse...
+FAILED tests/test_ptrace.py::TestWaitEvent::test_fresh_clone_child_sigstop_swallowed
+FAILED tests/test_ptrace.py::TestWaitEvent::test_non_event_sigtrap_forwarded
+FAILED tests/test_ptrace.py::TestWaitEvent::test_exec_event_returned_without_resume
+FAILED tests/test_ptrace.py::TestWaitEvent::test_clone_restarts_parent_without_event
+FAILED tests/test_ptrace.py::TestWaitEvent::test_interrupted_wait_retried - a...
+FAILED tests/test_ptrace.py::TestWaitEvent::test_exited_reports_code_and_deregisters
+FAILED tests/test_ptrace.py::TestWaitEvent::test_signaled_reports_signal - as...
+FAILED tests/test_ptrace.py::TestGetregs::test_getregs_returns_user_regs - as...
+FAILED tests/test_ptrace.py::TestDetach::test_detach_interrupts_and_detaches_all
+FAILED tests/test_ptrace.py::TestDetach::test_detach_idempotent - assert 0 == 1
+FAILED tests/test_ptrace.py::TestArchCheck::test_unsupported_arch_raises_on_construction
+FAILED tests/test_views.py::TestSnapshotView::test_zero_length_no_transport_call
+FAILED tests/test_views.py::TestSnapshotView::test_single_page_hit - NotImple...
+FAILED tests/test_views.py::TestSnapshotView::test_unreadable_page_returns_none
+FAILED tests/test_views.py::TestSnapshotView::test_partial_page_not_cached - ...
+FAILED tests/test_views.py::TestSnapshotView::test_cached_page_no_second_syscall
+FAILED tests/test_views.py::TestSnapshotView::test_multi_page_read - NotImple...
+FAILED tests/test_views.py::TestSnapshotView::test_multi_page_missing_returns_none
+FAILED tests/test_views.py::TestSnapshotView::test_large_read_bypasses_cache
+FAILED tests/test_views.py::TestSnapshotView::test_lru_evicts_oldest - NotImp...
+FAILED tests/test_views.py::TestSnapshotView::test_lru_hit_refreshes_position
+FAILED tests/test_views.py::TestLiveView::test_every_read_hits_transport - No...
+FAILED tests/test_views.py::TestLiveView::test_zero_length_no_transport_call
+FAILED tests/test_views.py::TestLiveView::test_unreadable_returns_none - NotI...
+FAILED tests/test_views.py::TestTypedHelpers::test_read_ptr[SnapshotView] - a...
+FAILED tests/test_views.py::TestTypedHelpers::test_read_ptr[LiveView] - asser...
+FAILED tests/test_views.py::TestTypedHelpers::test_read_u32[SnapshotView] - a...
+FAILED tests/test_views.py::TestTypedHelpers::test_read_u32[LiveView] - asser...
+FAILED tests/test_views.py::TestTypedHelpers::test_read_u64[SnapshotView] - a...
+FAILED tests/test_views.py::TestTypedHelpers::test_read_u64[LiveView] - asser...
+FAILED tests/test_views.py::TestTypedHelpers::test_read_int_signed[SnapshotView]
+FAILED tests/test_views.py::TestTypedHelpers::test_read_int_signed[LiveView]
+================= 66 failed, 50 passed, 1 deselected in 0.37s ==================

@@ -1,0 +1,33 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/admin/projects/pyprobe/next
+configfile: pyproject.toml
+plugins: cov-7.1.0, anyio-4.15.1
+collected 117 items
+
+tests/test_dto.py .........                                              [  7%]
+tests/test_errors.py ......................                              [ 26%]
+tests/test_mem.py ..........                                             [ 35%]
+tests/test_procfs.py ..........                                          [ 43%]
+tests/test_ptrace.py ...............................                     [ 70%]
+tests/test_scaffold.py ...                                               [ 72%]
+tests/test_structure.py ...                                              [ 75%]
+tests/test_views.py .............................                        [100%]
+
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.12.13-final-0 _______________
+
+Name                         Stmts   Miss  Cover   Missing
+----------------------------------------------------------
+pyprobe/__init__.py              1      0   100%
+pyprobe/dto.py                  48      0   100%
+pyprobe/errors.py               45      0   100%
+pyprobe/kernel/__init__.py       0      0   100%
+pyprobe/kernel/mem.py           43      0   100%
+pyprobe/kernel/procfs.py        22      0   100%
+pyprobe/kernel/ptrace.py       150     13    91%   34-36, 41-47, 52, 275-276, 279
+pyprobe/kernel/views.py         78      2    97%   57, 86
+----------------------------------------------------------
+TOTAL                          387     15    96%
+Required test coverage of 80% reached. Total coverage: 96.12%
+============================= 117 passed in 0.28s ==============================

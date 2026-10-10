@@ -79,8 +79,11 @@ collect/format/dump 三层语义、CLI 薄壳、errors 层级、clicolors 颜色
 
 ### A8. 子包化与依赖规则
 
-`kernel/ target/ cpython/ observe/ present/` + 横切（errors/dto/color）；import 方向
+`kernel/ target/ cpython/ observe/ present/` + 横切（errors/dto）；import 方向
 由结构契约测试机械强制（禁反向）。包名仍为 `pyprobe`，替换免改名。
+颜色策略属呈现层（`present/color.py`，仅 present/cli 可引用），非横切——
+A5 落地后 dto 不再依赖颜色（2026-10 批次 1 契约细化，修订 TODO §10.1 A8 原文
+"横切含 color" 的表述）。
 
 ## 3. 复刻约束（非差异，禁止"顺手优化"）
 
@@ -101,12 +104,94 @@ collect/format/dump 三层语义、CLI 薄壳、errors 层级、clicolors 颜色
 
 | 模块 | 职责 | 公开 API | 行为点清单 |
 |------|------|----------|------------|
-| `kernel/mem.py` | 字节传输：远程读原语与错误语义 | TBD | TBD |
-| `kernel/views.py` | A4：SnapshotView / LiveView | TBD | TBD |
-| `kernel/procfs.py` | /proc 元信息（maps/stat/task 枚举） | TBD | TBD |
-| `kernel/ptrace.py` | A2：统一 ptrace 状态机（批内最大件） | TBD | TBD |
-| `errors.py`（横切） | 错误层级（保留旧语义） | TBD | TBD |
-| `dto.py`（横切） | A5：纯数据 DTO | TBD | TBD |
+| `kernel/mem.py` | 字节传输：远程读原语与错误语义 | `Transport(pid, syscall=None)`；`.read(addr, length) -> bytes \| None` | 见 §5.1 批 1 表 |
+| `kernel/views.py` | A4：SnapshotView / LiveView | `SnapshotView(transport, *, max_pages=256)`；`LiveView(transport)`；共有 `read/read_ptr/read_int/read_u32/read_u64`；常量 `PAGE_SIZE/PAGE_MASK/CACHE_MAX_PAGES/BYPASS_CACHE_THRESHOLD/PTR_SIZE/PTR_FMT/INT_SIZE/INT_FMT` | 见 §5.1 批 1 表 |
+| `kernel/procfs.py` | /proc 元信息（cmdline/task 枚举/comm） | `read_cmdline(pid) -> str \| None`；`list_tids(pid) -> list[int]`；`read_comm(pid, tid) -> str` | 见 §5.1 批 1 表 |
+| `kernel/ptrace.py` | A2：统一 ptrace 状态机（批内最大件） | `PtraceEngine(pid, *, feature="ptrace", restart_op=PTRACE_SYSCALL)`；`.seize(options=0)`/`.stop_all()`/`.restart_all()`/`.resume(tid, sig=0)`/`.wait_event()`/`.getregs(tid)`/`.detach()`；事件 `SyscallStop/ExecEvent/Exited`；`UserRegs`/`ARG_REGS`/PTRACE_* 常量 | 见 §5.1 批 1 表 |
+| `errors.py`（横切） | 错误层级（保留旧语义，消息逐字复刻） | `PyProbeError` + 9 子类（同名同属性同消息） | 见 §5.1 批 1 表 |
+| `dto.py`（横切） | A5：纯数据 DTO（无 format()，无颜色依赖） | `FrameInfo/ThreadInfo/ProcessInfo/NativeFrame/NativeThreadInfo/SyscallEvent/ProfileData`（字段与默认值同旧 types.py） | 见 §5.1 批 1 表 |
+
+#### 批 1 行为点清单（§5.1 实例）
+
+**kernel/mem.py**（旧 `memory.py` `_read_syscall` 部分）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| M1 | 读循环直至填满；部分成功继续读 | test_memory.py 间接 | test_mem.py::test_partial_then_complete |
+| M2 | 任何错误返回 None（不抛异常） | test_unreadable_page_returns_none | test_mem.py::test_error_returns_none |
+| M3 | 读到 0 字节返回 None | （旧代码 L83-84） | test_mem.py::test_zero_bytes_returns_none |
+| M4 | 短读如实返回（长度由调用方校验） | test_partial_page_uncached | test_mem.py::test_short_read_returned |
+| M5 | EINTR（errno 4）重试 | （旧代码 L76-78） | test_mem.py::test_eintr_retried |
+| M6 | length==0 返回 b"" 且无 syscall | test_zero_length | test_views.py（视图层拦截，传输层同语义） |
+
+**kernel/views.py**（旧 `memory.py` RemoteReader 缓存 + `_UncachedReader` + `read_uncached` + sampler 手工新建 reader 四机制合并为 A4）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| V1 | 单页读命中缓存，第二次同页无 syscall | test_cached_page_no_second_syscall | test_views.py::TestSnapshotView |
+| V2 | 不可读页返回 None | test_unreadable_page_returns_none | 同 |
+| V3 | 部分页（映射末尾）不缓存、透传 | test_partial_page_uncached | 同 |
+| V4 | 跨页装配；任一缺失页 → None | test_multi_page_read / test_multi_page_missing_returns_none | 同 |
+| V5 | ≥PAGE_SIZE 读绕过缓存 | test_large_read_bypasses_cache | 同 |
+| V6 | LRU 超 CACHE_MAX_PAGES(256) 逐出最旧 | test_cache_evicts_oldest | 同 |
+| V7 | read_ptr/u32/u64/int 小端解码；短读 → None | TestReadHelpers | 两视图各一组 |
+| V8 | LiveView 每次读都走传输层（长时观测一致性，A4）；读粒度为页对齐整页取读后切片（与 SnapshotView 共享装配路径；页内读不跨映射，无正确性差异） | （旧 `_UncachedReader`/read_uncached 语义） | test_views.py::TestLiveView |
+| V9 | 常量：PAGE_SIZE=4096 / PTR_SIZE=8 / BYPASS==PAGE_SIZE / CACHE_MAX_PAGES=256 | TestConstants | test_views.py::TestConstants |
+
+**kernel/procfs.py**（旧 `procmeta.py` + `syscall_tracer._list_tids` + `native_dump._read_comm`）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| P1 | cmdline NUL→空格、去尾空格、UTF-8 replace 解码；OSError → None | （旧 procmeta docstring） | test_procfs.py |
+| P2 | list_tids 升序 int 列表；进程缺失 → ProcessNotFound | test_attach_missing_process 间接 | test_procfs.py |
+| P3 | PermissionError → PermissionDenied（**A7 琐碎项修复**：旧树漏捕获，用户见 traceback）；不捕获 ProcessLookupError（旧死代码） | （旧 §9 P1-9） | test_procfs.py::test_permission_denied |
+| P4 | read_comm 去空白；OSError → "" | （旧 native_dump L140-145） | test_procfs.py |
+
+**kernel/ptrace.py**（旧 `syscall_tracer.py` 引擎 + `native_dump.py` `_attach_all_threads`/`_detach_all` 合并为 A2）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| T1 | seize 全线程 + 重扫循环补抓新线程；options 随 SEIZE 传递 | test_seize_all_threads | test_ptrace.py::TestSeize |
+| T2 | seize 失败回滚：已 seize 线程全部 DETACH；**A7 P1-4 修复**：任意异常（非仅 AttachFailed）都回滚 | test_attach_failure_rolls_back | TestSeize::test_rollback_on_any_exception |
+| T3 | 主线程 seize 失败 → AttachFailed；非主线程序列中死亡跳过 | test_attach_failure_rolls_back | TestSeize |
+| T4 | stop_all：INTERRUPT 每线程 + 收集停止（死亡线程容忍） | test_seize_all_threads | TestSeize |
+| T5 | wait_event：syscall-stop → SyscallStop | test_entry_exit_pairing_emits_event（引擎侧） | TestWaitEvent |
+| T6 | group-stop（PTRACE_EVENT_STOP）吞咽不转发 | test_group_stop_swallowed | TestWaitEvent |
+| T7 | 真实信号经 restart_op data 转发 | test_real_signal_forwarded | TestWaitEvent |
+| T8 | 新线程 SIGSTOP delivery-stop 吞咽并注册 tid | test_sigstop_new_thread_swallowed | TestWaitEvent |
+| T9 | SIGTRAP 非事件陷阱转发 | （旧代码 L262-264） | TestWaitEvent |
+| T10 | PTRACE_EVENT_EXEC → ExecEvent 返回（消费方处理后 resume） | （旧 `_handle_exec` 引擎侧） | TestWaitEvent |
+| T11 | PTRACE_EVENT_CLONE 父进程直接续行，不产事件 | （旧代码 L256-258） | TestWaitEvent |
+| T12 | ECHILD → None；InterruptedError 继续等；Exited **立即返回**并注销 tid（逐停处理语义同旧树 run 循环；机械停在一次 wait_event 调用内吞咽，SyscallStop/ExecEvent/Exited 均一停一返，消费方跨调用推进序列） | test_main_thread_exit_ends_loop | TestWaitEvent |
+| T13 | **A7 琐碎项**：删除阻塞 waitpid 的 `wpid == 0` 死分支 | （旧 §9 P1-9） | （无测试——代码不存在，结构保证） |
+| T14 | detach：INTERRUPT + 有界 WNOHANG 收集 + DETACH 每线程；幂等；tids 清空 | test_detach_interrupts_and_detaches_all | TestDetach |
+| T15 | getregs 失败 → None | （旧 `_getregs`） | TestGetregs |
+| T16 | **A7 P0-2 修复**：arch 检查下沉引擎 `__init__`，aarch64 → UnsupportedArchitecture（feature 名由消费方传入以保消息语义） | test_unsupported_arch | test_ptrace.py::test_unsupported_arch |
+| T17 | UserRegs x86-64 布局 27 字段 + ARG_REGS=(rdi,rsi,rdx,r10,r8,r9) | （旧 `_UserRegs`/`_ARG_REGS`） | TestGetregs |
+
+**errors.py**（旧 `errors.py` 全量——消息是 CLI `[!] {e}` 用户可见输出，逐字复刻）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| E1 | 9 子类全部继承 PyProbeError；属性同旧（pid/symbol/exe_path/version/fallback/feature/arch/supported） | test_errors.py 全量 | test_errors.py |
+| E2 | 消息逐字复刻（含默认 detail 文案、SymbolNotFound 无路径省略 "in"、AttachFailed 无 detail 省略冒号） | test_message_and_attributes | test_errors.py（消息全 pin） |
+
+**dto.py**（旧 `types.py` 数据部分；A5 剥离 format()/颜色/errno 表/路径缩短——后者批次 6 入 present/text.py）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| D1 | 7 个 dataclass 字段名/顺序/默认值同旧（asdict 键集 = JSON schema 复刻约束） | test_json_output.py 结构断言 | test_dto.py（键集 pin） |
+| D2 | 无 format()/format_header() 方法；不 import 颜色（A5 守护） | （A5 新增） | test_dto.py + test_structure.py |
+
+#### 批 1 旧测试标注（§5.2 实例）
+
+| 旧测试文件 | 覆盖判定 | 放弃理由 |
+|------------|----------|----------|
+| tests/test_memory.py | 已覆盖（拆为 test_mem.py + test_views.py） | — |
+| tests/test_errors.py | 已覆盖（test_errors.py，消息 pin 加强） | — |
+| tests/test_syscall_tracer.py | 引擎部分已覆盖（test_ptrace.py）；entry/exit 配对、过滤、渲染属批次 5 | 配对/渲染非引擎职责，A2 分层后归 observe/syscalls.py |
+| tests/test_types.py | 数据部分已覆盖（test_dto.py）；format() 渲染属批次 6 | format() 被 A5 废除，渲染迁 present/text.py |
+| tests/test_procmeta.py | 已覆盖（test_procfs.py）；decode_py_version 属批次 2（target/identity） | 版本解码是 CPython 布局知识，非内核接口 |
 
 ### 批次 2 — `target/`
 

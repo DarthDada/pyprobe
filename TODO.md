@@ -126,7 +126,7 @@
 - [ ] A1. **Layout 值对象化**（吞并 §8.1）：`resolve_layout(version) -> Layout` 显式传递，消灭 `_active` 全局单例与读路径副作用；可同时观测不同 CPython 版本进程；dev override（offsets.json）语义保留
 - [ ] A2. **ptrace 统一引擎**（`kernel/ptrace.py`）：一套 seize/interrupt/wait 状态机 + GETREGS + detach，syscall 追踪与 native 回溯共享；native 侧 ATTACH→SEIZE（与 design.md §14.2 相同的安全 detach 理由）；消灭 native_dump 与 syscall_tracer 两套 attach 逻辑
 - [ ] A3. **CPython 对象模型层**（`cpython/`）：PyLong/Unicode/Bytes/Dict/Code/Frame/ThreadState/InterpreterState 各有绑定 Layout 的 typed reader；遍历代码零裸偏移运算（消灭 stack_dump 内 co_lo/co_hi 式跨度心算），版本差异只住 Layout
-- [ ] A4. **内存视图分离**：`SnapshotView`（页级 LRU，单次快照语义）/ `LiveView`（不缓存，长时观测）替代"RemoteReader 缓存 + read_uncached + _UncachedReader + 每 sample 手工新建 reader"四个零散机制；每种观测声明自己的一致性需求
+- [x] A4. **内存视图分离**：`SnapshotView`（页级 LRU，单次快照语义）/ `LiveView`（不缓存，长时观测）替代"RemoteReader 缓存 + read_uncached + _UncachedReader + 每 sample 手工新建 reader"四个零散机制；每种观测声明自己的一致性需求（批次 1 落地 `kernel/views.py`）
 - [ ] A5. **DTO 去 format() 化**：数据与呈现严格分离（反转 §8.9 妥协），格式化全部入 `present/text.py`；dto 只存数据
 - [ ] A6. **保留决策**（第一性原理验证后保留，非惯性）：collect/format/dump 三层、CLI 薄壳、errors 层级、clicolors 颜色策略
 - [ ] A7. **行为修复**（吞并 §9 P0/P1）：TopStats idle 统计（§9 P0-1）、arch 检查下沉（§9 P0-2）、TraceFilter 混合表达式（§9 P0-3）、§9 P1 批次（timespec_out exit 重读 / EOF 空渲染 / execve 走用户过滤器 / attach 全异常回滚 / 无名帧 OWN% 归一 / 琐碎项）
@@ -136,7 +136,7 @@
 
 - [ ] 1. **spec-oracle 测试**（最高价值，新增）：linetable 解析 vs CPython 自带 `co_lines()`（2026-10 审查验证过的方法）；layout 表 vs gen_offsets 真实头文件产物；errno/flag/syscall 号常量 vs 系统头文件；syscall 渲染样例 vs strace 真实输出；native 线程头/符号样例 vs gdb 输出
 - [ ] 2. **构造内存单测**：FakeMemory 构造器由 Layout 驱动（禁止从被测常量照抄）；版本布局 × 对象变体矩阵参数化
-- [ ] 3. **状态机单测**：统一 ptrace 引擎以 stubbed libc/waitpid 覆盖全状态路径（CLONE/EXEC/信号转发/detach 幂等）
+- [x] 3. **状态机单测**：统一 ptrace 引擎以 stubbed libc/waitpid 覆盖全状态路径（CLONE/EXEC/信号转发/detach 幂等）——批次 1 落地（next/tests/test_ptrace.py）
 - [ ] 4. **存活集成测试**：target/spin/fast-syscall 三 fixture；session→snapshot→sampling→tracing 端到端；integration ≤15s 预算
 - [ ] 5. **差异对比测试**：旧新 CLI 子进程（§10.5-1）
 - [ ] 6. **结构契约测试**：公共 API 面 + 子包 import 方向（A8）机械强制
@@ -151,7 +151,7 @@
 ### 10.4 批次计划（按新架构依赖方向，每批一个派发包）
 
 - [ ] 0. 脚手架：`next/{pyprobe,tests,pyproject.toml}` 布局（包名仍 `pyprobe` 替换免改名；两套件独立 pytest 进程隔离，旧↔新对比走 CLI 子进程）、`scripts/next.sh`、CI next 作业、AGENTS.md TDD 工作流节（§7.3 并入）、`next/docs/contracts.md`（ADR 全文 + 模块契约骨架 + 行为点清单模板）、`next/pyprobe/offsets.json` 从根拷贝
-- [ ] 1. `kernel/` + errors + dto：mem 传输 / Snapshot·Live 视图（A4）/ procfs / **统一 ptrace 引擎**（A2，批内最大件，状态机 stub 测试全绿）
+- [x] 1. `kernel/` + errors + dto：mem 传输 / Snapshot·Live 视图（A4）/ procfs / **统一 ptrace 引擎**（A2，批内最大件，状态机 stub 测试全绿）
 - [ ] 2. `target/`：identity / layout（A1 落地）/ symbols
 - [ ] 3. `cpython/`：objects / dicts / code / frames / runtime / names（A3 落地；spec-oracle 测试同步上）
 - [ ] 4. `observe/`：session / snapshot / sampling / profile / topstats（A7 中 TopStats 修复；首个端到端里程碑：snapshot 对 live target 出栈）

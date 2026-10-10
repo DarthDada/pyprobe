@@ -52,10 +52,10 @@ case "$cmd" in
             unit)        selector=(-m "not integration") ;;
             integration) selector=(-m "integration" -v) ;;
         esac
-        # Coverage ratchet for the next tree: starts at 0 (scaffold has no
-        # code), each batch raises it, §10.5-3 exit gate requires ≥80.
+        # Coverage ratchet for the next tree: batch 0 started at 0, batch 1
+        # reached 96% — ratchet straight to the §10.5-3 exit-gate value.
         # Never lower it without an explicit decision.
-        COV_FAIL_UNDER=0
+        COV_FAIL_UNDER=80
         cov_args=()
         if [ "$cov" = 1 ]; then
             cov_args=(--cov=pyprobe --cov-report=term-missing "--cov-fail-under=$COV_FAIL_UNDER")
