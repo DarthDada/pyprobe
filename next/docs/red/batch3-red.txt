@@ -1,0 +1,2902 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/admin/projects/pyprobe/next
+configfile: pyproject.toml
+plugins: cov-7.1.0, anyio-4.15.1
+collected 607 items / 1 deselected / 606 selected
+
+tests/test_code.py FF.F..FFFFF........FFFF....F                          [  4%]
+tests/test_dicts.py FFFFFFFFFFFFFFFFFFFF........FFFF....                 [ 10%]
+tests/test_dto.py .........                                              [ 12%]
+tests/test_errors.py ......................                              [ 15%]
+tests/test_frames.py ........FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF            [ 22%]
+tests/test_identity.py .........                                         [ 23%]
+tests/test_layout.py ................................................... [ 32%]
+........................................................................ [ 44%]
+........................................................................ [ 55%]
+................                                                         [ 58%]
+tests/test_mem.py .........                                              [ 60%]
+tests/test_names.py FFFFF.....                                           [ 61%]
+tests/test_objects.py FFFFFFFFFFFFFFFFFFFF............FFFFFFFF........FF [ 69%]
+FFFFFFFFFFFFFFFFFF....FFFF............                                   [ 76%]
+tests/test_procfs.py ................                                    [ 78%]
+tests/test_ptrace.py ...............................                     [ 83%]
+tests/test_runtime.py FFFFFFFFFFFFFFFFF....FFFFFFFFFFFFFFFFFF.....       [ 91%]
+tests/test_scaffold.py ...                                               [ 91%]
+tests/test_structure.py ...                                              [ 92%]
+tests/test_symbols.py ..................                                 [ 95%]
+tests/test_views.py .............................                        [100%]
+
+=================================== FAILURES ===================================
+___________________ TestLineForOffset.test_simple_increments ___________________
+
+self = <tests.test_code.TestLineForOffset object at 0x79c311ef2510>
+
+    def test_simple_increments(self):
+        """C1：code 11/12/10 的 +1/+2/+0 行增量与 2 字节区间边界。"""
+        lt = linetable_simple_increments()  # firstlineno=10
+>       assert line_for_offset(lt, 0, 10) == 11
+E       AssertionError: assert 10 == 11
+E        +  where 10 = line_for_offset(b'\xd8\xe0\xd0\xd0', 0, 10)
+
+tests/test_code.py:45: AssertionError
+____________ TestLineForOffset.test_beyond_table_returns_last_line _____________
+
+self = <tests.test_code.TestLineForOffset object at 0x79c311ef1c10>
+
+    def test_beyond_table_returns_last_line(self):
+        """C2：lasti 超出表末 → 最后计算行（执行点在表尾之后的合法态）。"""
+        lt = linetable_simple_increments()
+>       assert line_for_offset(lt, 100, 10) == 13
+E       AssertionError: assert 10 == 13
+E        +  where 10 = line_for_offset(b'\xd8\xe0\xd0\xd0', 100, 10)
+
+tests/test_code.py:53: AssertionError
+_______________ TestLineForOffset.test_no_line_entry_falls_back ________________
+
+self = <tests.test_code.TestLineForOffset object at 0x79c311ef1460>
+
+    def test_no_line_entry_falls_back(self):
+        """C3：单个 code=15 条目 → firstlineno，其后条目行号不受污染
+        （ar_line=-1 不重置 computed_line 的累计）。"""
+        lt = linetable_with_no_line()
+>       assert line_for_offset(lt, 0, 10) == 11
+E       AssertionError: assert 10 == 11
+E        +  where 10 = line_for_offset(b'\xd8\xf8\xd8', 0, 10)
+
+tests/test_code.py:63: AssertionError
+__________________ TestLineForOffset.test_varint_signed_delta __________________
+
+self = <tests.test_code.TestLineForOffset object at 0x79c311f10c20>
+
+    def test_varint_signed_delta(self):
+        """C1：code 13/14 的有符号 varint——6 位块、bit6 续位、zigzag
+        解码（大行号跳变的编码路径，手工表覆盖不到 real-world 大跳变时
+        由此单测兜底）。delta=-3 的 zigzag 编码 uval=5：单字节 0x05。"""
+        lt = bytes([
+            (14 << 3) | 0x80, 0x05,  # code=14, varint uval=5 → zigzag -3
+            (11 << 3) | 0x80,        # code=11 → +1
+        ])
+>       assert line_for_offset(lt, 0, 10) == 7   # 10 + (-3)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: assert 10 == 7
+E        +  where 10 = line_for_offset(b'\xf0\x05\xd8', 0, 10)
+
+tests/test_code.py:85: AssertionError
+______________ TestAddr2Line.test_resolves_via_code_object[3.11] _______________
+
+self = <tests.test_code.TestAddr2Line object at 0x79c311ef1880>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_resolves_via_code_object(self, layout):
+        """C4 主路径：经 co_linetable 指针取 bytes 后解码。"""
+        mem = FakeMemory()
+        build_code(mem, layout, CODE_ADDR, NAME_ADDR, FILE_ADDR, 10,
+                   LT_OBJ_ADDR)
+        build_bytes(mem, layout, LT_OBJ_ADDR, linetable_simple_increments())
+>       assert addr2line(mem, layout, CODE_ADDR, 2, 10) == 13
+E       AssertionError: assert 10 == 13
+E        +  where 10 = addr2line(<tests.fakemem.FakeMemory object at 0x79c311c202c0>, Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2})), 65536, 2, 10)
+
+tests/test_code.py:98: AssertionError
+______________ TestAddr2Line.test_resolves_via_code_object[3.12] _______________
+
+self = <tests.test_code.TestAddr2Line object at 0x79c311ef17c0>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_resolves_via_code_object(self, layout):
+        """C4 主路径：经 co_linetable 指针取 bytes 后解码。"""
+        mem = FakeMemory()
+        build_code(mem, layout, CODE_ADDR, NAME_ADDR, FILE_ADDR, 10,
+                   LT_OBJ_ADDR)
+        build_bytes(mem, layout, LT_OBJ_ADDR, linetable_simple_increments())
+>       assert addr2line(mem, layout, CODE_ADDR, 2, 10) == 13
+E       AssertionError: assert 10 == 13
+E        +  where 10 = addr2line(<tests.fakemem.FakeMemory object at 0x79c311fa2120>, Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536, 2, 10)
+
+tests/test_code.py:98: AssertionError
+______________ TestAddr2Line.test_resolves_via_code_object[3.13] _______________
+
+self = <tests.test_code.TestAddr2Line object at 0x79c311ef16d0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_resolves_via_code_object(self, layout):
+        """C4 主路径：经 co_linetable 指针取 bytes 后解码。"""
+        mem = FakeMemory()
+        build_code(mem, layout, CODE_ADDR, NAME_ADDR, FILE_ADDR, 10,
+                   LT_OBJ_ADDR)
+        build_bytes(mem, layout, LT_OBJ_ADDR, linetable_simple_increments())
+>       assert addr2line(mem, layout, CODE_ADDR, 2, 10) == 13
+E       AssertionError: assert 10 == 13
+E        +  where 10 = addr2line(<tests.fakemem.FakeMemory object at 0x79c311cf39e0>, Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536, 2, 10)
+
+tests/test_code.py:98: AssertionError
+______________ TestAddr2Line.test_resolves_via_code_object[3.14] _______________
+
+self = <tests.test_code.TestAddr2Line object at 0x79c311ef1850>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_resolves_via_code_object(self, layout):
+        """C4 主路径：经 co_linetable 指针取 bytes 后解码。"""
+        mem = FakeMemory()
+        build_code(mem, layout, CODE_ADDR, NAME_ADDR, FILE_ADDR, 10,
+                   LT_OBJ_ADDR)
+        build_bytes(mem, layout, LT_OBJ_ADDR, linetable_simple_increments())
+>       assert addr2line(mem, layout, CODE_ADDR, 2, 10) == 13
+E       AssertionError: assert 10 == 13
+E        +  where 10 = addr2line(<tests.fakemem.FakeMemory object at 0x79c311d53a70>, Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536, 2, 10)
+
+tests/test_code.py:98: AssertionError
+__________________ TestReadCodeHeader.test_reads_fields[3.11] __________________
+
+self = <tests.test_code.TestReadCodeHeader object at 0x79c311f11b50>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_reads_fields(self, layout):
+        """C5：firstlineno/filename/name 三字段经单次跨度读取出（A3：
+        跨度心算内聚在 code.py，本测试钉其对外的字段正确性）。"""
+        mem = FakeMemory()
+        build_code(mem, layout, CODE_ADDR, NAME_ADDR, FILE_ADDR, 42,
+                   LT_OBJ_ADDR)
+        hdr = read_code_header(mem, layout, CODE_ADDR)
+>       assert hdr is not None
+E       assert None is not None
+
+tests/test_code.py:120: AssertionError
+__________________ TestReadCodeHeader.test_reads_fields[3.12] __________________
+
+self = <tests.test_code.TestReadCodeHeader object at 0x79c311f11d60>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_reads_fields(self, layout):
+        """C5：firstlineno/filename/name 三字段经单次跨度读取出（A3：
+        跨度心算内聚在 code.py，本测试钉其对外的字段正确性）。"""
+        mem = FakeMemory()
+        build_code(mem, layout, CODE_ADDR, NAME_ADDR, FILE_ADDR, 42,
+                   LT_OBJ_ADDR)
+        hdr = read_code_header(mem, layout, CODE_ADDR)
+>       assert hdr is not None
+E       assert None is not None
+
+tests/test_code.py:120: AssertionError
+__________________ TestReadCodeHeader.test_reads_fields[3.13] __________________
+
+self = <tests.test_code.TestReadCodeHeader object at 0x79c311f11e20>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_reads_fields(self, layout):
+        """C5：firstlineno/filename/name 三字段经单次跨度读取出（A3：
+        跨度心算内聚在 code.py，本测试钉其对外的字段正确性）。"""
+        mem = FakeMemory()
+        build_code(mem, layout, CODE_ADDR, NAME_ADDR, FILE_ADDR, 42,
+                   LT_OBJ_ADDR)
+        hdr = read_code_header(mem, layout, CODE_ADDR)
+>       assert hdr is not None
+E       assert None is not None
+
+tests/test_code.py:120: AssertionError
+__________________ TestReadCodeHeader.test_reads_fields[3.14] __________________
+
+self = <tests.test_code.TestReadCodeHeader object at 0x79c311f11ee0>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_reads_fields(self, layout):
+        """C5：firstlineno/filename/name 三字段经单次跨度读取出（A3：
+        跨度心算内聚在 code.py，本测试钉其对外的字段正确性）。"""
+        mem = FakeMemory()
+        build_code(mem, layout, CODE_ADDR, NAME_ADDR, FILE_ADDR, 42,
+                   LT_OBJ_ADDR)
+        hdr = read_code_header(mem, layout, CODE_ADDR)
+>       assert hdr is not None
+E       assert None is not None
+
+tests/test_code.py:120: AssertionError
+___________ TestSpecOracleCoLines.test_matches_co_lines_ground_truth ___________
+
+self = <tests.test_code.TestSpecOracleCoLines object at 0x79c311f12960>
+
+    def test_matches_co_lines_ground_truth(self):
+        """C7 (§10.2-1)：对真实 code object 的每一个指令偏移，
+        line_for_offset 必须与 CPython 自己的 co_lines() 解码逐点一致——
+        我们的 PEP 626 解码器与权威实现互证（2026-10 审查验证过的方法）。"""
+        for func in _oracle_sample_funcs():
+            code_obj = func.__code__
+            lt = code_obj.co_linetable
+            fl = code_obj.co_firstlineno
+            for lasti in range(0, len(code_obj.co_code), 2):
+>               assert line_for_offset(lt, lasti, fl) == (
+                    _expected_line(code_obj, lasti)), (
+                    f"{func.__qualname__} lasti={lasti}")
+E               AssertionError: _oracle_sample_funcs.<locals>.simple lasti=2
+E               assert 137 == 138
+E                +  where 137 = line_for_offset(b'\x80\x00\xd8\x0f\x10\x901\x89u\x88\x0c', 2, 137)
+E                +  and   138 = _expected_line(<code object simple at 0x79c311f09d70, file "/home/admin/projects/pyprobe/next/tests/test_code.py", line 137>, 2)
+
+tests/test_code.py:181: AssertionError
+_____________ TestFromDictCombined.test_iterate_two_entries[3.11] ______________
+
+self = <tests.test_dicts.TestFromDictCombined object at 0x79c311f13a70>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_iterate_two_entries(self, layout):
+        """DI4：两对完整遍历后耗尽 → None（基本迭代协议）。"""
+        mem = FakeMemory()
+        build_dict(mem, layout, DICT_ADDR, KEYS_ADDR,
+                   [(0xAAAA, 0xBBBB), (0xCCCC, 0xDDDD)], kind=0)
+        it = DictReader(mem, layout)
+>       assert it.from_dict(DICT_ADDR) is True
+E       assert False is True
+E        +  where False = from_dict(65536)
+E        +    where from_dict = <pyprobe.cpython.dicts.DictReader object at 0x79c311c30b60>.from_dict
+
+tests/test_dicts.py:36: AssertionError
+_____________ TestFromDictCombined.test_iterate_two_entries[3.12] ______________
+
+self = <tests.test_dicts.TestFromDictCombined object at 0x79c311f134a0>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_iterate_two_entries(self, layout):
+        """DI4：两对完整遍历后耗尽 → None（基本迭代协议）。"""
+        mem = FakeMemory()
+        build_dict(mem, layout, DICT_ADDR, KEYS_ADDR,
+                   [(0xAAAA, 0xBBBB), (0xCCCC, 0xDDDD)], kind=0)
+        it = DictReader(mem, layout)
+>       assert it.from_dict(DICT_ADDR) is True
+E       assert False is True
+E        +  where False = from_dict(65536)
+E        +    where from_dict = <pyprobe.cpython.dicts.DictReader object at 0x79c311c31460>.from_dict
+
+tests/test_dicts.py:36: AssertionError
+_____________ TestFromDictCombined.test_iterate_two_entries[3.13] ______________
+
+self = <tests.test_dicts.TestFromDictCombined object at 0x79c311f13200>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_iterate_two_entries(self, layout):
+        """DI4：两对完整遍历后耗尽 → None（基本迭代协议）。"""
+        mem = FakeMemory()
+        build_dict(mem, layout, DICT_ADDR, KEYS_ADDR,
+                   [(0xAAAA, 0xBBBB), (0xCCCC, 0xDDDD)], kind=0)
+        it = DictReader(mem, layout)
+>       assert it.from_dict(DICT_ADDR) is True
+E       assert False is True
+E        +  where False = from_dict(65536)
+E        +    where from_dict = <pyprobe.cpython.dicts.DictReader object at 0x79c311c31d90>.from_dict
+
+tests/test_dicts.py:36: AssertionError
+_____________ TestFromDictCombined.test_iterate_two_entries[3.14] ______________
+
+self = <tests.test_dicts.TestFromDictCombined object at 0x79c311f13350>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_iterate_two_entries(self, layout):
+        """DI4：两对完整遍历后耗尽 → None（基本迭代协议）。"""
+        mem = FakeMemory()
+        build_dict(mem, layout, DICT_ADDR, KEYS_ADDR,
+                   [(0xAAAA, 0xBBBB), (0xCCCC, 0xDDDD)], kind=0)
+        it = DictReader(mem, layout)
+>       assert it.from_dict(DICT_ADDR) is True
+E       assert False is True
+E        +  where False = from_dict(65536)
+E        +    where from_dict = <pyprobe.cpython.dicts.DictReader object at 0x79c311c326c0>.from_dict
+
+tests/test_dicts.py:36: AssertionError
+__________________ TestFromDictCombined.test_empty_dict[3.11] __________________
+
+self = <tests.test_dicts.TestFromDictCombined object at 0x79c311f13020>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_empty_dict(self, layout):
+        """DI4 边界：nentries=0 → 立即耗尽（空 dict 合法，非失败）。"""
+        mem = FakeMemory()
+        build_dict(mem, layout, DICT_ADDR, KEYS_ADDR, [], kind=0)
+        it = DictReader(mem, layout)
+>       assert it.from_dict(DICT_ADDR) is True
+E       assert False is True
+E        +  where False = from_dict(65536)
+E        +    where from_dict = <pyprobe.cpython.dicts.DictReader object at 0x79c311c23b00>.from_dict
+
+tests/test_dicts.py:46: AssertionError
+__________________ TestFromDictCombined.test_empty_dict[3.12] __________________
+
+self = <tests.test_dicts.TestFromDictCombined object at 0x79c311f10ad0>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_empty_dict(self, layout):
+        """DI4 边界：nentries=0 → 立即耗尽（空 dict 合法，非失败）。"""
+        mem = FakeMemory()
+        build_dict(mem, layout, DICT_ADDR, KEYS_ADDR, [], kind=0)
+        it = DictReader(mem, layout)
+>       assert it.from_dict(DICT_ADDR) is True
+E       assert False is True
+E        +  where False = from_dict(65536)
+E        +    where from_dict = <pyprobe.cpython.dicts.DictReader object at 0x79c311c209e0>.from_dict
+
+tests/test_dicts.py:46: AssertionError
+__________________ TestFromDictCombined.test_empty_dict[3.13] __________________
+
+self = <tests.test_dicts.TestFromDictCombined object at 0x79c311f109b0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_empty_dict(self, layout):
+        """DI4 边界：nentries=0 → 立即耗尽（空 dict 合法，非失败）。"""
+        mem = FakeMemory()
+        build_dict(mem, layout, DICT_ADDR, KEYS_ADDR, [], kind=0)
+        it = DictReader(mem, layout)
+>       assert it.from_dict(DICT_ADDR) is True
+E       assert False is True
+E        +  where False = from_dict(65536)
+E        +    where from_dict = <pyprobe.cpython.dicts.DictReader object at 0x79c311c22120>.from_dict
+
+tests/test_dicts.py:46: AssertionError
+__________________ TestFromDictCombined.test_empty_dict[3.14] __________________
+
+self = <tests.test_dicts.TestFromDictCombined object at 0x79c311f11670>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_empty_dict(self, layout):
+        """DI4 边界：nentries=0 → 立即耗尽（空 dict 合法，非失败）。"""
+        mem = FakeMemory()
+        build_dict(mem, layout, DICT_ADDR, KEYS_ADDR, [], kind=0)
+        it = DictReader(mem, layout)
+>       assert it.from_dict(DICT_ADDR) is True
+E       assert False is True
+E        +  where False = from_dict(65536)
+E        +    where from_dict = <pyprobe.cpython.dicts.DictReader object at 0x79c311d2df40>.from_dict
+
+tests/test_dicts.py:46: AssertionError
+__________________ TestFromDictCombined.test_skip_holes[3.11] __________________
+
+self = <tests.test_dicts.TestFromDictCombined object at 0x79c311f12000>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_skip_holes(self, layout):
+        """DI4：k==0 空洞条目跳过（删除后的 dict 常态；旧 dict_iter 语义）。"""
+        mem = FakeMemory()
+        build_dict(mem, layout, DICT_ADDR, KEYS_ADDR,
+                   [(0, 0), (0xAAAA, 0xBBBB)], kind=0)
+        it = DictReader(mem, layout)
+>       assert it.from_dict(DICT_ADDR) is True
+E       assert False is True
+E        +  where False = from_dict(65536)
+E        +    where from_dict = <pyprobe.cpython.dicts.DictReader object at 0x79c311d9f920>.from_dict
+
+tests/test_dicts.py:55: AssertionError
+__________________ TestFromDictCombined.test_skip_holes[3.12] __________________
+
+self = <tests.test_dicts.TestFromDictCombined object at 0x79c311f12210>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_skip_holes(self, layout):
+        """DI4：k==0 空洞条目跳过（删除后的 dict 常态；旧 dict_iter 语义）。"""
+        mem = FakeMemory()
+        build_dict(mem, layout, DICT_ADDR, KEYS_ADDR,
+                   [(0, 0), (0xAAAA, 0xBBBB)], kind=0)
+        it = DictReader(mem, layout)
+>       assert it.from_dict(DICT_ADDR) is True
+E       assert False is True
+E        +  where False = from_dict(65536)
+E        +    where from_dict = <pyprobe.cpython.dicts.DictReader object at 0x79c311c30680>.from_dict
+
+tests/test_dicts.py:55: AssertionError
+__________________ TestFromDictCombined.test_skip_holes[3.13] __________________
+
+self = <tests.test_dicts.TestFromDictCombined object at 0x79c311f12060>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_skip_holes(self, layout):
+        """DI4：k==0 空洞条目跳过（删除后的 dict 常态；旧 dict_iter 语义）。"""
+        mem = FakeMemory()
+        build_dict(mem, layout, DICT_ADDR, KEYS_ADDR,
+                   [(0, 0), (0xAAAA, 0xBBBB)], kind=0)
+        it = DictReader(mem, layout)
+>       assert it.from_dict(DICT_ADDR) is True
+E       assert False is True
+E        +  where False = from_dict(65536)
+E        +    where from_dict = <pyprobe.cpython.dicts.DictReader object at 0x79c311c32cc0>.from_dict
+
+tests/test_dicts.py:55: AssertionError
+__________________ TestFromDictCombined.test_skip_holes[3.14] __________________
+
+self = <tests.test_dicts.TestFromDictCombined object at 0x79c311fa02c0>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_skip_holes(self, layout):
+        """DI4：k==0 空洞条目跳过（删除后的 dict 常态；旧 dict_iter 语义）。"""
+        mem = FakeMemory()
+        build_dict(mem, layout, DICT_ADDR, KEYS_ADDR,
+                   [(0, 0), (0xAAAA, 0xBBBB)], kind=0)
+        it = DictReader(mem, layout)
+>       assert it.from_dict(DICT_ADDR) is True
+E       assert False is True
+E        +  where False = from_dict(65536)
+E        +    where from_dict = <pyprobe.cpython.dicts.DictReader object at 0x79c311c31640>.from_dict
+
+tests/test_dicts.py:55: AssertionError
+____________________ TestFromDictUnicode.test_iterate[3.11] ____________________
+
+self = <tests.test_dicts.TestFromDictUnicode object at 0x79c311fa0b00>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_iterate(self, layout):
+        """DI2：unicode dict（kind=1，PyDictUnicodeEntry 16B，key_off=0）——
+        条目布局选错则键值全错位。"""
+        mem = FakeMemory()
+        build_dict(mem, layout, DICT_ADDR, KEYS_ADDR,
+                   [(0x1111, 0x2222), (0x3333, 0x4444)], kind=1)
+        it = DictReader(mem, layout)
+>       assert it.from_dict(DICT_ADDR) is True
+E       assert False is True
+E        +  where False = from_dict(65536)
+E        +    where from_dict = <pyprobe.cpython.dicts.DictReader object at 0x79c311c31100>.from_dict
+
+tests/test_dicts.py:68: AssertionError
+____________________ TestFromDictUnicode.test_iterate[3.12] ____________________
+
+self = <tests.test_dicts.TestFromDictUnicode object at 0x79c311fa0d10>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_iterate(self, layout):
+        """DI2：unicode dict（kind=1，PyDictUnicodeEntry 16B，key_off=0）——
+        条目布局选错则键值全错位。"""
+        mem = FakeMemory()
+        build_dict(mem, layout, DICT_ADDR, KEYS_ADDR,
+                   [(0x1111, 0x2222), (0x3333, 0x4444)], kind=1)
+        it = DictReader(mem, layout)
+>       assert it.from_dict(DICT_ADDR) is True
+E       assert False is True
+E        +  where False = from_dict(65536)
+E        +    where from_dict = <pyprobe.cpython.dicts.DictReader object at 0x79c311c332c0>.from_dict
+
+tests/test_dicts.py:68: AssertionError
+____________________ TestFromDictUnicode.test_iterate[3.13] ____________________
+
+self = <tests.test_dicts.TestFromDictUnicode object at 0x79c311fa0e00>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_iterate(self, layout):
+        """DI2：unicode dict（kind=1，PyDictUnicodeEntry 16B，key_off=0）——
+        条目布局选错则键值全错位。"""
+        mem = FakeMemory()
+        build_dict(mem, layout, DICT_ADDR, KEYS_ADDR,
+                   [(0x1111, 0x2222), (0x3333, 0x4444)], kind=1)
+        it = DictReader(mem, layout)
+>       assert it.from_dict(DICT_ADDR) is True
+E       assert False is True
+E        +  where False = from_dict(65536)
+E        +    where from_dict = <pyprobe.cpython.dicts.DictReader object at 0x79c311c64560>.from_dict
+
+tests/test_dicts.py:68: AssertionError
+____________________ TestFromDictUnicode.test_iterate[3.14] ____________________
+
+self = <tests.test_dicts.TestFromDictUnicode object at 0x79c311fa0ec0>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_iterate(self, layout):
+        """DI2：unicode dict（kind=1，PyDictUnicodeEntry 16B，key_off=0）——
+        条目布局选错则键值全错位。"""
+        mem = FakeMemory()
+        build_dict(mem, layout, DICT_ADDR, KEYS_ADDR,
+                   [(0x1111, 0x2222), (0x3333, 0x4444)], kind=1)
+        it = DictReader(mem, layout)
+>       assert it.from_dict(DICT_ADDR) is True
+E       assert False is True
+E        +  where False = from_dict(65536)
+E        +    where from_dict = <pyprobe.cpython.dicts.DictReader object at 0x79c311c64830>.from_dict
+
+tests/test_dicts.py:68: AssertionError
+__________________ TestFromDictSplit.test_split_values[3.11] ___________________
+
+self = <tests.test_dicts.TestFromDictSplit object at 0x79c311fa1310>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_split_values(self, layout):
+        """DI4：split dict 的值来自独立 values 数组而非条目内联（实例
+        属性 dict 的常态形态，读错源则值全错）。"""
+        mem = FakeMemory()
+        build_dict(mem, layout, DICT_ADDR, KEYS_ADDR,
+                   [(0xAAAA, 0), (0xCCCC, 0)], kind=0,
+                   values_addr=VALUES_ADDR)
+        mem.add(VALUES_ADDR, b"\x11\xb1" + bytes(6) + b"\x22\xb2" + bytes(6))
+        it = DictReader(mem, layout)
+>       assert it.from_dict(DICT_ADDR) is True
+E       assert False is True
+E        +  where False = from_dict(65536)
+E        +    where from_dict = <pyprobe.cpython.dicts.DictReader object at 0x79c311c33a40>.from_dict
+
+tests/test_dicts.py:84: AssertionError
+__________________ TestFromDictSplit.test_split_values[3.12] ___________________
+
+self = <tests.test_dicts.TestFromDictSplit object at 0x79c311fa1550>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_split_values(self, layout):
+        """DI4：split dict 的值来自独立 values 数组而非条目内联（实例
+        属性 dict 的常态形态，读错源则值全错）。"""
+        mem = FakeMemory()
+        build_dict(mem, layout, DICT_ADDR, KEYS_ADDR,
+                   [(0xAAAA, 0), (0xCCCC, 0)], kind=0,
+                   values_addr=VALUES_ADDR)
+        mem.add(VALUES_ADDR, b"\x11\xb1" + bytes(6) + b"\x22\xb2" + bytes(6))
+        it = DictReader(mem, layout)
+>       assert it.from_dict(DICT_ADDR) is True
+E       assert False is True
+E        +  where False = from_dict(65536)
+E        +    where from_dict = <pyprobe.cpython.dicts.DictReader object at 0x79c311c32de0>.from_dict
+
+tests/test_dicts.py:84: AssertionError
+__________________ TestFromDictSplit.test_split_values[3.13] ___________________
+
+self = <tests.test_dicts.TestFromDictSplit object at 0x79c311fa1640>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_split_values(self, layout):
+        """DI4：split dict 的值来自独立 values 数组而非条目内联（实例
+        属性 dict 的常态形态，读错源则值全错）。"""
+        mem = FakeMemory()
+        build_dict(mem, layout, DICT_ADDR, KEYS_ADDR,
+                   [(0xAAAA, 0), (0xCCCC, 0)], kind=0,
+                   values_addr=VALUES_ADDR)
+        mem.add(VALUES_ADDR, b"\x11\xb1" + bytes(6) + b"\x22\xb2" + bytes(6))
+        it = DictReader(mem, layout)
+>       assert it.from_dict(DICT_ADDR) is True
+E       assert False is True
+E        +  where False = from_dict(65536)
+E        +    where from_dict = <pyprobe.cpython.dicts.DictReader object at 0x79c311c31670>.from_dict
+
+tests/test_dicts.py:84: AssertionError
+__________________ TestFromDictSplit.test_split_values[3.14] ___________________
+
+self = <tests.test_dicts.TestFromDictSplit object at 0x79c311fa1700>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_split_values(self, layout):
+        """DI4：split dict 的值来自独立 values 数组而非条目内联（实例
+        属性 dict 的常态形态，读错源则值全错）。"""
+        mem = FakeMemory()
+        build_dict(mem, layout, DICT_ADDR, KEYS_ADDR,
+                   [(0xAAAA, 0), (0xCCCC, 0)], kind=0,
+                   values_addr=VALUES_ADDR)
+        mem.add(VALUES_ADDR, b"\x11\xb1" + bytes(6) + b"\x22\xb2" + bytes(6))
+        it = DictReader(mem, layout)
+>       assert it.from_dict(DICT_ADDR) is True
+E       assert False is True
+E        +  where False = from_dict(65536)
+E        +    where from_dict = <pyprobe.cpython.dicts.DictReader object at 0x79c311c30e00>.from_dict
+
+tests/test_dicts.py:84: AssertionError
+_______________ TestFromManagedValues.test_managed_values[3.11] ________________
+
+self = <tests.test_dicts.TestFromManagedValues object at 0x79c311fa1250>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_managed_values(self, layout):
+        """DI5：managed dict——键经 heap type 的 ht_cached_keys，值经独立
+        values 数组（3.12+ 实例属性的主路径；ht_cached_keys 偏移各版本
+        不同，矩阵覆盖即守护）。"""
+        import struct as _st
+    
+        mem = FakeMemory()
+        keys_sz = layout.get("dictkeysobject_size")
+        keys_blob = bytearray(keys_sz)
+        keys_blob[layout.get("dictkeysobject.dk_kind")] = 0
+        _st.pack_into("<q", keys_blob,
+                      layout.get("dictkeysobject.dk_nentries"), 1)
+        mem.add(KEYS_ADDR, bytes(keys_blob))
+        # entry: hash=0, key=0xAAAA, value=0（值走 values 数组）
+        mem.add(KEYS_ADDR + 1 + keys_sz,
+                _st.pack("<QQQ", 0, 0xAAAA, 0))
+        mem.add_ptr(VALUES_ADDR, 0xBBBB)
+        mem.add_ptr(TYPE_ADDR + layout.get("HeapTypeObject.ht_cached_keys"),
+                    KEYS_ADDR)
+    
+        it = DictReader(mem, layout)
+>       assert it.from_managed_values(VALUES_ADDR, TYPE_ADDR) is True
+E       assert False is True
+E        +  where False = from_managed_values(196608, 262144)
+E        +    where from_managed_values = <pyprobe.cpython.dicts.DictReader object at 0x79c311f13590>.from_managed_values
+
+tests/test_dicts.py:128: AssertionError
+_______________ TestFromManagedValues.test_managed_values[3.12] ________________
+
+self = <tests.test_dicts.TestFromManagedValues object at 0x79c311fa1100>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_managed_values(self, layout):
+        """DI5：managed dict——键经 heap type 的 ht_cached_keys，值经独立
+        values 数组（3.12+ 实例属性的主路径；ht_cached_keys 偏移各版本
+        不同，矩阵覆盖即守护）。"""
+        import struct as _st
+    
+        mem = FakeMemory()
+        keys_sz = layout.get("dictkeysobject_size")
+        keys_blob = bytearray(keys_sz)
+        keys_blob[layout.get("dictkeysobject.dk_kind")] = 0
+        _st.pack_into("<q", keys_blob,
+                      layout.get("dictkeysobject.dk_nentries"), 1)
+        mem.add(KEYS_ADDR, bytes(keys_blob))
+        # entry: hash=0, key=0xAAAA, value=0（值走 values 数组）
+        mem.add(KEYS_ADDR + 1 + keys_sz,
+                _st.pack("<QQQ", 0, 0xAAAA, 0))
+        mem.add_ptr(VALUES_ADDR, 0xBBBB)
+        mem.add_ptr(TYPE_ADDR + layout.get("HeapTypeObject.ht_cached_keys"),
+                    KEYS_ADDR)
+    
+        it = DictReader(mem, layout)
+>       assert it.from_managed_values(VALUES_ADDR, TYPE_ADDR) is True
+E       assert False is True
+E        +  where False = from_managed_values(196608, 262144)
+E        +    where from_managed_values = <pyprobe.cpython.dicts.DictReader object at 0x79c311c23d40>.from_managed_values
+
+tests/test_dicts.py:128: AssertionError
+_______________ TestFromManagedValues.test_managed_values[3.13] ________________
+
+self = <tests.test_dicts.TestFromManagedValues object at 0x79c311fa09e0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_managed_values(self, layout):
+        """DI5：managed dict——键经 heap type 的 ht_cached_keys，值经独立
+        values 数组（3.12+ 实例属性的主路径；ht_cached_keys 偏移各版本
+        不同，矩阵覆盖即守护）。"""
+        import struct as _st
+    
+        mem = FakeMemory()
+        keys_sz = layout.get("dictkeysobject_size")
+        keys_blob = bytearray(keys_sz)
+        keys_blob[layout.get("dictkeysobject.dk_kind")] = 0
+        _st.pack_into("<q", keys_blob,
+                      layout.get("dictkeysobject.dk_nentries"), 1)
+        mem.add(KEYS_ADDR, bytes(keys_blob))
+        # entry: hash=0, key=0xAAAA, value=0（值走 values 数组）
+        mem.add(KEYS_ADDR + 1 + keys_sz,
+                _st.pack("<QQQ", 0, 0xAAAA, 0))
+        mem.add_ptr(VALUES_ADDR, 0xBBBB)
+        mem.add_ptr(TYPE_ADDR + layout.get("HeapTypeObject.ht_cached_keys"),
+                    KEYS_ADDR)
+    
+        it = DictReader(mem, layout)
+>       assert it.from_managed_values(VALUES_ADDR, TYPE_ADDR) is True
+E       assert False is True
+E        +  where False = from_managed_values(196608, 262144)
+E        +    where from_managed_values = <pyprobe.cpython.dicts.DictReader object at 0x79c311c21850>.from_managed_values
+
+tests/test_dicts.py:128: AssertionError
+_______________ TestFromManagedValues.test_managed_values[3.14] ________________
+
+self = <tests.test_dicts.TestFromManagedValues object at 0x79c311fa0860>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_managed_values(self, layout):
+        """DI5：managed dict——键经 heap type 的 ht_cached_keys，值经独立
+        values 数组（3.12+ 实例属性的主路径；ht_cached_keys 偏移各版本
+        不同，矩阵覆盖即守护）。"""
+        import struct as _st
+    
+        mem = FakeMemory()
+        keys_sz = layout.get("dictkeysobject_size")
+        keys_blob = bytearray(keys_sz)
+        keys_blob[layout.get("dictkeysobject.dk_kind")] = 0
+        _st.pack_into("<q", keys_blob,
+                      layout.get("dictkeysobject.dk_nentries"), 1)
+        mem.add(KEYS_ADDR, bytes(keys_blob))
+        # entry: hash=0, key=0xAAAA, value=0（值走 values 数组）
+        mem.add(KEYS_ADDR + 1 + keys_sz,
+                _st.pack("<QQQ", 0, 0xAAAA, 0))
+        mem.add_ptr(VALUES_ADDR, 0xBBBB)
+        mem.add_ptr(TYPE_ADDR + layout.get("HeapTypeObject.ht_cached_keys"),
+                    KEYS_ADDR)
+    
+        it = DictReader(mem, layout)
+>       assert it.from_managed_values(VALUES_ADDR, TYPE_ADDR) is True
+E       assert False is True
+E        +  where False = from_managed_values(196608, 262144)
+E        +    where from_managed_values = <pyprobe.cpython.dicts.DictReader object at 0x79c311c67830>.from_managed_values
+
+tests/test_dicts.py:128: AssertionError
+____________________ TestWalkFrames.test_single_frame[3.11] ____________________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f48c20>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_single_frame(self, layout):
+        """F7/F8：单帧解析——名称/文件名/行号三字段齐备（行号经 linetable
+        解析：lasti=2 → 第二区间 → firstlineno+3）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, lasti=2,
+                         linetable=linetable_simple_increments())
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert len(frames) == 1
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+tests/test_frames.py:74: AssertionError
+____________________ TestWalkFrames.test_single_frame[3.12] ____________________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f48e30>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_single_frame(self, layout):
+        """F7/F8：单帧解析——名称/文件名/行号三字段齐备（行号经 linetable
+        解析：lasti=2 → 第二区间 → firstlineno+3）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, lasti=2,
+                         linetable=linetable_simple_increments())
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert len(frames) == 1
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+tests/test_frames.py:74: AssertionError
+____________________ TestWalkFrames.test_single_frame[3.13] ____________________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f48ef0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_single_frame(self, layout):
+        """F7/F8：单帧解析——名称/文件名/行号三字段齐备（行号经 linetable
+        解析：lasti=2 → 第二区间 → firstlineno+3）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, lasti=2,
+                         linetable=linetable_simple_increments())
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert len(frames) == 1
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+tests/test_frames.py:74: AssertionError
+____________________ TestWalkFrames.test_single_frame[3.14] ____________________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f48fb0>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_single_frame(self, layout):
+        """F7/F8：单帧解析——名称/文件名/行号三字段齐备（行号经 linetable
+        解析：lasti=2 → 第二区间 → firstlineno+3）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, lasti=2,
+                         linetable=linetable_simple_increments())
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert len(frames) == 1
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+tests/test_frames.py:74: AssertionError
+__________________ TestWalkFrames.test_two_frame_chain[3.11] ___________________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f493d0>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_two_frame_chain(self, layout):
+        """F7：两帧链内层在前（栈展示顺序的复刻约束）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR,
+                         previous=FRAME_ADDR + 0x1000, name="inner")
+        _frame_with_code(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR + 0x2000,
+                         name="outer")
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["inner", "outer"]
+E       AssertionError: assert [] == ['inner', 'outer']
+E         
+E         Right contains 2 more items, first extra item: 'inner'
+E         Use -v to get more diff
+
+tests/test_frames.py:88: AssertionError
+__________________ TestWalkFrames.test_two_frame_chain[3.12] ___________________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f495b0>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_two_frame_chain(self, layout):
+        """F7：两帧链内层在前（栈展示顺序的复刻约束）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR,
+                         previous=FRAME_ADDR + 0x1000, name="inner")
+        _frame_with_code(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR + 0x2000,
+                         name="outer")
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["inner", "outer"]
+E       AssertionError: assert [] == ['inner', 'outer']
+E         
+E         Right contains 2 more items, first extra item: 'inner'
+E         Use -v to get more diff
+
+tests/test_frames.py:88: AssertionError
+__________________ TestWalkFrames.test_two_frame_chain[3.13] ___________________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f49670>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_two_frame_chain(self, layout):
+        """F7：两帧链内层在前（栈展示顺序的复刻约束）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR,
+                         previous=FRAME_ADDR + 0x1000, name="inner")
+        _frame_with_code(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR + 0x2000,
+                         name="outer")
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["inner", "outer"]
+E       AssertionError: assert [] == ['inner', 'outer']
+E         
+E         Right contains 2 more items, first extra item: 'inner'
+E         Use -v to get more diff
+
+tests/test_frames.py:88: AssertionError
+__________________ TestWalkFrames.test_two_frame_chain[3.14] ___________________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f49730>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_two_frame_chain(self, layout):
+        """F7：两帧链内层在前（栈展示顺序的复刻约束）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR,
+                         previous=FRAME_ADDR + 0x1000, name="inner")
+        _frame_with_code(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR + 0x2000,
+                         name="outer")
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["inner", "outer"]
+E       AssertionError: assert [] == ['inner', 'outer']
+E         
+E         Right contains 2 more items, first extra item: 'inner'
+E         Use -v to get more diff
+
+tests/test_frames.py:88: AssertionError
+___________________ TestWalkFrames.test_skip_null_code[3.11] ___________________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f49b50>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_skip_null_code(self, layout):
+        """F3：f_code==0 的帧跳过不产出（CPython 帧链中的占位条目）。"""
+        mem = FakeMemory()
+        # 首帧无 code，previous 指向一个正常帧
+        build_frame(mem, layout, FRAME_ADDR, 0, FRAME_ADDR + 0x1000, 0)
+        _frame_with_code(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR,
+                         name="real")
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["real"]
+E       AssertionError: assert [] == ['real']
+E         
+E         Right contains one more item: 'real'
+E         Use -v to get more diff
+
+tests/test_frames.py:98: AssertionError
+___________________ TestWalkFrames.test_skip_null_code[3.12] ___________________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f49d60>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_skip_null_code(self, layout):
+        """F3：f_code==0 的帧跳过不产出（CPython 帧链中的占位条目）。"""
+        mem = FakeMemory()
+        # 首帧无 code，previous 指向一个正常帧
+        build_frame(mem, layout, FRAME_ADDR, 0, FRAME_ADDR + 0x1000, 0)
+        _frame_with_code(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR,
+                         name="real")
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["real"]
+E       AssertionError: assert [] == ['real']
+E         
+E         Right contains one more item: 'real'
+E         Use -v to get more diff
+
+tests/test_frames.py:98: AssertionError
+___________________ TestWalkFrames.test_skip_null_code[3.13] ___________________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f49e20>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_skip_null_code(self, layout):
+        """F3：f_code==0 的帧跳过不产出（CPython 帧链中的占位条目）。"""
+        mem = FakeMemory()
+        # 首帧无 code，previous 指向一个正常帧
+        build_frame(mem, layout, FRAME_ADDR, 0, FRAME_ADDR + 0x1000, 0)
+        _frame_with_code(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR,
+                         name="real")
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["real"]
+E       AssertionError: assert [] == ['real']
+E         
+E         Right contains one more item: 'real'
+E         Use -v to get more diff
+
+tests/test_frames.py:98: AssertionError
+___________________ TestWalkFrames.test_skip_null_code[3.14] ___________________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f49ee0>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_skip_null_code(self, layout):
+        """F3：f_code==0 的帧跳过不产出（CPython 帧链中的占位条目）。"""
+        mem = FakeMemory()
+        # 首帧无 code，previous 指向一个正常帧
+        build_frame(mem, layout, FRAME_ADDR, 0, FRAME_ADDR + 0x1000, 0)
+        _frame_with_code(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR,
+                         name="real")
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["real"]
+E       AssertionError: assert [] == ['real']
+E         
+E         Right contains one more item: 'real'
+E         Use -v to get more diff
+
+tests/test_frames.py:98: AssertionError
+__________________ TestWalkFrames.test_skip_trampoline[3.11] ___________________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f4a360>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_skip_trampoline(self, layout):
+        """F4：f_code==trampoline_addr 的蹦床帧跳过（3.12 解释器蹦床
+        不属于用户栈）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, name="trampoline")
+        _frame_with_code(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR + 0x2000,
+                         name="real", previous=0)
+        # 链：real(previous=trampoline) → trampoline(previous=0)
+        build_frame(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR + 0x2000,
+                    FRAME_ADDR, 0)
+        frames = walk_frames(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR)
+>       assert [f.name for f in frames] == ["real"]
+E       AssertionError: assert [] == ['real']
+E         
+E         Right contains one more item: 'real'
+E         Use -v to get more diff
+
+tests/test_frames.py:111: AssertionError
+__________________ TestWalkFrames.test_skip_trampoline[3.12] ___________________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f4a540>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_skip_trampoline(self, layout):
+        """F4：f_code==trampoline_addr 的蹦床帧跳过（3.12 解释器蹦床
+        不属于用户栈）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, name="trampoline")
+        _frame_with_code(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR + 0x2000,
+                         name="real", previous=0)
+        # 链：real(previous=trampoline) → trampoline(previous=0)
+        build_frame(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR + 0x2000,
+                    FRAME_ADDR, 0)
+        frames = walk_frames(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR)
+>       assert [f.name for f in frames] == ["real"]
+E       AssertionError: assert [] == ['real']
+E         
+E         Right contains one more item: 'real'
+E         Use -v to get more diff
+
+tests/test_frames.py:111: AssertionError
+__________________ TestWalkFrames.test_skip_trampoline[3.13] ___________________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f4a660>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_skip_trampoline(self, layout):
+        """F4：f_code==trampoline_addr 的蹦床帧跳过（3.12 解释器蹦床
+        不属于用户栈）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, name="trampoline")
+        _frame_with_code(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR + 0x2000,
+                         name="real", previous=0)
+        # 链：real(previous=trampoline) → trampoline(previous=0)
+        build_frame(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR + 0x2000,
+                    FRAME_ADDR, 0)
+        frames = walk_frames(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR)
+>       assert [f.name for f in frames] == ["real"]
+E       AssertionError: assert [] == ['real']
+E         
+E         Right contains one more item: 'real'
+E         Use -v to get more diff
+
+tests/test_frames.py:111: AssertionError
+__________________ TestWalkFrames.test_skip_trampoline[3.14] ___________________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f4a720>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_skip_trampoline(self, layout):
+        """F4：f_code==trampoline_addr 的蹦床帧跳过（3.12 解释器蹦床
+        不属于用户栈）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, name="trampoline")
+        _frame_with_code(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR + 0x2000,
+                         name="real", previous=0)
+        # 链：real(previous=trampoline) → trampoline(previous=0)
+        build_frame(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR + 0x2000,
+                    FRAME_ADDR, 0)
+        frames = walk_frames(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR)
+>       assert [f.name for f in frames] == ["real"]
+E       AssertionError: assert [] == ['real']
+E         
+E         Right contains one more item: 'real'
+E         Use -v to get more diff
+
+tests/test_frames.py:111: AssertionError
+___________ TestWalkFrames.test_trampoline_zero_does_not_skip[3.11] ____________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f4aba0>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_trampoline_zero_does_not_skip(self, layout):
+        """F4 配套：trampoline_addr==0 时同名 code 不跳过（3.11/3.13 无
+        蹦床，0 不得被当蹦床地址误杀正常帧）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, name="func")
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["func"]
+E       AssertionError: assert [] == ['func']
+E         
+E         Right contains one more item: 'func'
+E         Use -v to get more diff
+
+tests/test_frames.py:119: AssertionError
+___________ TestWalkFrames.test_trampoline_zero_does_not_skip[3.12] ____________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f12d80>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_trampoline_zero_does_not_skip(self, layout):
+        """F4 配套：trampoline_addr==0 时同名 code 不跳过（3.11/3.13 无
+        蹦床，0 不得被当蹦床地址误杀正常帧）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, name="func")
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["func"]
+E       AssertionError: assert [] == ['func']
+E         
+E         Right contains one more item: 'func'
+E         Use -v to get more diff
+
+tests/test_frames.py:119: AssertionError
+___________ TestWalkFrames.test_trampoline_zero_does_not_skip[3.13] ____________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f1d1f0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_trampoline_zero_does_not_skip(self, layout):
+        """F4 配套：trampoline_addr==0 时同名 code 不跳过（3.11/3.13 无
+        蹦床，0 不得被当蹦床地址误杀正常帧）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, name="func")
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["func"]
+E       AssertionError: assert [] == ['func']
+E         
+E         Right contains one more item: 'func'
+E         Use -v to get more diff
+
+tests/test_frames.py:119: AssertionError
+___________ TestWalkFrames.test_trampoline_zero_does_not_skip[3.14] ____________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f1f2c0>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_trampoline_zero_does_not_skip(self, layout):
+        """F4 配套：trampoline_addr==0 时同名 code 不跳过（3.11/3.13 无
+        蹦床，0 不得被当蹦床地址误杀正常帧）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, name="func")
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["func"]
+E       AssertionError: assert [] == ['func']
+E         
+E         Right contains one more item: 'func'
+E         Use -v to get more diff
+
+tests/test_frames.py:119: AssertionError
+______________ TestWalkFrames.test_circular_chain_hits_max[3.11] _______________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f4a8d0>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_circular_chain_hits_max(self, layout):
+        """F2：环形帧链在 MAX_FRAMES 处截断（损坏内存/并发改写防护，
+        防无限循环挂住观测）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR,
+                         previous=FRAME_ADDR)  # 自环
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert len(frames) == MAX_FRAMES
+E       assert 0 == 100
+E        +  where 0 = len([])
+
+tests/test_frames.py:128: AssertionError
+______________ TestWalkFrames.test_circular_chain_hits_max[3.12] _______________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f4a060>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_circular_chain_hits_max(self, layout):
+        """F2：环形帧链在 MAX_FRAMES 处截断（损坏内存/并发改写防护，
+        防无限循环挂住观测）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR,
+                         previous=FRAME_ADDR)  # 自环
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert len(frames) == MAX_FRAMES
+E       assert 0 == 100
+E        +  where 0 = len([])
+
+tests/test_frames.py:128: AssertionError
+______________ TestWalkFrames.test_circular_chain_hits_max[3.13] _______________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f49ac0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_circular_chain_hits_max(self, layout):
+        """F2：环形帧链在 MAX_FRAMES 处截断（损坏内存/并发改写防护，
+        防无限循环挂住观测）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR,
+                         previous=FRAME_ADDR)  # 自环
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert len(frames) == MAX_FRAMES
+E       assert 0 == 100
+E        +  where 0 = len([])
+
+tests/test_frames.py:128: AssertionError
+______________ TestWalkFrames.test_circular_chain_hits_max[3.14] _______________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f49a90>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_circular_chain_hits_max(self, layout):
+        """F2：环形帧链在 MAX_FRAMES 处截断（损坏内存/并发改写防护，
+        防无限循环挂住观测）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR,
+                         previous=FRAME_ADDR)  # 自环
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert len(frames) == MAX_FRAMES
+E       assert 0 == 100
+E        +  where 0 = len([])
+
+tests/test_frames.py:128: AssertionError
+_____________ TestWalkFrames.test_stale_tail_frame_filtered[3.11] ______________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f48b90>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_stale_tail_frame_filtered(self, layout):
+        """F6：name 与 filename 皆 None 的陈旧尾帧终止遍历（3.13
+        datastack 残留指向回收 code 对象的实战教训，注释复刻）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, name="real",
+                         previous=FRAME_ADDR + 0x1000)
+        # 尾帧指向的 code 对象区域全 0（name/filename 地址为 0 → 皆 None）
+        build_frame(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR + 0x2000, 0, 0)
+        mem.add(CODE_ADDR + 0x2000,
+                bytes(layout.get("CodeObject.co_code_adaptive") + 8))
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["real"]
+E       AssertionError: assert [] == ['real']
+E         
+E         Right contains one more item: 'real'
+E         Use -v to get more diff
+
+tests/test_frames.py:141: AssertionError
+_____________ TestWalkFrames.test_stale_tail_frame_filtered[3.12] ______________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f48950>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_stale_tail_frame_filtered(self, layout):
+        """F6：name 与 filename 皆 None 的陈旧尾帧终止遍历（3.13
+        datastack 残留指向回收 code 对象的实战教训，注释复刻）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, name="real",
+                         previous=FRAME_ADDR + 0x1000)
+        # 尾帧指向的 code 对象区域全 0（name/filename 地址为 0 → 皆 None）
+        build_frame(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR + 0x2000, 0, 0)
+        mem.add(CODE_ADDR + 0x2000,
+                bytes(layout.get("CodeObject.co_code_adaptive") + 8))
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["real"]
+E       AssertionError: assert [] == ['real']
+E         
+E         Right contains one more item: 'real'
+E         Use -v to get more diff
+
+tests/test_frames.py:141: AssertionError
+_____________ TestWalkFrames.test_stale_tail_frame_filtered[3.13] ______________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f48a10>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_stale_tail_frame_filtered(self, layout):
+        """F6：name 与 filename 皆 None 的陈旧尾帧终止遍历（3.13
+        datastack 残留指向回收 code 对象的实战教训，注释复刻）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, name="real",
+                         previous=FRAME_ADDR + 0x1000)
+        # 尾帧指向的 code 对象区域全 0（name/filename 地址为 0 → 皆 None）
+        build_frame(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR + 0x2000, 0, 0)
+        mem.add(CODE_ADDR + 0x2000,
+                bytes(layout.get("CodeObject.co_code_adaptive") + 8))
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["real"]
+E       AssertionError: assert [] == ['real']
+E         
+E         Right contains one more item: 'real'
+E         Use -v to get more diff
+
+tests/test_frames.py:141: AssertionError
+_____________ TestWalkFrames.test_stale_tail_frame_filtered[3.14] ______________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f48920>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_stale_tail_frame_filtered(self, layout):
+        """F6：name 与 filename 皆 None 的陈旧尾帧终止遍历（3.13
+        datastack 残留指向回收 code 对象的实战教训，注释复刻）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, name="real",
+                         previous=FRAME_ADDR + 0x1000)
+        # 尾帧指向的 code 对象区域全 0（name/filename 地址为 0 → 皆 None）
+        build_frame(mem, layout, FRAME_ADDR + 0x1000, CODE_ADDR + 0x2000, 0, 0)
+        mem.add(CODE_ADDR + 0x2000,
+                bytes(layout.get("CodeObject.co_code_adaptive") + 8))
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["real"]
+E       AssertionError: assert [] == ['real']
+E         
+E         Right contains one more item: 'real'
+E         Use -v to get more diff
+
+tests/test_frames.py:141: AssertionError
+__________ TestWalkFrames.test_code_header_unreadable_truncates[3.11] __________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f4b230>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_code_header_unreadable_truncates(self, layout):
+        """F5：帧可读但 code 头不可读 → 截断（已收集帧保留，不整链丢弃）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, name="real",
+                         previous=FRAME_ADDR + 0x1000)
+        # 第二帧存在，但其 code 区域缺失
+        build_frame(mem, layout, FRAME_ADDR + 0x1000, 0xDEAD00, 0, 0)
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["real"]
+E       AssertionError: assert [] == ['real']
+E         
+E         Right contains one more item: 'real'
+E         Use -v to get more diff
+
+tests/test_frames.py:151: AssertionError
+__________ TestWalkFrames.test_code_header_unreadable_truncates[3.12] __________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f4b440>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_code_header_unreadable_truncates(self, layout):
+        """F5：帧可读但 code 头不可读 → 截断（已收集帧保留，不整链丢弃）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, name="real",
+                         previous=FRAME_ADDR + 0x1000)
+        # 第二帧存在，但其 code 区域缺失
+        build_frame(mem, layout, FRAME_ADDR + 0x1000, 0xDEAD00, 0, 0)
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["real"]
+E       AssertionError: assert [] == ['real']
+E         
+E         Right contains one more item: 'real'
+E         Use -v to get more diff
+
+tests/test_frames.py:151: AssertionError
+__________ TestWalkFrames.test_code_header_unreadable_truncates[3.13] __________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f4b500>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_code_header_unreadable_truncates(self, layout):
+        """F5：帧可读但 code 头不可读 → 截断（已收集帧保留，不整链丢弃）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, name="real",
+                         previous=FRAME_ADDR + 0x1000)
+        # 第二帧存在，但其 code 区域缺失
+        build_frame(mem, layout, FRAME_ADDR + 0x1000, 0xDEAD00, 0, 0)
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["real"]
+E       AssertionError: assert [] == ['real']
+E         
+E         Right contains one more item: 'real'
+E         Use -v to get more diff
+
+tests/test_frames.py:151: AssertionError
+__________ TestWalkFrames.test_code_header_unreadable_truncates[3.14] __________
+
+self = <tests.test_frames.TestWalkFrames object at 0x79c311f4b5c0>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_code_header_unreadable_truncates(self, layout):
+        """F5：帧可读但 code 头不可读 → 截断（已收集帧保留，不整链丢弃）。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, name="real",
+                         previous=FRAME_ADDR + 0x1000)
+        # 第二帧存在，但其 code 区域缺失
+        build_frame(mem, layout, FRAME_ADDR + 0x1000, 0xDEAD00, 0, 0)
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["real"]
+E       AssertionError: assert [] == ['real']
+E         
+E         Right contains one more item: 'real'
+E         Use -v to get more diff
+
+tests/test_frames.py:151: AssertionError
+___________ TestHappyPathPerVersion.test_thread_name_resolved[3.11] ____________
+
+self = <tests.test_names.TestHappyPathPerVersion object at 0x79c311e8e150>
+version = '3.11'
+
+    @pytest.mark.parametrize("version", ["3.11", "3.12", "3.13", "3.14"])
+    def test_thread_name_resolved(self, version):
+        """N1–N6 全链路：各版本各自的 sys.modules 定位与实例字典变体下，
+        threading ident → "_name" 字符串解析成功（矩阵即版本分支守护）。"""
+        lay = resolve_layout(version, overrides_path=NO_OVERRIDE)
+        mem = FakeMemory()
+        _build_names_graph(mem, lay)
+>       assert get_thread_names(mem, lay, INTERP) == {TID: NAME}
+E       AssertionError: assert {} == {12345: 'worker-1'}
+E         
+E         Right contains 1 more item:
+E         {12345: 'worker-1'}
+E         Use -v to get more diff
+
+tests/test_names.py:159: AssertionError
+___________ TestHappyPathPerVersion.test_thread_name_resolved[3.12] ____________
+
+self = <tests.test_names.TestHappyPathPerVersion object at 0x79c311e8e0c0>
+version = '3.12'
+
+    @pytest.mark.parametrize("version", ["3.11", "3.12", "3.13", "3.14"])
+    def test_thread_name_resolved(self, version):
+        """N1–N6 全链路：各版本各自的 sys.modules 定位与实例字典变体下，
+        threading ident → "_name" 字符串解析成功（矩阵即版本分支守护）。"""
+        lay = resolve_layout(version, overrides_path=NO_OVERRIDE)
+        mem = FakeMemory()
+        _build_names_graph(mem, lay)
+>       assert get_thread_names(mem, lay, INTERP) == {TID: NAME}
+E       AssertionError: assert {} == {12345: 'worker-1'}
+E         
+E         Right contains 1 more item:
+E         {12345: 'worker-1'}
+E         Use -v to get more diff
+
+tests/test_names.py:159: AssertionError
+___________ TestHappyPathPerVersion.test_thread_name_resolved[3.13] ____________
+
+self = <tests.test_names.TestHappyPathPerVersion object at 0x79c311e8ddc0>
+version = '3.13'
+
+    @pytest.mark.parametrize("version", ["3.11", "3.12", "3.13", "3.14"])
+    def test_thread_name_resolved(self, version):
+        """N1–N6 全链路：各版本各自的 sys.modules 定位与实例字典变体下，
+        threading ident → "_name" 字符串解析成功（矩阵即版本分支守护）。"""
+        lay = resolve_layout(version, overrides_path=NO_OVERRIDE)
+        mem = FakeMemory()
+        _build_names_graph(mem, lay)
+>       assert get_thread_names(mem, lay, INTERP) == {TID: NAME}
+E       AssertionError: assert {} == {12345: 'worker-1'}
+E         
+E         Right contains 1 more item:
+E         {12345: 'worker-1'}
+E         Use -v to get more diff
+
+tests/test_names.py:159: AssertionError
+___________ TestHappyPathPerVersion.test_thread_name_resolved[3.14] ____________
+
+self = <tests.test_names.TestHappyPathPerVersion object at 0x79c311e8e120>
+version = '3.14'
+
+    @pytest.mark.parametrize("version", ["3.11", "3.12", "3.13", "3.14"])
+    def test_thread_name_resolved(self, version):
+        """N1–N6 全链路：各版本各自的 sys.modules 定位与实例字典变体下，
+        threading ident → "_name" 字符串解析成功（矩阵即版本分支守护）。"""
+        lay = resolve_layout(version, overrides_path=NO_OVERRIDE)
+        mem = FakeMemory()
+        _build_names_graph(mem, lay)
+>       assert get_thread_names(mem, lay, INTERP) == {TID: NAME}
+E       AssertionError: assert {} == {12345: 'worker-1'}
+E         
+E         Right contains 1 more item:
+E         {12345: 'worker-1'}
+E         Use -v to get more diff
+
+tests/test_names.py:159: AssertionError
+______ TestHappyPathPerVersion.test_plain_instance_dict_via_tp_dictoffset ______
+
+self = <tests.test_names.TestHappyPathPerVersion object at 0x79c311e8fdd0>
+
+    def test_plain_instance_dict_via_tp_dictoffset(self):
+        """N5 非 managed 分支：无 MANAGED_DICT 标志时走 tp_dictoffset
+        常规实例 dict（C 扩展类型的实例形态）。"""
+        lay = resolve_layout("3.13", overrides_path=NO_OVERRIDE)
+        mem = FakeMemory()
+        _build_names_graph(mem, lay, instance_variant="plain")
+>       assert get_thread_names(mem, lay, INTERP) == {TID: NAME}
+E       AssertionError: assert {} == {12345: 'worker-1'}
+E         
+E         Right contains 1 more item:
+E         {12345: 'worker-1'}
+E         Use -v to get more diff
+
+tests/test_names.py:167: AssertionError
+_________________________ TestReadLong.test_zero[3.11] _________________________
+
+self = <tests.test_objects.TestReadLong object at 0x79c311e8f800>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_zero(self, layout):
+        """O3：size==0 → 整数 0（空 digit 数组的合法值，非失败）。"""
+        mem = FakeMemory()
+        build_long(mem, layout, ADDR, 0)
+>       assert read_long(mem, layout, ADDR) == 0
+E       AssertionError: assert None == 0
+E        +  where None = read_long(<tests.fakemem.FakeMemory object at 0x79c311f48e90>, Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:42: AssertionError
+_________________________ TestReadLong.test_zero[3.12] _________________________
+
+self = <tests.test_objects.TestReadLong object at 0x79c311e8f4d0>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_zero(self, layout):
+        """O3：size==0 → 整数 0（空 digit 数组的合法值，非失败）。"""
+        mem = FakeMemory()
+        build_long(mem, layout, ADDR, 0)
+>       assert read_long(mem, layout, ADDR) == 0
+E       AssertionError: assert None == 0
+E        +  where None = read_long(<tests.fakemem.FakeMemory object at 0x79c311a2c560>, Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:42: AssertionError
+_________________________ TestReadLong.test_zero[3.13] _________________________
+
+self = <tests.test_objects.TestReadLong object at 0x79c311e8f0b0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_zero(self, layout):
+        """O3：size==0 → 整数 0（空 digit 数组的合法值，非失败）。"""
+        mem = FakeMemory()
+        build_long(mem, layout, ADDR, 0)
+>       assert read_long(mem, layout, ADDR) == 0
+E       AssertionError: assert None == 0
+E        +  where None = read_long(<tests.fakemem.FakeMemory object at 0x79c311a2da60>, Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:42: AssertionError
+_________________________ TestReadLong.test_zero[3.14] _________________________
+
+self = <tests.test_objects.TestReadLong object at 0x79c311e8fd10>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_zero(self, layout):
+        """O3：size==0 → 整数 0（空 digit 数组的合法值，非失败）。"""
+        mem = FakeMemory()
+        build_long(mem, layout, ADDR, 0)
+>       assert read_long(mem, layout, ADDR) == 0
+E       AssertionError: assert None == 0
+E        +  where None = read_long(<tests.fakemem.FakeMemory object at 0x79c311a2ca70>, Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:42: AssertionError
+_____________________ TestReadLong.test_single_digit[3.11] _____________________
+
+self = <tests.test_objects.TestReadLong object at 0x79c311e95a30>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_single_digit(self, layout):
+        """O3：单 digit 直读（小整数是 threading ident 的常态）。"""
+        mem = FakeMemory()
+        build_long(mem, layout, ADDR, 12345)
+>       assert read_long(mem, layout, ADDR) == 12345
+E       AssertionError: assert None == 12345
+E        +  where None = read_long(<tests.fakemem.FakeMemory object at 0x79c311a2d1c0>, Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:48: AssertionError
+_____________________ TestReadLong.test_single_digit[3.12] _____________________
+
+self = <tests.test_objects.TestReadLong object at 0x79c311e95730>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_single_digit(self, layout):
+        """O3：单 digit 直读（小整数是 threading ident 的常态）。"""
+        mem = FakeMemory()
+        build_long(mem, layout, ADDR, 12345)
+>       assert read_long(mem, layout, ADDR) == 12345
+E       AssertionError: assert None == 12345
+E        +  where None = read_long(<tests.fakemem.FakeMemory object at 0x79c311a2dfd0>, Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:48: AssertionError
+_____________________ TestReadLong.test_single_digit[3.13] _____________________
+
+self = <tests.test_objects.TestReadLong object at 0x79c311e956a0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_single_digit(self, layout):
+        """O3：单 digit 直读（小整数是 threading ident 的常态）。"""
+        mem = FakeMemory()
+        build_long(mem, layout, ADDR, 12345)
+>       assert read_long(mem, layout, ADDR) == 12345
+E       AssertionError: assert None == 12345
+E        +  where None = read_long(<tests.fakemem.FakeMemory object at 0x79c311a2ecc0>, Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:48: AssertionError
+_____________________ TestReadLong.test_single_digit[3.14] _____________________
+
+self = <tests.test_objects.TestReadLong object at 0x79c311e95790>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_single_digit(self, layout):
+        """O3：单 digit 直读（小整数是 threading ident 的常态）。"""
+        mem = FakeMemory()
+        build_long(mem, layout, ADDR, 12345)
+>       assert read_long(mem, layout, ADDR) == 12345
+E       AssertionError: assert None == 12345
+E        +  where None = read_long(<tests.fakemem.FakeMemory object at 0x79c311a2fcb0>, Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:48: AssertionError
+___________________ TestReadLong.test_single_digit_max[3.11] ___________________
+
+self = <tests.test_objects.TestReadLong object at 0x79c311e95070>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_single_digit_max(self, layout):
+        """O3 边界：2**30-1（30 位 digit 容量的上沿，进位错误的暴露点）。"""
+        mem = FakeMemory()
+        build_long(mem, layout, ADDR, (1 << 30) - 1)
+>       assert read_long(mem, layout, ADDR) == (1 << 30) - 1
+E       AssertionError: assert None == ((1 << 30) - 1)
+E        +  where None = read_long(<tests.fakemem.FakeMemory object at 0x79c311a485c0>, Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:54: AssertionError
+___________________ TestReadLong.test_single_digit_max[3.12] ___________________
+
+self = <tests.test_objects.TestReadLong object at 0x79c311e94f50>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_single_digit_max(self, layout):
+        """O3 边界：2**30-1（30 位 digit 容量的上沿，进位错误的暴露点）。"""
+        mem = FakeMemory()
+        build_long(mem, layout, ADDR, (1 << 30) - 1)
+>       assert read_long(mem, layout, ADDR) == (1 << 30) - 1
+E       AssertionError: assert None == ((1 << 30) - 1)
+E        +  where None = read_long(<tests.fakemem.FakeMemory object at 0x79c311a2f2c0>, Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:54: AssertionError
+___________________ TestReadLong.test_single_digit_max[3.13] ___________________
+
+self = <tests.test_objects.TestReadLong object at 0x79c311e950d0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_single_digit_max(self, layout):
+        """O3 边界：2**30-1（30 位 digit 容量的上沿，进位错误的暴露点）。"""
+        mem = FakeMemory()
+        build_long(mem, layout, ADDR, (1 << 30) - 1)
+>       assert read_long(mem, layout, ADDR) == (1 << 30) - 1
+E       AssertionError: assert None == ((1 << 30) - 1)
+E        +  where None = read_long(<tests.fakemem.FakeMemory object at 0x79c311a2e330>, Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:54: AssertionError
+___________________ TestReadLong.test_single_digit_max[3.14] ___________________
+
+self = <tests.test_objects.TestReadLong object at 0x79c311e941d0>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_single_digit_max(self, layout):
+        """O3 边界：2**30-1（30 位 digit 容量的上沿，进位错误的暴露点）。"""
+        mem = FakeMemory()
+        build_long(mem, layout, ADDR, (1 << 30) - 1)
+>       assert read_long(mem, layout, ADDR) == (1 << 30) - 1
+E       AssertionError: assert None == ((1 << 30) - 1)
+E        +  where None = read_long(<tests.fakemem.FakeMemory object at 0x79c311a2d1c0>, Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:54: AssertionError
+______________________ TestReadLong.test_two_digit[3.11] _______________________
+
+self = <tests.test_objects.TestReadLong object at 0x79c311e94a40>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_two_digit(self, layout):
+        """O4：双 digit 合成 d0 | d1<<30（30 位基数拼接，位移错即错值）。"""
+        mem = FakeMemory()
+        build_long(mem, layout, ADDR, 1 << 30)
+>       assert read_long(mem, layout, ADDR) == 1 << 30
+E       AssertionError: assert None == (1 << 30)
+E        +  where None = read_long(<tests.fakemem.FakeMemory object at 0x79c311a2f020>, Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:60: AssertionError
+______________________ TestReadLong.test_two_digit[3.12] _______________________
+
+self = <tests.test_objects.TestReadLong object at 0x79c311e94b00>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_two_digit(self, layout):
+        """O4：双 digit 合成 d0 | d1<<30（30 位基数拼接，位移错即错值）。"""
+        mem = FakeMemory()
+        build_long(mem, layout, ADDR, 1 << 30)
+>       assert read_long(mem, layout, ADDR) == 1 << 30
+E       AssertionError: assert None == (1 << 30)
+E        +  where None = read_long(<tests.fakemem.FakeMemory object at 0x79c311e959a0>, Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:60: AssertionError
+______________________ TestReadLong.test_two_digit[3.13] _______________________
+
+self = <tests.test_objects.TestReadLong object at 0x79c311e94bc0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_two_digit(self, layout):
+        """O4：双 digit 合成 d0 | d1<<30（30 位基数拼接，位移错即错值）。"""
+        mem = FakeMemory()
+        build_long(mem, layout, ADDR, 1 << 30)
+>       assert read_long(mem, layout, ADDR) == 1 << 30
+E       AssertionError: assert None == (1 << 30)
+E        +  where None = read_long(<tests.fakemem.FakeMemory object at 0x79c311f48bf0>, Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:60: AssertionError
+______________________ TestReadLong.test_two_digit[3.14] _______________________
+
+self = <tests.test_objects.TestReadLong object at 0x79c311e95a60>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_two_digit(self, layout):
+        """O4：双 digit 合成 d0 | d1<<30（30 位基数拼接，位移错即错值）。"""
+        mem = FakeMemory()
+        build_long(mem, layout, ADDR, 1 << 30)
+>       assert read_long(mem, layout, ADDR) == 1 << 30
+E       AssertionError: assert None == (1 << 30)
+E        +  where None = read_long(<tests.fakemem.FakeMemory object at 0x79c311c33ad0>, Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:60: AssertionError
+___________________ TestReadLong.test_two_digit_large[3.11] ____________________
+
+self = <tests.test_objects.TestReadLong object at 0x79c311e97890>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_two_digit_large(self, layout):
+        """O4 边界：2**60-1（双 digit 容量上沿）。"""
+        mem = FakeMemory()
+        build_long(mem, layout, ADDR, (1 << 60) - 1)
+>       assert read_long(mem, layout, ADDR) == (1 << 60) - 1
+E       AssertionError: assert None == ((1 << 60) - 1)
+E        +  where None = read_long(<tests.fakemem.FakeMemory object at 0x79c311c65490>, Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:66: AssertionError
+___________________ TestReadLong.test_two_digit_large[3.12] ____________________
+
+self = <tests.test_objects.TestReadLong object at 0x79c311e97a70>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_two_digit_large(self, layout):
+        """O4 边界：2**60-1（双 digit 容量上沿）。"""
+        mem = FakeMemory()
+        build_long(mem, layout, ADDR, (1 << 60) - 1)
+>       assert read_long(mem, layout, ADDR) == (1 << 60) - 1
+E       AssertionError: assert None == ((1 << 60) - 1)
+E        +  where None = read_long(<tests.fakemem.FakeMemory object at 0x79c311a4b950>, Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:66: AssertionError
+___________________ TestReadLong.test_two_digit_large[3.13] ____________________
+
+self = <tests.test_objects.TestReadLong object at 0x79c311e97b30>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_two_digit_large(self, layout):
+        """O4 边界：2**60-1（双 digit 容量上沿）。"""
+        mem = FakeMemory()
+        build_long(mem, layout, ADDR, (1 << 60) - 1)
+>       assert read_long(mem, layout, ADDR) == (1 << 60) - 1
+E       AssertionError: assert None == ((1 << 60) - 1)
+E        +  where None = read_long(<tests.fakemem.FakeMemory object at 0x79c311a4b800>, Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:66: AssertionError
+___________________ TestReadLong.test_two_digit_large[3.14] ____________________
+
+self = <tests.test_objects.TestReadLong object at 0x79c311e97c20>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_two_digit_large(self, layout):
+        """O4 边界：2**60-1（双 digit 容量上沿）。"""
+        mem = FakeMemory()
+        build_long(mem, layout, ADDR, (1 << 60) - 1)
+>       assert read_long(mem, layout, ADDR) == (1 << 60) - 1
+E       AssertionError: assert None == ((1 << 60) - 1)
+E        +  where None = read_long(<tests.fakemem.FakeMemory object at 0x79c311a48f50>, Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:66: AssertionError
+_______________________ TestReadBytes.test_normal[3.11] ________________________
+
+self = <tests.test_objects.TestReadBytes object at 0x79c311cac770>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_normal(self, layout):
+        """O6：payload 原样读出（linetable 等二进制体的主路径）。"""
+        mem = FakeMemory()
+        build_bytes(mem, layout, ADDR, b"\x01\x02\x03\x04")
+>       assert read_bytes(mem, layout, ADDR) == b"\x01\x02\x03\x04"
+E       AssertionError: assert None == b'\x01\x02\x03\x04'
+E        +  where None = read_bytes(<tests.fakemem.FakeMemory object at 0x79c311a4a1e0>, Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:112: AssertionError
+_______________________ TestReadBytes.test_normal[3.12] ________________________
+
+self = <tests.test_objects.TestReadBytes object at 0x79c311cac950>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_normal(self, layout):
+        """O6：payload 原样读出（linetable 等二进制体的主路径）。"""
+        mem = FakeMemory()
+        build_bytes(mem, layout, ADDR, b"\x01\x02\x03\x04")
+>       assert read_bytes(mem, layout, ADDR) == b"\x01\x02\x03\x04"
+E       AssertionError: assert None == b'\x01\x02\x03\x04'
+E        +  where None = read_bytes(<tests.fakemem.FakeMemory object at 0x79c311c66c60>, Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:112: AssertionError
+_______________________ TestReadBytes.test_normal[3.13] ________________________
+
+self = <tests.test_objects.TestReadBytes object at 0x79c311caca10>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_normal(self, layout):
+        """O6：payload 原样读出（linetable 等二进制体的主路径）。"""
+        mem = FakeMemory()
+        build_bytes(mem, layout, ADDR, b"\x01\x02\x03\x04")
+>       assert read_bytes(mem, layout, ADDR) == b"\x01\x02\x03\x04"
+E       AssertionError: assert None == b'\x01\x02\x03\x04'
+E        +  where None = read_bytes(<tests.fakemem.FakeMemory object at 0x79c311c845c0>, Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:112: AssertionError
+_______________________ TestReadBytes.test_normal[3.14] ________________________
+
+self = <tests.test_objects.TestReadBytes object at 0x79c311cacad0>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_normal(self, layout):
+        """O6：payload 原样读出（linetable 等二进制体的主路径）。"""
+        mem = FakeMemory()
+        build_bytes(mem, layout, ADDR, b"\x01\x02\x03\x04")
+>       assert read_bytes(mem, layout, ADDR) == b"\x01\x02\x03\x04"
+E       AssertionError: assert None == b'\x01\x02\x03\x04'
+E        +  where None = read_bytes(<tests.fakemem.FakeMemory object at 0x79c311c85430>, Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:112: AssertionError
+________________________ TestReadBytes.test_empty[3.11] ________________________
+
+self = <tests.test_objects.TestReadBytes object at 0x79c311cacef0>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_empty(self, layout):
+        """O6 边界：size=0 → b""（合法空 bytes，非失败）。"""
+        mem = FakeMemory()
+        build_bytes(mem, layout, ADDR, b"")
+>       assert read_bytes(mem, layout, ADDR) == b""
+E       AssertionError: assert None == b''
+E        +  where None = read_bytes(<tests.fakemem.FakeMemory object at 0x79c311c67140>, Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:118: AssertionError
+________________________ TestReadBytes.test_empty[3.12] ________________________
+
+self = <tests.test_objects.TestReadBytes object at 0x79c311cad100>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_empty(self, layout):
+        """O6 边界：size=0 → b""（合法空 bytes，非失败）。"""
+        mem = FakeMemory()
+        build_bytes(mem, layout, ADDR, b"")
+>       assert read_bytes(mem, layout, ADDR) == b""
+E       AssertionError: assert None == b''
+E        +  where None = read_bytes(<tests.fakemem.FakeMemory object at 0x79c311cac740>, Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:118: AssertionError
+________________________ TestReadBytes.test_empty[3.13] ________________________
+
+self = <tests.test_objects.TestReadBytes object at 0x79c311cad1c0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_empty(self, layout):
+        """O6 边界：size=0 → b""（合法空 bytes，非失败）。"""
+        mem = FakeMemory()
+        build_bytes(mem, layout, ADDR, b"")
+>       assert read_bytes(mem, layout, ADDR) == b""
+E       AssertionError: assert None == b''
+E        +  where None = read_bytes(<tests.fakemem.FakeMemory object at 0x79c311c32390>, Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:118: AssertionError
+________________________ TestReadBytes.test_empty[3.14] ________________________
+
+self = <tests.test_objects.TestReadBytes object at 0x79c311cad280>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_empty(self, layout):
+        """O6 边界：size=0 → b""（合法空 bytes，非失败）。"""
+        mem = FakeMemory()
+        build_bytes(mem, layout, ADDR, b"")
+>       assert read_bytes(mem, layout, ADDR) == b""
+E       AssertionError: assert None == b''
+E        +  where None = read_bytes(<tests.fakemem.FakeMemory object at 0x79c311e8f380>, Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:118: AssertionError
+___________________ TestReadUnicode.test_ascii_compact[3.11] ___________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311e8fc20>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_ascii_compact(self, layout):
+        """O9：compact+ascii 内联数据（CPython 字符串的绝对主流形态）。"""
+        mem = FakeMemory()
+        build_unicode(mem, layout, ADDR, "hello")
+>       assert read_unicode(mem, layout, ADDR) == "hello"
+E       AssertionError: assert None == 'hello'
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311c21d30>, Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:143: AssertionError
+___________________ TestReadUnicode.test_ascii_compact[3.12] ___________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311e95670>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_ascii_compact(self, layout):
+        """O9：compact+ascii 内联数据（CPython 字符串的绝对主流形态）。"""
+        mem = FakeMemory()
+        build_unicode(mem, layout, ADDR, "hello")
+>       assert read_unicode(mem, layout, ADDR) == "hello"
+E       AssertionError: assert None == 'hello'
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311e95760>, Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:143: AssertionError
+___________________ TestReadUnicode.test_ascii_compact[3.13] ___________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311e947a0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_ascii_compact(self, layout):
+        """O9：compact+ascii 内联数据（CPython 字符串的绝对主流形态）。"""
+        mem = FakeMemory()
+        build_unicode(mem, layout, ADDR, "hello")
+>       assert read_unicode(mem, layout, ADDR) == "hello"
+E       AssertionError: assert None == 'hello'
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311a2cce0>, Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:143: AssertionError
+___________________ TestReadUnicode.test_ascii_compact[3.14] ___________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311e954f0>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_ascii_compact(self, layout):
+        """O9：compact+ascii 内联数据（CPython 字符串的绝对主流形态）。"""
+        mem = FakeMemory()
+        build_unicode(mem, layout, ADDR, "hello")
+>       assert read_unicode(mem, layout, ADDR) == "hello"
+E       AssertionError: assert None == 'hello'
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311a2ccb0>, Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:143: AssertionError
+________________ TestReadUnicode.test_ascii_compact_empty[3.11] ________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311caddc0>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_ascii_compact_empty(self, layout):
+        """O9 边界：空串 → ""（length=0 合法，非失败）。"""
+        mem = FakeMemory()
+        build_unicode(mem, layout, ADDR, "")
+>       assert read_unicode(mem, layout, ADDR) == ""
+E       AssertionError: assert None == ''
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311a2f260>, Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:149: AssertionError
+________________ TestReadUnicode.test_ascii_compact_empty[3.12] ________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311cadc70>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_ascii_compact_empty(self, layout):
+        """O9 边界：空串 → ""（length=0 合法，非失败）。"""
+        mem = FakeMemory()
+        build_unicode(mem, layout, ADDR, "")
+>       assert read_unicode(mem, layout, ADDR) == ""
+E       AssertionError: assert None == ''
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311a4bb00>, Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:149: AssertionError
+________________ TestReadUnicode.test_ascii_compact_empty[3.13] ________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311cad5b0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_ascii_compact_empty(self, layout):
+        """O9 边界：空串 → ""（length=0 合法，非失败）。"""
+        mem = FakeMemory()
+        build_unicode(mem, layout, ADDR, "")
+>       assert read_unicode(mem, layout, ADDR) == ""
+E       AssertionError: assert None == ''
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311a2eff0>, Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:149: AssertionError
+________________ TestReadUnicode.test_ascii_compact_empty[3.14] ________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311cad400>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_ascii_compact_empty(self, layout):
+        """O9 边界：空串 → ""（length=0 合法，非失败）。"""
+        mem = FakeMemory()
+        build_unicode(mem, layout, ADDR, "")
+>       assert read_unicode(mem, layout, ADDR) == ""
+E       AssertionError: assert None == ''
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311a2ec90>, Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:149: AssertionError
+___________________ TestReadUnicode.test_utf16_compact[3.11] ___________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311cac470>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_utf16_compact(self, layout):
+        """O10：compact kind=2（utf-16-le）非 ascii 数据。"""
+        mem = FakeMemory()
+        build_unicode_kind(mem, layout, ADDR, "héllo", kind=2)
+>       assert read_unicode(mem, layout, ADDR) == "héllo"
+E       AssertionError: assert None == 'héllo'
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311e94440>, Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:155: AssertionError
+___________________ TestReadUnicode.test_utf16_compact[3.12] ___________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311cae900>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_utf16_compact(self, layout):
+        """O10：compact kind=2（utf-16-le）非 ascii 数据。"""
+        mem = FakeMemory()
+        build_unicode_kind(mem, layout, ADDR, "héllo", kind=2)
+>       assert read_unicode(mem, layout, ADDR) == "héllo"
+E       AssertionError: assert None == 'héllo'
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311c20980>, Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:155: AssertionError
+___________________ TestReadUnicode.test_utf16_compact[3.13] ___________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311cae9c0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_utf16_compact(self, layout):
+        """O10：compact kind=2（utf-16-le）非 ascii 数据。"""
+        mem = FakeMemory()
+        build_unicode_kind(mem, layout, ADDR, "héllo", kind=2)
+>       assert read_unicode(mem, layout, ADDR) == "héllo"
+E       AssertionError: assert None == 'héllo'
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311f13590>, Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:155: AssertionError
+___________________ TestReadUnicode.test_utf16_compact[3.14] ___________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311caea80>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_utf16_compact(self, layout):
+        """O10：compact kind=2（utf-16-le）非 ascii 数据。"""
+        mem = FakeMemory()
+        build_unicode_kind(mem, layout, ADDR, "héllo", kind=2)
+>       assert read_unicode(mem, layout, ADDR) == "héllo"
+E       AssertionError: assert None == 'héllo'
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311c64590>, Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:155: AssertionError
+__________________ TestReadUnicode.test_latin1_compact[3.11] ___________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311caeea0>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_latin1_compact(self, layout):
+        """O10：kind=1（latin-1）解码分支。"""
+        mem = FakeMemory()
+        build_unicode_kind(mem, layout, ADDR, "café", kind=1)
+>       assert read_unicode(mem, layout, ADDR) == "café"
+E       AssertionError: assert None == 'café'
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311c67560>, Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:161: AssertionError
+__________________ TestReadUnicode.test_latin1_compact[3.12] ___________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311caf080>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_latin1_compact(self, layout):
+        """O10：kind=1（latin-1）解码分支。"""
+        mem = FakeMemory()
+        build_unicode_kind(mem, layout, ADDR, "café", kind=1)
+>       assert read_unicode(mem, layout, ADDR) == "café"
+E       AssertionError: assert None == 'café'
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311c86720>, Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:161: AssertionError
+__________________ TestReadUnicode.test_latin1_compact[3.13] ___________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311caf140>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_latin1_compact(self, layout):
+        """O10：kind=1（latin-1）解码分支。"""
+        mem = FakeMemory()
+        build_unicode_kind(mem, layout, ADDR, "café", kind=1)
+>       assert read_unicode(mem, layout, ADDR) == "café"
+E       AssertionError: assert None == 'café'
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311a4a5a0>, Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:161: AssertionError
+__________________ TestReadUnicode.test_latin1_compact[3.14] ___________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311caf230>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_latin1_compact(self, layout):
+        """O10：kind=1（latin-1）解码分支。"""
+        mem = FakeMemory()
+        build_unicode_kind(mem, layout, ADDR, "café", kind=1)
+>       assert read_unicode(mem, layout, ADDR) == "café"
+E       AssertionError: assert None == 'café'
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311a49250>, Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:161: AssertionError
+___________________ TestReadUnicode.test_utf32_compact[3.11] ___________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311caf650>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_utf32_compact(self, layout):
+        """O10：kind=4（utf-32-le）解码分支（含 BMP 外字符的串形态）。"""
+        mem = FakeMemory()
+        build_unicode_kind(mem, layout, ADDR, "a🐍b", kind=4)
+>       assert read_unicode(mem, layout, ADDR) == "a🐍b"
+E       AssertionError: assert None == 'a🐍b'
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311a4a720>, Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:167: AssertionError
+___________________ TestReadUnicode.test_utf32_compact[3.12] ___________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311caf830>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_utf32_compact(self, layout):
+        """O10：kind=4（utf-32-le）解码分支（含 BMP 外字符的串形态）。"""
+        mem = FakeMemory()
+        build_unicode_kind(mem, layout, ADDR, "a🐍b", kind=4)
+>       assert read_unicode(mem, layout, ADDR) == "a🐍b"
+E       AssertionError: assert None == 'a🐍b'
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311a49850>, Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:167: AssertionError
+___________________ TestReadUnicode.test_utf32_compact[3.13] ___________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311caf8f0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_utf32_compact(self, layout):
+        """O10：kind=4（utf-32-le）解码分支（含 BMP 外字符的串形态）。"""
+        mem = FakeMemory()
+        build_unicode_kind(mem, layout, ADDR, "a🐍b", kind=4)
+>       assert read_unicode(mem, layout, ADDR) == "a🐍b"
+E       AssertionError: assert None == 'a🐍b'
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311c87230>, Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:167: AssertionError
+___________________ TestReadUnicode.test_utf32_compact[3.14] ___________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311caf9b0>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_utf32_compact(self, layout):
+        """O10：kind=4（utf-32-le）解码分支（含 BMP 外字符的串形态）。"""
+        mem = FakeMemory()
+        build_unicode_kind(mem, layout, ADDR, "a🐍b", kind=4)
+>       assert read_unicode(mem, layout, ADDR) == "a🐍b"
+E       AssertionError: assert None == 'a🐍b'
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311c64f20>, Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:167: AssertionError
+____________________ TestReadUnicode.test_non_compact[3.11] ____________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311d9c650>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_non_compact(self, layout):
+        """O11：非 compact 经 data_any 指针寻址数据。"""
+        mem = FakeMemory()
+        build_unicode_noncompact(mem, layout, ADDR, "wörld", 0x20000)
+>       assert read_unicode(mem, layout, ADDR) == "wörld"
+E       AssertionError: assert None == 'wörld'
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311f4b110>, Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:185: AssertionError
+____________________ TestReadUnicode.test_non_compact[3.12] ____________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311cafd70>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_non_compact(self, layout):
+        """O11：非 compact 经 data_any 指针寻址数据。"""
+        mem = FakeMemory()
+        build_unicode_noncompact(mem, layout, ADDR, "wörld", 0x20000)
+>       assert read_unicode(mem, layout, ADDR) == "wörld"
+E       AssertionError: assert None == 'wörld'
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311e95220>, Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:185: AssertionError
+____________________ TestReadUnicode.test_non_compact[3.13] ____________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311cafbc0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_non_compact(self, layout):
+        """O11：非 compact 经 data_any 指针寻址数据。"""
+        mem = FakeMemory()
+        build_unicode_noncompact(mem, layout, ADDR, "wörld", 0x20000)
+>       assert read_unicode(mem, layout, ADDR) == "wörld"
+E       AssertionError: assert None == 'wörld'
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311a2d6d0>, Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:185: AssertionError
+____________________ TestReadUnicode.test_non_compact[3.14] ____________________
+
+self = <tests.test_objects.TestReadUnicode object at 0x79c311cafad0>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_non_compact(self, layout):
+        """O11：非 compact 经 data_any 指针寻址数据。"""
+        mem = FakeMemory()
+        build_unicode_noncompact(mem, layout, ADDR, "wörld", 0x20000)
+>       assert read_unicode(mem, layout, ADDR) == "wörld"
+E       AssertionError: assert None == 'wörld'
+E        +  where None = read_unicode(<tests.fakemem.FakeMemory object at 0x79c311a2cbc0>, Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 65536)
+
+tests/test_objects.py:185: AssertionError
+_______________ TestResolveInterpreter.test_main_preferred[3.11] _______________
+
+self = <tests.test_runtime.TestResolveInterpreter object at 0x79c311d22960>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_main_preferred(self, layout):
+        """R5：main 非 0 时优先（单解释器进程的常态路径）。"""
+        mem = FakeMemory()
+        mem.add_ptr(_interp_base(layout) + layout.get("pyinterpreters.main"),
+                    INTERP_ADDR)
+>       assert resolve_interpreter(mem, layout, RUNTIME_ADDR) == INTERP_ADDR
+E       AssertionError: assert 0 == 2097152
+E        +  where 0 = resolve_interpreter(<tests.fakemem.FakeMemory object at 0x79c311a4a330>, Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2})), 1048576)
+
+tests/test_runtime.py:43: AssertionError
+_______________ TestResolveInterpreter.test_main_preferred[3.12] _______________
+
+self = <tests.test_runtime.TestResolveInterpreter object at 0x79c311d22090>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_main_preferred(self, layout):
+        """R5：main 非 0 时优先（单解释器进程的常态路径）。"""
+        mem = FakeMemory()
+        mem.add_ptr(_interp_base(layout) + layout.get("pyinterpreters.main"),
+                    INTERP_ADDR)
+>       assert resolve_interpreter(mem, layout, RUNTIME_ADDR) == INTERP_ADDR
+E       AssertionError: assert 0 == 2097152
+E        +  where 0 = resolve_interpreter(<tests.fakemem.FakeMemory object at 0x79c311a4abd0>, Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 1048576)
+
+tests/test_runtime.py:43: AssertionError
+_______________ TestResolveInterpreter.test_main_preferred[3.13] _______________
+
+self = <tests.test_runtime.TestResolveInterpreter object at 0x79c311d216a0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_main_preferred(self, layout):
+        """R5：main 非 0 时优先（单解释器进程的常态路径）。"""
+        mem = FakeMemory()
+        mem.add_ptr(_interp_base(layout) + layout.get("pyinterpreters.main"),
+                    INTERP_ADDR)
+>       assert resolve_interpreter(mem, layout, RUNTIME_ADDR) == INTERP_ADDR
+E       AssertionError: assert 0 == 2097152
+E        +  where 0 = resolve_interpreter(<tests.fakemem.FakeMemory object at 0x79c30fb7e630>, Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 1048576)
+
+tests/test_runtime.py:43: AssertionError
+_______________ TestResolveInterpreter.test_main_preferred[3.14] _______________
+
+self = <tests.test_runtime.TestResolveInterpreter object at 0x79c311d21820>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_main_preferred(self, layout):
+        """R5：main 非 0 时优先（单解释器进程的常态路径）。"""
+        mem = FakeMemory()
+        mem.add_ptr(_interp_base(layout) + layout.get("pyinterpreters.main"),
+                    INTERP_ADDR)
+>       assert resolve_interpreter(mem, layout, RUNTIME_ADDR) == INTERP_ADDR
+E       AssertionError: assert 0 == 2097152
+E        +  where 0 = resolve_interpreter(<tests.fakemem.FakeMemory object at 0x79c30fb7eff0>, Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 1048576)
+
+tests/test_runtime.py:43: AssertionError
+_______________ TestResolveInterpreter.test_head_fallback[3.11] ________________
+
+self = <tests.test_runtime.TestResolveInterpreter object at 0x79c311d53b90>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_head_fallback(self, layout):
+        """R5：main 为 0 → head 回退（main 尚未发布/已析构的窗口期）。"""
+        mem = FakeMemory()
+        base = _interp_base(layout)
+        mem.add_ptr(base + layout.get("pyinterpreters.main"), 0)
+        mem.add_ptr(base + layout.get("pyinterpreters.head"), INTERP_ADDR)
+>       assert resolve_interpreter(mem, layout, RUNTIME_ADDR) == INTERP_ADDR
+E       AssertionError: assert 0 == 2097152
+E        +  where 0 = resolve_interpreter(<tests.fakemem.FakeMemory object at 0x79c311a4b650>, Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2})), 1048576)
+
+tests/test_runtime.py:51: AssertionError
+_______________ TestResolveInterpreter.test_head_fallback[3.12] ________________
+
+self = <tests.test_runtime.TestResolveInterpreter object at 0x79c311d51a00>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_head_fallback(self, layout):
+        """R5：main 为 0 → head 回退（main 尚未发布/已析构的窗口期）。"""
+        mem = FakeMemory()
+        base = _interp_base(layout)
+        mem.add_ptr(base + layout.get("pyinterpreters.main"), 0)
+        mem.add_ptr(base + layout.get("pyinterpreters.head"), INTERP_ADDR)
+>       assert resolve_interpreter(mem, layout, RUNTIME_ADDR) == INTERP_ADDR
+E       AssertionError: assert 0 == 2097152
+E        +  where 0 = resolve_interpreter(<tests.fakemem.FakeMemory object at 0x79c311a2e240>, Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 1048576)
+
+tests/test_runtime.py:51: AssertionError
+_______________ TestResolveInterpreter.test_head_fallback[3.13] ________________
+
+self = <tests.test_runtime.TestResolveInterpreter object at 0x79c311d51ac0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_head_fallback(self, layout):
+        """R5：main 为 0 → head 回退（main 尚未发布/已析构的窗口期）。"""
+        mem = FakeMemory()
+        base = _interp_base(layout)
+        mem.add_ptr(base + layout.get("pyinterpreters.main"), 0)
+        mem.add_ptr(base + layout.get("pyinterpreters.head"), INTERP_ADDR)
+>       assert resolve_interpreter(mem, layout, RUNTIME_ADDR) == INTERP_ADDR
+E       AssertionError: assert 0 == 2097152
+E        +  where 0 = resolve_interpreter(<tests.fakemem.FakeMemory object at 0x79c311c216a0>, Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 1048576)
+
+tests/test_runtime.py:51: AssertionError
+_______________ TestResolveInterpreter.test_head_fallback[3.14] ________________
+
+self = <tests.test_runtime.TestResolveInterpreter object at 0x79c311d51bb0>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_head_fallback(self, layout):
+        """R5：main 为 0 → head 回退（main 尚未发布/已析构的窗口期）。"""
+        mem = FakeMemory()
+        base = _interp_base(layout)
+        mem.add_ptr(base + layout.get("pyinterpreters.main"), 0)
+        mem.add_ptr(base + layout.get("pyinterpreters.head"), INTERP_ADDR)
+>       assert resolve_interpreter(mem, layout, RUNTIME_ADDR) == INTERP_ADDR
+E       AssertionError: assert 0 == 2097152
+E        +  where 0 = resolve_interpreter(<tests.fakemem.FakeMemory object at 0x79c311f4a900>, Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 1048576)
+
+tests/test_runtime.py:51: AssertionError
+______________ TestResolveInterpreter.test_both_zero_raises[3.11] ______________
+
+self = <tests.test_runtime.TestResolveInterpreter object at 0x79c311d51fd0>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_both_zero_raises(self, layout):
+        """R5 失败模式：main/head 均 0 → NoInterpreterState()（默认消息
+        复刻，CLI `[!]` 可见）。"""
+        mem = FakeMemory()
+        base = _interp_base(layout)
+        mem.add_ptr(base + layout.get("pyinterpreters.main"), 0)
+        mem.add_ptr(base + layout.get("pyinterpreters.head"), 0)
+>       with pytest.raises(NoInterpreterState):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE NoInterpreterState
+
+tests/test_runtime.py:60: Failed
+______________ TestResolveInterpreter.test_both_zero_raises[3.12] ______________
+
+self = <tests.test_runtime.TestResolveInterpreter object at 0x79c311d52210>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_both_zero_raises(self, layout):
+        """R5 失败模式：main/head 均 0 → NoInterpreterState()（默认消息
+        复刻，CLI `[!]` 可见）。"""
+        mem = FakeMemory()
+        base = _interp_base(layout)
+        mem.add_ptr(base + layout.get("pyinterpreters.main"), 0)
+        mem.add_ptr(base + layout.get("pyinterpreters.head"), 0)
+>       with pytest.raises(NoInterpreterState):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE NoInterpreterState
+
+tests/test_runtime.py:60: Failed
+______________ TestResolveInterpreter.test_both_zero_raises[3.13] ______________
+
+self = <tests.test_runtime.TestResolveInterpreter object at 0x79c311d522d0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_both_zero_raises(self, layout):
+        """R5 失败模式：main/head 均 0 → NoInterpreterState()（默认消息
+        复刻，CLI `[!]` 可见）。"""
+        mem = FakeMemory()
+        base = _interp_base(layout)
+        mem.add_ptr(base + layout.get("pyinterpreters.main"), 0)
+        mem.add_ptr(base + layout.get("pyinterpreters.head"), 0)
+>       with pytest.raises(NoInterpreterState):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE NoInterpreterState
+
+tests/test_runtime.py:60: Failed
+______________ TestResolveInterpreter.test_both_zero_raises[3.14] ______________
+
+self = <tests.test_runtime.TestResolveInterpreter object at 0x79c311d52390>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_both_zero_raises(self, layout):
+        """R5 失败模式：main/head 均 0 → NoInterpreterState()（默认消息
+        复刻，CLI `[!]` 可见）。"""
+        mem = FakeMemory()
+        base = _interp_base(layout)
+        mem.add_ptr(base + layout.get("pyinterpreters.main"), 0)
+        mem.add_ptr(base + layout.get("pyinterpreters.head"), 0)
+>       with pytest.raises(NoInterpreterState):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE NoInterpreterState
+
+tests/test_runtime.py:60: Failed
+_____________ TestResolveInterpreter.test_unreadable_raises[3.11] ______________
+
+self = <tests.test_runtime.TestResolveInterpreter object at 0x79c311d527b0>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_unreadable_raises(self, layout):
+        """R5 失败模式：_PyRuntime 区域不可读 → NoInterpreterState()。"""
+>       with pytest.raises(NoInterpreterState):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE NoInterpreterState
+
+tests/test_runtime.py:65: Failed
+_____________ TestResolveInterpreter.test_unreadable_raises[3.12] ______________
+
+self = <tests.test_runtime.TestResolveInterpreter object at 0x79c311d52990>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_unreadable_raises(self, layout):
+        """R5 失败模式：_PyRuntime 区域不可读 → NoInterpreterState()。"""
+>       with pytest.raises(NoInterpreterState):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE NoInterpreterState
+
+tests/test_runtime.py:65: Failed
+_____________ TestResolveInterpreter.test_unreadable_raises[3.13] ______________
+
+self = <tests.test_runtime.TestResolveInterpreter object at 0x79c311d52a50>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_unreadable_raises(self, layout):
+        """R5 失败模式：_PyRuntime 区域不可读 → NoInterpreterState()。"""
+>       with pytest.raises(NoInterpreterState):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE NoInterpreterState
+
+tests/test_runtime.py:65: Failed
+_____________ TestResolveInterpreter.test_unreadable_raises[3.14] ______________
+
+self = <tests.test_runtime.TestResolveInterpreter object at 0x79c311d52b10>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_unreadable_raises(self, layout):
+        """R5 失败模式：_PyRuntime 区域不可读 → NoInterpreterState()。"""
+>       with pytest.raises(NoInterpreterState):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE NoInterpreterState
+
+tests/test_runtime.py:65: Failed
+__________________ TestResolveTrampoline.test_312_reads_value __________________
+
+self = <tests.test_runtime.TestResolveTrampoline object at 0x79c311d52e40>
+
+    def test_312_reads_value(self):
+        """R6：3.12 有 interpreter_trampoline 字段——读出即返回（蹦床帧
+        过滤的输入）。"""
+        lay = resolve_layout("3.12", overrides_path=NO_OVERRIDE)
+        mem = FakeMemory()
+        mem.add_ptr(INTERP_ADDR
+                    + lay.get("InterpreterState.interpreter_trampoline"),
+                    0xDEAD0000)
+>       assert resolve_trampoline(mem, lay, INTERP_ADDR) == 0xDEAD0000
+E       AssertionError: assert 0 == 3735879680
+E        +  where 0 = resolve_trampoline(<tests.fakemem.FakeMemory object at 0x79c30fb7e960>, Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 2097152)
+
+tests/test_runtime.py:78: AssertionError
+_______________ TestReadThreadChain.test_walks_all_threads[3.11] _______________
+
+self = <tests.test_runtime.TestReadThreadChain object at 0x79c311d230e0>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_walks_all_threads(self, layout):
+        """R3：三线程链全量走出，字段与 tstate_addr 记录正确。"""
+        mem = FakeMemory()
+        self._build_chain(mem, layout, [(11, 101), (22, 102), (33, 103)])
+        chain = read_thread_chain(mem, layout, INTERP_ADDR)
+>       assert len(chain) == 3
+E       assert 0 == 3
+E        +  where 0 = len([])
+
+tests/test_runtime.py:107: AssertionError
+_______________ TestReadThreadChain.test_walks_all_threads[3.12] _______________
+
+self = <tests.test_runtime.TestReadThreadChain object at 0x79c311d234a0>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_walks_all_threads(self, layout):
+        """R3：三线程链全量走出，字段与 tstate_addr 记录正确。"""
+        mem = FakeMemory()
+        self._build_chain(mem, layout, [(11, 101), (22, 102), (33, 103)])
+        chain = read_thread_chain(mem, layout, INTERP_ADDR)
+>       assert len(chain) == 3
+E       assert 0 == 3
+E        +  where 0 = len([])
+
+tests/test_runtime.py:107: AssertionError
+_______________ TestReadThreadChain.test_walks_all_threads[3.13] _______________
+
+self = <tests.test_runtime.TestReadThreadChain object at 0x79c311d53b00>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_walks_all_threads(self, layout):
+        """R3：三线程链全量走出，字段与 tstate_addr 记录正确。"""
+        mem = FakeMemory()
+        self._build_chain(mem, layout, [(11, 101), (22, 102), (33, 103)])
+        chain = read_thread_chain(mem, layout, INTERP_ADDR)
+>       assert len(chain) == 3
+E       assert 0 == 3
+E        +  where 0 = len([])
+
+tests/test_runtime.py:107: AssertionError
+_______________ TestReadThreadChain.test_walks_all_threads[3.14] _______________
+
+self = <tests.test_runtime.TestReadThreadChain object at 0x79c311d53680>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_walks_all_threads(self, layout):
+        """R3：三线程链全量走出，字段与 tstate_addr 记录正确。"""
+        mem = FakeMemory()
+        self._build_chain(mem, layout, [(11, 101), (22, 102), (33, 103)])
+        chain = read_thread_chain(mem, layout, INTERP_ADDR)
+>       assert len(chain) == 3
+E       assert 0 == 3
+E        +  where 0 = len([])
+
+tests/test_runtime.py:107: AssertionError
+____ TestReadThreadChain.test_head_unreadable_raises_no_thread_state[3.11] _____
+
+self = <tests.test_runtime.TestReadThreadChain object at 0x79c311d52cf0>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_head_unreadable_raises_no_thread_state(self, layout):
+        """R1 失败模式：threads.head 读失败 → NoThreadState（消息复刻
+        "failed to read threads.head"）。"""
+>       with pytest.raises(NoThreadState,
+                           match="failed to read threads.head"):
+E                          Failed: DID NOT RAISE NoThreadState
+
+tests/test_runtime.py:115: Failed
+____ TestReadThreadChain.test_head_unreadable_raises_no_thread_state[3.12] _____
+
+self = <tests.test_runtime.TestReadThreadChain object at 0x79c311d526c0>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_head_unreadable_raises_no_thread_state(self, layout):
+        """R1 失败模式：threads.head 读失败 → NoThreadState（消息复刻
+        "failed to read threads.head"）。"""
+>       with pytest.raises(NoThreadState,
+                           match="failed to read threads.head"):
+E                          Failed: DID NOT RAISE NoThreadState
+
+tests/test_runtime.py:115: Failed
+____ TestReadThreadChain.test_head_unreadable_raises_no_thread_state[3.13] _____
+
+self = <tests.test_runtime.TestReadThreadChain object at 0x79c311d524e0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_head_unreadable_raises_no_thread_state(self, layout):
+        """R1 失败模式：threads.head 读失败 → NoThreadState（消息复刻
+        "failed to read threads.head"）。"""
+>       with pytest.raises(NoThreadState,
+                           match="failed to read threads.head"):
+E                          Failed: DID NOT RAISE NoThreadState
+
+tests/test_runtime.py:115: Failed
+____ TestReadThreadChain.test_head_unreadable_raises_no_thread_state[3.14] _____
+
+self = <tests.test_runtime.TestReadThreadChain object at 0x79c311d525a0>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_head_unreadable_raises_no_thread_state(self, layout):
+        """R1 失败模式：threads.head 读失败 → NoThreadState（消息复刻
+        "failed to read threads.head"）。"""
+>       with pytest.raises(NoThreadState,
+                           match="failed to read threads.head"):
+E                          Failed: DID NOT RAISE NoThreadState
+
+tests/test_runtime.py:115: Failed
+________ TestReadThreadChain.test_mid_chain_unreadable_truncates[3.11] _________
+
+self = <tests.test_runtime.TestReadThreadChain object at 0x79c311d53c20>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_mid_chain_unreadable_truncates(self, layout):
+        """R2：中间节点不可读 → 截断返回已收集（并发退出的线程不让
+        整链数据丢失）。"""
+        mem = FakeMemory()
+        self._build_chain(mem, layout, [(11, 101), (22, 102)])
+        # 第三节点地址存在于链中但无内存
+        build_tstate(mem, layout, TSTATE_BASE + 0x1000, 0xDEAD00, 22, 102)
+        chain = read_thread_chain(mem, layout, INTERP_ADDR)
+>       assert [(t.thread_id,) for t in chain] == [(11,), (22,)]
+E       assert [] == [(11,), (22,)]
+E         
+E         Right contains 2 more items, first extra item: (11,)
+E         Use -v to get more diff
+
+tests/test_runtime.py:127: AssertionError
+________ TestReadThreadChain.test_mid_chain_unreadable_truncates[3.12] _________
+
+self = <tests.test_runtime.TestReadThreadChain object at 0x79c311d53e00>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_mid_chain_unreadable_truncates(self, layout):
+        """R2：中间节点不可读 → 截断返回已收集（并发退出的线程不让
+        整链数据丢失）。"""
+        mem = FakeMemory()
+        self._build_chain(mem, layout, [(11, 101), (22, 102)])
+        # 第三节点地址存在于链中但无内存
+        build_tstate(mem, layout, TSTATE_BASE + 0x1000, 0xDEAD00, 22, 102)
+        chain = read_thread_chain(mem, layout, INTERP_ADDR)
+>       assert [(t.thread_id,) for t in chain] == [(11,), (22,)]
+E       assert [] == [(11,), (22,)]
+E         
+E         Right contains 2 more items, first extra item: (11,)
+E         Use -v to get more diff
+
+tests/test_runtime.py:127: AssertionError
+________ TestReadThreadChain.test_mid_chain_unreadable_truncates[3.13] _________
+
+self = <tests.test_runtime.TestReadThreadChain object at 0x79c311d53ec0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_mid_chain_unreadable_truncates(self, layout):
+        """R2：中间节点不可读 → 截断返回已收集（并发退出的线程不让
+        整链数据丢失）。"""
+        mem = FakeMemory()
+        self._build_chain(mem, layout, [(11, 101), (22, 102)])
+        # 第三节点地址存在于链中但无内存
+        build_tstate(mem, layout, TSTATE_BASE + 0x1000, 0xDEAD00, 22, 102)
+        chain = read_thread_chain(mem, layout, INTERP_ADDR)
+>       assert [(t.thread_id,) for t in chain] == [(11,), (22,)]
+E       assert [] == [(11,), (22,)]
+E         
+E         Right contains 2 more items, first extra item: (11,)
+E         Use -v to get more diff
+
+tests/test_runtime.py:127: AssertionError
+________ TestReadThreadChain.test_mid_chain_unreadable_truncates[3.14] _________
+
+self = <tests.test_runtime.TestReadThreadChain object at 0x79c311d53f80>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_mid_chain_unreadable_truncates(self, layout):
+        """R2：中间节点不可读 → 截断返回已收集（并发退出的线程不让
+        整链数据丢失）。"""
+        mem = FakeMemory()
+        self._build_chain(mem, layout, [(11, 101), (22, 102)])
+        # 第三节点地址存在于链中但无内存
+        build_tstate(mem, layout, TSTATE_BASE + 0x1000, 0xDEAD00, 22, 102)
+        chain = read_thread_chain(mem, layout, INTERP_ADDR)
+>       assert [(t.thread_id,) for t in chain] == [(11,), (22,)]
+E       assert [] == [(11,), (22,)]
+E         
+E         Right contains 2 more items, first extra item: (11,)
+E         Use -v to get more diff
+
+tests/test_runtime.py:127: AssertionError
+________________ TestReadThreadChain.test_max_threads_cap[3.11] ________________
+
+self = <tests.test_runtime.TestReadThreadChain object at 0x79c311d2c3e0>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_max_threads_cap(self, layout):
+        """R3：链长超 MAX_THREADS(256) 截断（损坏链/环链防护，复刻约束）。"""
+        mem = FakeMemory()
+        mem.add_ptr(INTERP_ADDR + layout.get("InterpreterState.threads")
+                    + layout.get("pythreads.head"), TSTATE_BASE)
+        # 紧凑自增链，避免 300 个独立区域
+        for i in range(MAX_THREADS + 10):
+            build_tstate(mem, layout, TSTATE_BASE + i * 0x100,
+                         TSTATE_BASE + (i + 1) * 0x100, i, i)
+        chain = read_thread_chain(mem, layout, INTERP_ADDR)
+>       assert len(chain) == MAX_THREADS
+E       assert 0 == 256
+E        +  where 0 = len([])
+
+tests/test_runtime.py:139: AssertionError
+________________ TestReadThreadChain.test_max_threads_cap[3.12] ________________
+
+self = <tests.test_runtime.TestReadThreadChain object at 0x79c311d2c5c0>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_max_threads_cap(self, layout):
+        """R3：链长超 MAX_THREADS(256) 截断（损坏链/环链防护，复刻约束）。"""
+        mem = FakeMemory()
+        mem.add_ptr(INTERP_ADDR + layout.get("InterpreterState.threads")
+                    + layout.get("pythreads.head"), TSTATE_BASE)
+        # 紧凑自增链，避免 300 个独立区域
+        for i in range(MAX_THREADS + 10):
+            build_tstate(mem, layout, TSTATE_BASE + i * 0x100,
+                         TSTATE_BASE + (i + 1) * 0x100, i, i)
+        chain = read_thread_chain(mem, layout, INTERP_ADDR)
+>       assert len(chain) == MAX_THREADS
+E       assert 0 == 256
+E        +  where 0 = len([])
+
+tests/test_runtime.py:139: AssertionError
+________________ TestReadThreadChain.test_max_threads_cap[3.13] ________________
+
+self = <tests.test_runtime.TestReadThreadChain object at 0x79c311d2c680>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_max_threads_cap(self, layout):
+        """R3：链长超 MAX_THREADS(256) 截断（损坏链/环链防护，复刻约束）。"""
+        mem = FakeMemory()
+        mem.add_ptr(INTERP_ADDR + layout.get("InterpreterState.threads")
+                    + layout.get("pythreads.head"), TSTATE_BASE)
+        # 紧凑自增链，避免 300 个独立区域
+        for i in range(MAX_THREADS + 10):
+            build_tstate(mem, layout, TSTATE_BASE + i * 0x100,
+                         TSTATE_BASE + (i + 1) * 0x100, i, i)
+        chain = read_thread_chain(mem, layout, INTERP_ADDR)
+>       assert len(chain) == MAX_THREADS
+E       assert 0 == 256
+E        +  where 0 = len([])
+
+tests/test_runtime.py:139: AssertionError
+________________ TestReadThreadChain.test_max_threads_cap[3.14] ________________
+
+self = <tests.test_runtime.TestReadThreadChain object at 0x79c311d2c740>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_max_threads_cap(self, layout):
+        """R3：链长超 MAX_THREADS(256) 截断（损坏链/环链防护，复刻约束）。"""
+        mem = FakeMemory()
+        mem.add_ptr(INTERP_ADDR + layout.get("InterpreterState.threads")
+                    + layout.get("pythreads.head"), TSTATE_BASE)
+        # 紧凑自增链，避免 300 个独立区域
+        for i in range(MAX_THREADS + 10):
+            build_tstate(mem, layout, TSTATE_BASE + i * 0x100,
+                         TSTATE_BASE + (i + 1) * 0x100, i, i)
+        chain = read_thread_chain(mem, layout, INTERP_ADDR)
+>       assert len(chain) == MAX_THREADS
+E       assert 0 == 256
+E        +  where 0 = len([])
+
+tests/test_runtime.py:139: AssertionError
+________________ TestCurrentFrameOf.test_direct_field_313_plus _________________
+
+self = <tests.test_runtime.TestCurrentFrameOf object at 0x79c311d2ca70>
+
+    def test_direct_field_313_plus(self):
+        """R4：3.13/3.14 直达字段 ThreadState.current_frame（cframe
+        间接层已随 3.13 移除）。"""
+        for version in ("3.13", "3.14"):
+            lay = resolve_layout(version, overrides_path=NO_OVERRIDE)
+            mem = FakeMemory()
+            mem.add_ptr(TSTATE_BASE + lay.get("ThreadState.current_frame"),
+                        0xF4A4E)
+>           assert current_frame_of(mem, lay, TSTATE_BASE) == 0xF4A4E
+E           AssertionError: assert 0 == 1002062
+E            +  where 0 = current_frame_of(<tests.fakemem.FakeMemory object at 0x79c30fb7c500>, Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2})), 3145728)
+
+tests/test_runtime.py:151: AssertionError
+______________ TestCurrentFrameOf.test_cframe_indirection_311_312 ______________
+
+self = <tests.test_runtime.TestCurrentFrameOf object at 0x79c311d2cda0>
+
+    def test_cframe_indirection_311_312(self):
+        """R4：3.11/3.12 经 cframe→CFrame.current_frame 间接解析
+        （版本差异只住 Layout 的探针分支）。"""
+        for version in ("3.11", "3.12"):
+            lay = resolve_layout(version, overrides_path=NO_OVERRIDE)
+            mem = FakeMemory()
+            cframe_addr = 0x500000
+            mem.add_ptr(TSTATE_BASE + lay.get("ThreadState.cframe"),
+                        cframe_addr)
+            mem.add_ptr(cframe_addr + lay.get("CFrame.current_frame"),
+                        0xF4A4E)
+>           assert current_frame_of(mem, lay, TSTATE_BASE) == 0xF4A4E
+E           AssertionError: assert 0 == 1002062
+E            +  where 0 = current_frame_of(<tests.fakemem.FakeMemory object at 0x79c30fb7f020>, Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2})), 3145728)
+
+tests/test_runtime.py:164: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_code.py::TestLineForOffset::test_simple_increments - Assert...
+FAILED tests/test_code.py::TestLineForOffset::test_beyond_table_returns_last_line
+FAILED tests/test_code.py::TestLineForOffset::test_no_line_entry_falls_back
+FAILED tests/test_code.py::TestLineForOffset::test_varint_signed_delta - Asse...
+FAILED tests/test_code.py::TestAddr2Line::test_resolves_via_code_object[3.11]
+FAILED tests/test_code.py::TestAddr2Line::test_resolves_via_code_object[3.12]
+FAILED tests/test_code.py::TestAddr2Line::test_resolves_via_code_object[3.13]
+FAILED tests/test_code.py::TestAddr2Line::test_resolves_via_code_object[3.14]
+FAILED tests/test_code.py::TestReadCodeHeader::test_reads_fields[3.11] - asse...
+FAILED tests/test_code.py::TestReadCodeHeader::test_reads_fields[3.12] - asse...
+FAILED tests/test_code.py::TestReadCodeHeader::test_reads_fields[3.13] - asse...
+FAILED tests/test_code.py::TestReadCodeHeader::test_reads_fields[3.14] - asse...
+FAILED tests/test_code.py::TestSpecOracleCoLines::test_matches_co_lines_ground_truth
+FAILED tests/test_dicts.py::TestFromDictCombined::test_iterate_two_entries[3.11]
+FAILED tests/test_dicts.py::TestFromDictCombined::test_iterate_two_entries[3.12]
+FAILED tests/test_dicts.py::TestFromDictCombined::test_iterate_two_entries[3.13]
+FAILED tests/test_dicts.py::TestFromDictCombined::test_iterate_two_entries[3.14]
+FAILED tests/test_dicts.py::TestFromDictCombined::test_empty_dict[3.11] - ass...
+FAILED tests/test_dicts.py::TestFromDictCombined::test_empty_dict[3.12] - ass...
+FAILED tests/test_dicts.py::TestFromDictCombined::test_empty_dict[3.13] - ass...
+FAILED tests/test_dicts.py::TestFromDictCombined::test_empty_dict[3.14] - ass...
+FAILED tests/test_dicts.py::TestFromDictCombined::test_skip_holes[3.11] - ass...
+FAILED tests/test_dicts.py::TestFromDictCombined::test_skip_holes[3.12] - ass...
+FAILED tests/test_dicts.py::TestFromDictCombined::test_skip_holes[3.13] - ass...
+FAILED tests/test_dicts.py::TestFromDictCombined::test_skip_holes[3.14] - ass...
+FAILED tests/test_dicts.py::TestFromDictUnicode::test_iterate[3.11] - assert ...
+FAILED tests/test_dicts.py::TestFromDictUnicode::test_iterate[3.12] - assert ...
+FAILED tests/test_dicts.py::TestFromDictUnicode::test_iterate[3.13] - assert ...
+FAILED tests/test_dicts.py::TestFromDictUnicode::test_iterate[3.14] - assert ...
+FAILED tests/test_dicts.py::TestFromDictSplit::test_split_values[3.11] - asse...
+FAILED tests/test_dicts.py::TestFromDictSplit::test_split_values[3.12] - asse...
+FAILED tests/test_dicts.py::TestFromDictSplit::test_split_values[3.13] - asse...
+FAILED tests/test_dicts.py::TestFromDictSplit::test_split_values[3.14] - asse...
+FAILED tests/test_dicts.py::TestFromManagedValues::test_managed_values[3.11]
+FAILED tests/test_dicts.py::TestFromManagedValues::test_managed_values[3.12]
+FAILED tests/test_dicts.py::TestFromManagedValues::test_managed_values[3.13]
+FAILED tests/test_dicts.py::TestFromManagedValues::test_managed_values[3.14]
+FAILED tests/test_frames.py::TestWalkFrames::test_single_frame[3.11] - assert...
+FAILED tests/test_frames.py::TestWalkFrames::test_single_frame[3.12] - assert...
+FAILED tests/test_frames.py::TestWalkFrames::test_single_frame[3.13] - assert...
+FAILED tests/test_frames.py::TestWalkFrames::test_single_frame[3.14] - assert...
+FAILED tests/test_frames.py::TestWalkFrames::test_two_frame_chain[3.11] - Ass...
+FAILED tests/test_frames.py::TestWalkFrames::test_two_frame_chain[3.12] - Ass...
+FAILED tests/test_frames.py::TestWalkFrames::test_two_frame_chain[3.13] - Ass...
+FAILED tests/test_frames.py::TestWalkFrames::test_two_frame_chain[3.14] - Ass...
+FAILED tests/test_frames.py::TestWalkFrames::test_skip_null_code[3.11] - Asse...
+FAILED tests/test_frames.py::TestWalkFrames::test_skip_null_code[3.12] - Asse...
+FAILED tests/test_frames.py::TestWalkFrames::test_skip_null_code[3.13] - Asse...
+FAILED tests/test_frames.py::TestWalkFrames::test_skip_null_code[3.14] - Asse...
+FAILED tests/test_frames.py::TestWalkFrames::test_skip_trampoline[3.11] - Ass...
+FAILED tests/test_frames.py::TestWalkFrames::test_skip_trampoline[3.12] - Ass...
+FAILED tests/test_frames.py::TestWalkFrames::test_skip_trampoline[3.13] - Ass...
+FAILED tests/test_frames.py::TestWalkFrames::test_skip_trampoline[3.14] - Ass...
+FAILED tests/test_frames.py::TestWalkFrames::test_trampoline_zero_does_not_skip[3.11]
+FAILED tests/test_frames.py::TestWalkFrames::test_trampoline_zero_does_not_skip[3.12]
+FAILED tests/test_frames.py::TestWalkFrames::test_trampoline_zero_does_not_skip[3.13]
+FAILED tests/test_frames.py::TestWalkFrames::test_trampoline_zero_does_not_skip[3.14]
+FAILED tests/test_frames.py::TestWalkFrames::test_circular_chain_hits_max[3.11]
+FAILED tests/test_frames.py::TestWalkFrames::test_circular_chain_hits_max[3.12]
+FAILED tests/test_frames.py::TestWalkFrames::test_circular_chain_hits_max[3.13]
+FAILED tests/test_frames.py::TestWalkFrames::test_circular_chain_hits_max[3.14]
+FAILED tests/test_frames.py::TestWalkFrames::test_stale_tail_frame_filtered[3.11]
+FAILED tests/test_frames.py::TestWalkFrames::test_stale_tail_frame_filtered[3.12]
+FAILED tests/test_frames.py::TestWalkFrames::test_stale_tail_frame_filtered[3.13]
+FAILED tests/test_frames.py::TestWalkFrames::test_stale_tail_frame_filtered[3.14]
+FAILED tests/test_frames.py::TestWalkFrames::test_code_header_unreadable_truncates[3.11]
+FAILED tests/test_frames.py::TestWalkFrames::test_code_header_unreadable_truncates[3.12]
+FAILED tests/test_frames.py::TestWalkFrames::test_code_header_unreadable_truncates[3.13]
+FAILED tests/test_frames.py::TestWalkFrames::test_code_header_unreadable_truncates[3.14]
+FAILED tests/test_names.py::TestHappyPathPerVersion::test_thread_name_resolved[3.11]
+FAILED tests/test_names.py::TestHappyPathPerVersion::test_thread_name_resolved[3.12]
+FAILED tests/test_names.py::TestHappyPathPerVersion::test_thread_name_resolved[3.13]
+FAILED tests/test_names.py::TestHappyPathPerVersion::test_thread_name_resolved[3.14]
+FAILED tests/test_names.py::TestHappyPathPerVersion::test_plain_instance_dict_via_tp_dictoffset
+FAILED tests/test_objects.py::TestReadLong::test_zero[3.11] - AssertionError:...
+FAILED tests/test_objects.py::TestReadLong::test_zero[3.12] - AssertionError:...
+FAILED tests/test_objects.py::TestReadLong::test_zero[3.13] - AssertionError:...
+FAILED tests/test_objects.py::TestReadLong::test_zero[3.14] - AssertionError:...
+FAILED tests/test_objects.py::TestReadLong::test_single_digit[3.11] - Asserti...
+FAILED tests/test_objects.py::TestReadLong::test_single_digit[3.12] - Asserti...
+FAILED tests/test_objects.py::TestReadLong::test_single_digit[3.13] - Asserti...
+FAILED tests/test_objects.py::TestReadLong::test_single_digit[3.14] - Asserti...
+FAILED tests/test_objects.py::TestReadLong::test_single_digit_max[3.11] - Ass...
+FAILED tests/test_objects.py::TestReadLong::test_single_digit_max[3.12] - Ass...
+FAILED tests/test_objects.py::TestReadLong::test_single_digit_max[3.13] - Ass...
+FAILED tests/test_objects.py::TestReadLong::test_single_digit_max[3.14] - Ass...
+FAILED tests/test_objects.py::TestReadLong::test_two_digit[3.11] - AssertionE...
+FAILED tests/test_objects.py::TestReadLong::test_two_digit[3.12] - AssertionE...
+FAILED tests/test_objects.py::TestReadLong::test_two_digit[3.13] - AssertionE...
+FAILED tests/test_objects.py::TestReadLong::test_two_digit[3.14] - AssertionE...
+FAILED tests/test_objects.py::TestReadLong::test_two_digit_large[3.11] - Asse...
+FAILED tests/test_objects.py::TestReadLong::test_two_digit_large[3.12] - Asse...
+FAILED tests/test_objects.py::TestReadLong::test_two_digit_large[3.13] - Asse...
+FAILED tests/test_objects.py::TestReadLong::test_two_digit_large[3.14] - Asse...
+FAILED tests/test_objects.py::TestReadBytes::test_normal[3.11] - AssertionErr...
+FAILED tests/test_objects.py::TestReadBytes::test_normal[3.12] - AssertionErr...
+FAILED tests/test_objects.py::TestReadBytes::test_normal[3.13] - AssertionErr...
+FAILED tests/test_objects.py::TestReadBytes::test_normal[3.14] - AssertionErr...
+FAILED tests/test_objects.py::TestReadBytes::test_empty[3.11] - AssertionErro...
+FAILED tests/test_objects.py::TestReadBytes::test_empty[3.12] - AssertionErro...
+FAILED tests/test_objects.py::TestReadBytes::test_empty[3.13] - AssertionErro...
+FAILED tests/test_objects.py::TestReadBytes::test_empty[3.14] - AssertionErro...
+FAILED tests/test_objects.py::TestReadUnicode::test_ascii_compact[3.11] - Ass...
+FAILED tests/test_objects.py::TestReadUnicode::test_ascii_compact[3.12] - Ass...
+FAILED tests/test_objects.py::TestReadUnicode::test_ascii_compact[3.13] - Ass...
+FAILED tests/test_objects.py::TestReadUnicode::test_ascii_compact[3.14] - Ass...
+FAILED tests/test_objects.py::TestReadUnicode::test_ascii_compact_empty[3.11]
+FAILED tests/test_objects.py::TestReadUnicode::test_ascii_compact_empty[3.12]
+FAILED tests/test_objects.py::TestReadUnicode::test_ascii_compact_empty[3.13]
+FAILED tests/test_objects.py::TestReadUnicode::test_ascii_compact_empty[3.14]
+FAILED tests/test_objects.py::TestReadUnicode::test_utf16_compact[3.11] - Ass...
+FAILED tests/test_objects.py::TestReadUnicode::test_utf16_compact[3.12] - Ass...
+FAILED tests/test_objects.py::TestReadUnicode::test_utf16_compact[3.13] - Ass...
+FAILED tests/test_objects.py::TestReadUnicode::test_utf16_compact[3.14] - Ass...
+FAILED tests/test_objects.py::TestReadUnicode::test_latin1_compact[3.11] - As...
+FAILED tests/test_objects.py::TestReadUnicode::test_latin1_compact[3.12] - As...
+FAILED tests/test_objects.py::TestReadUnicode::test_latin1_compact[3.13] - As...
+FAILED tests/test_objects.py::TestReadUnicode::test_latin1_compact[3.14] - As...
+FAILED tests/test_objects.py::TestReadUnicode::test_utf32_compact[3.11] - Ass...
+FAILED tests/test_objects.py::TestReadUnicode::test_utf32_compact[3.12] - Ass...
+FAILED tests/test_objects.py::TestReadUnicode::test_utf32_compact[3.13] - Ass...
+FAILED tests/test_objects.py::TestReadUnicode::test_utf32_compact[3.14] - Ass...
+FAILED tests/test_objects.py::TestReadUnicode::test_non_compact[3.11] - Asser...
+FAILED tests/test_objects.py::TestReadUnicode::test_non_compact[3.12] - Asser...
+FAILED tests/test_objects.py::TestReadUnicode::test_non_compact[3.13] - Asser...
+FAILED tests/test_objects.py::TestReadUnicode::test_non_compact[3.14] - Asser...
+FAILED tests/test_runtime.py::TestResolveInterpreter::test_main_preferred[3.11]
+FAILED tests/test_runtime.py::TestResolveInterpreter::test_main_preferred[3.12]
+FAILED tests/test_runtime.py::TestResolveInterpreter::test_main_preferred[3.13]
+FAILED tests/test_runtime.py::TestResolveInterpreter::test_main_preferred[3.14]
+FAILED tests/test_runtime.py::TestResolveInterpreter::test_head_fallback[3.11]
+FAILED tests/test_runtime.py::TestResolveInterpreter::test_head_fallback[3.12]
+FAILED tests/test_runtime.py::TestResolveInterpreter::test_head_fallback[3.13]
+FAILED tests/test_runtime.py::TestResolveInterpreter::test_head_fallback[3.14]
+FAILED tests/test_runtime.py::TestResolveInterpreter::test_both_zero_raises[3.11]
+FAILED tests/test_runtime.py::TestResolveInterpreter::test_both_zero_raises[3.12]
+FAILED tests/test_runtime.py::TestResolveInterpreter::test_both_zero_raises[3.13]
+FAILED tests/test_runtime.py::TestResolveInterpreter::test_both_zero_raises[3.14]
+FAILED tests/test_runtime.py::TestResolveInterpreter::test_unreadable_raises[3.11]
+FAILED tests/test_runtime.py::TestResolveInterpreter::test_unreadable_raises[3.12]
+FAILED tests/test_runtime.py::TestResolveInterpreter::test_unreadable_raises[3.13]
+FAILED tests/test_runtime.py::TestResolveInterpreter::test_unreadable_raises[3.14]
+FAILED tests/test_runtime.py::TestResolveTrampoline::test_312_reads_value - A...
+FAILED tests/test_runtime.py::TestReadThreadChain::test_walks_all_threads[3.11]
+FAILED tests/test_runtime.py::TestReadThreadChain::test_walks_all_threads[3.12]
+FAILED tests/test_runtime.py::TestReadThreadChain::test_walks_all_threads[3.13]
+FAILED tests/test_runtime.py::TestReadThreadChain::test_walks_all_threads[3.14]
+FAILED tests/test_runtime.py::TestReadThreadChain::test_head_unreadable_raises_no_thread_state[3.11]
+FAILED tests/test_runtime.py::TestReadThreadChain::test_head_unreadable_raises_no_thread_state[3.12]
+FAILED tests/test_runtime.py::TestReadThreadChain::test_head_unreadable_raises_no_thread_state[3.13]
+FAILED tests/test_runtime.py::TestReadThreadChain::test_head_unreadable_raises_no_thread_state[3.14]
+FAILED tests/test_runtime.py::TestReadThreadChain::test_mid_chain_unreadable_truncates[3.11]
+FAILED tests/test_runtime.py::TestReadThreadChain::test_mid_chain_unreadable_truncates[3.12]
+FAILED tests/test_runtime.py::TestReadThreadChain::test_mid_chain_unreadable_truncates[3.13]
+FAILED tests/test_runtime.py::TestReadThreadChain::test_mid_chain_unreadable_truncates[3.14]
+FAILED tests/test_runtime.py::TestReadThreadChain::test_max_threads_cap[3.11]
+FAILED tests/test_runtime.py::TestReadThreadChain::test_max_threads_cap[3.12]
+FAILED tests/test_runtime.py::TestReadThreadChain::test_max_threads_cap[3.13]
+FAILED tests/test_runtime.py::TestReadThreadChain::test_max_threads_cap[3.14]
+FAILED tests/test_runtime.py::TestCurrentFrameOf::test_direct_field_313_plus
+FAILED tests/test_runtime.py::TestCurrentFrameOf::test_cframe_indirection_311_312
+================ 161 failed, 445 passed, 1 deselected in 1.18s =================

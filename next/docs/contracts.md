@@ -262,12 +262,102 @@ A5 落地后 dto 不再依赖颜色（2026-10 批次 1 契约细化，修订 TOD
 
 | 模块 | 职责 | 公开 API | 行为点清单 |
 |------|------|----------|------------|
-| `cpython/objects.py` | PyLong/Unicode/Bytes typed reader | TBD | TBD |
-| `cpython/dicts.py` | 字典遍历（split/combined 表） | TBD | TBD |
-| `cpython/code.py` | Code 对象与 linetable | TBD | TBD |
-| `cpython/frames.py` | Frame 遍历 | TBD | TBD |
-| `cpython/runtime.py` | InterpreterState/ThreadState 图遍历 | TBD | TBD |
-| `cpython/names.py` | 线程名等辅助 | TBD | TBD |
+| `cpython/objects.py` | PyLong/Unicode/Bytes typed reader | `read_long(view, layout, addr) -> int \| None`；`read_bytes(...) -> bytes \| None`；`read_unicode(...) -> str \| None`；`MAX_STR_LEN` | 见 §5.1 批 3 表 |
+| `cpython/dicts.py` | 字典遍历（combined/unicode/split/managed） | `DictReader(view, layout)`（`.from_dict`/`.from_managed_values`/`.next`） | 同上 |
+| `cpython/code.py` | Code 对象头与 linetable | `read_code_header(view, layout, code_addr) -> CodeHeader \| None`；`addr2line(view, layout, code_addr, lasti, firstlineno) -> int`；纯函数 `line_for_offset(linetable, lasti, firstlineno) -> int` | 同上 |
+| `cpython/frames.py` | 帧链遍历 | `walk_frames(view, layout, frame_addr, trampoline_addr) -> list[dto.FrameInfo]`；`MAX_FRAMES` | 同上 |
+| `cpython/runtime.py` | 解释器/线程图遍历 | `resolve_interpreter(view, layout, runtime_addr) -> int`；`resolve_trampoline(view, layout, interp_addr) -> int`；`read_thread_chain(view, layout, interp_addr) -> list[ThreadStateRef]`；`current_frame_of(view, layout, tstate_addr) -> int`；`MAX_THREADS` | 同上 |
+| `cpython/names.py` | 线程名（threading._active 遍历） | `get_thread_names(view, layout, interp_addr) -> dict[int, str]` | 同上 |
+
+A3 约束全批适用：**遍历代码零裸偏移运算**——所有偏移经 `layout.get/get_or` 在 typed
+reader 内部消费；跨度装配（如 CodeObject 头、ThreadState 字段簇的单次合并读）归对应
+模块内部实现，对外只暴露类型化字段。版本差异只住 Layout（`get_or` 分支探针）。
+
+#### 批 3 行为点清单（§5.1 实例）
+
+**cpython/objects.py**（旧 `pyobject.py`；MAX_STR_LEN=1<<20 从旧 memory.py 迁入——它是
+远程对象尺寸的合理性上界，属对象层策略）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| O1 | read_long 3.12+：lv_tag 高位包 digit 数（size=tag>>3）；tag 读失败 → None | test_zero/single/two_digit | test_objects.py（版本矩阵 3.12–3.14） |
+| O2 | read_long 3.11：ob_size 为普通计数（get_or 回退链 long_value.ob_digit→ob_digit；lv_tag 缺席走此分支） | （旧 L36-39） | 同（3.11） |
+| O3 | size==0 → 0；size==1 → 单 digit（digit 读失败传播 None——旧 L44-45 语义） | test_zero/test_single_digit | 同 |
+| O4 | size==2 → d0 \| d1<<30；任一 digit 失败 → None | test_two_digit/test_two_digit_large | 同 |
+| O5 | size>2 → None（超出支持范围，不猜值） | test_too_large_returns_none | 同 |
+| O6 | read_bytes：ob_size 上界 MAX_STR_LEN；数据读失败 → None；**A7 琐碎项落地：删除旧 `size < 0` 死检查**（read_u64 无符号） | test_pybytes 全量 | 同 |
+| O7 | read_unicode：ASCII 头短读 → None；length<0 或 >MAX_STR_LEN → None | test_unreadable/oversize | 同 |
+| O8 | state 字节位布局：compact=bit5、is_ascii=bit6、kind=bits2-4 | （旧 L78-81） | 同（各变体覆盖） |
+| O9 | compact+ascii：数据 addr+ascii_sz，ascii/replace 解码 | test_ascii_compact 三条 | 同 |
+| O10 | compact 非 ascii：数据 addr+compact_sz；kind→(latin-1,1)/(utf-16-le,2)/(utf-32-le,4)；未知 kind → None | test_utf16_compact | 同（kind 矩阵） |
+| O11 | 非 compact：data_any 指针；NULL → None；按 kind 解码 | test_non_compact/null_data_ptr | 同 |
+
+**cpython/dicts.py**（旧 `dict_iter.py`；`DictReader(view, layout)` 绑定布局）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| DI1 | from_dict：ma_keys==0 → False；dict 头不可读 → False | test_null_keys/unreadable_dict | test_dicts.py |
+| DI2 | keys 头解析：dk_log2_index_bytes/dk_kind/dk_nentries；kind==0 → KeyEntry(24B, key_off=8)，否则 UnicodeEntry(16B, key_off=0) | TestFromDictCombined/Unicode | 同（版本矩阵） |
+| DI3 | entries 基址 = keys_addr + (1<<dk_log2) + dictkeysobject_size；整块预读（0<total≤MAX_STR_LEN，否则 b""；读失败 → b""） | （旧 L39-48） | 同 |
+| DI4 | next：跳过 k==0 空洞；split（values≠0）时 v=read_ptr(values+idx*8)，失败跳过；耗尽 → None | test_skip_holes/test_split_values | 同 |
+| DI5 | from_managed_values：ht_cached_keys 读失败/为 0 → False；成功路径 values 来自独立数组 | test_from_managed_values | 同 |
+
+**cpython/code.py**（旧 `linetable.py` + stack_dump 内 CodeObject 头读取；纯/侧效分离是 spec-oracle 前提）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| C1 | 纯函数 line_for_offset：PEP 626 解码——首字节 bit7 为条目标记；code=(b>>3)&15；15→无行号（ar_line=-1）；13/14→CPython signed varint（6 位块、bit6 续位；奇 uval 取 -(uval>>1)、偶取 uval>>1，**非 zigzag**——scan_signed_varint 权威语义，批次 3 验收经 C7 oracle 实证修正措辞）；10→+0、11→+1、12→+2；ar_end += ((b&7)+1)*2；续行字节（bit7==0）跳过 | TestAddr2Line 全量 | test_code.py |
+| C2 | lasti 超出表末 → 最后计算行（循环 ar_end<=lasti 终止语义） | test_lasti_beyond_table | 同 |
+| C3 | 无行号条目/空表 → firstlineno 回退 | test_all_no_line/no_line_entry/empty | 同 |
+| C4 | addr2line 包装：co_linetable 指针或 bytes 读失败 → firstlineno | test_no_line_table/unreadable | 同 |
+| C5 | read_code_header：co_firstlineno/co_filename/co_name 跨度合并读归本模块（A3：frames 不见 co_lo/co_hi 心算）；读失败 → None | （旧 stack_dump L58-94） | 同 |
+| C6 | lasti = prev_instr − (code+co_code_adaptive)，负值钳 0（旧 stack_dump L100-102；配合 C1 对 lasti=0 的定义行为） | test_negative_lasti_treated_as_zero | 同 |
+| C7 | **spec-oracle**：line_for_offset vs CPython `co_lines()` 地面真值——真实函数集（多行/无行号事件/嵌套）全指令偏移逐点一致（§10.2-1） | （新增，2026-10 审查验证过的方法） | 同 |
+
+**cpython/frames.py**（旧 `stack_dump.collect_frames`；返回 dto.FrameInfo）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| F1 | 帧字段簇单次合并读（f_code/previous/prev_instr，帧宽=prev_instr_off+8 由 layout 导出）；不可读 → 终止 | test_unreadable_frame | test_frames.py（版本矩阵） |
+| F2 | frame_addr==0 终止；MAX_FRAMES=100 上限（环形链防护） | test_null_frame/circular_chain | 同 |
+| F3 | f_code==0 → 跳过续走 previous | test_skip_null_code | 同 |
+| F4 | trampoline_addr≠0 且 f_code==trampoline → 跳过；trampoline==0 不跳过 | test_skip_trampoline/zero | 同 |
+| F5 | code 头读失败 → 终止（截断已收集帧） | （旧 L82-84） | 同 |
+| F6 | name/filename 地址为 0 → None；两者皆 None → 陈旧尾帧终止（3.13 datastack 残留教训，注释保留） | test_stale_tail_frame_filtered/none_name | 同 |
+| F7 | 返回 FrameInfo 列表，内层在前 | test_single/two_frame_chain | 同 |
+| F8 | 行号经 code.addr2line（lasti 钳位 C6） | （旧 L104） | 同（含行号断言） |
+
+**cpython/runtime.py**（旧 `stack_dump.read_thread_chain`/`collect_thread` 的帧指针解析段 + `process.resolve_process` 的解释器/蹦床段）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| R1 | threads.head 读失败 → NoThreadState("failed to read threads.head")（消息复刻） | （旧 L214-215） | test_runtime.py |
+| R2 | 链走：tstate 字段簇合并读（ts_lo..ts_hi 由 layout 导出）；不可读 → 截断返回已收集 | （旧 L224-227） | 同 |
+| R3 | ThreadStateRef(tstate_addr, thread_id, native_tid)；MAX_THREADS=256 上限；next==0 终止 | （旧 L224-245） | 同（含上限） |
+| R4 | current_frame_of：layout 探针 ThreadState.current_frame 直达（3.13/3.14）vs cframe→CFrame.current_frame 间接（3.11/3.12）；cframe==0 → 0 | test_null_cframe/test_build_threadinfo | 同（版本分支成对） |
+| R5 | resolve_interpreter：main→head 回退；均失败 → NoInterpreterState() | （旧 process.py L96-104） | 同 |
+| R6 | resolve_trampoline：get_or 缺席 → 0；读失败 → 0（3.12 专有键） | （旧 process.py L106-113） | 同（3.12 有值/3.13 为 0 成对） |
+
+**cpython/names.py**（旧 `thread_names.py` 全量；任何失败 → 部分/空 dict，不抛）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| N1 | sys.modules 定位：3.12 走 InterpreterState.imports+_import_state.modules 直针；其余版本走 sysdict 字典找 "modules" 键 | （旧 L36-46 + _find_sys_modules） | test_names.py（版本分支成对） |
+| N2 | modules 字典找 "threading" 模块；找不到 → 空 dict | （旧 L48-59） | 同 |
+| N3 | 模块 __dict__：ob_type→tp_dictoffset→value+dictoffset；dictoffset==0/读失败 → 空 | （旧 L61-70） | 同 |
+| N4 | "_active" 字典：键 read_long → tid；读失败跳过 | （旧 L85-95） | 同 |
+| N5 | 实例字典解析（MANAGED_DICT 分支矩阵）：3.11 obj-3 dict 槽 / obj+pre_values 非标记 values；3.12 tagged&1 内联 values；3.13/3.14 tagged==0 → 对象内嵌（PyObject_size+dictvalues_header）；3.12 tagged==0 → False（dictvalues_header=0）；非 managed → tp_dictoffset | （旧 _get_instance_dict_iter 全量） | 同（3.11/3.12/3.13 三分支 + 非 managed） |
+| N6 | "_name" 属性 read_unicode → names[tid]；None 跳过 | （旧 L107-113） | 同 |
+
+#### 批 3 旧测试标注（§5.2 实例）
+
+| 旧测试文件 | 覆盖判定 | 放弃理由 |
+|------------|----------|----------|
+| tests/test_pyobject.py | 已覆盖（test_objects.py；O6 死检查删除入契约） | — |
+| tests/test_dict_iter.py | 已覆盖（test_dicts.py，构造器改 Layout 驱动） | — |
+| tests/test_linetable.py | 已覆盖（test_code.py；另增 C7 spec-oracle——旧树只有手工构造 linetable，无 CPython 地面真值对照） | — |
+| tests/test_stack_dump.py | 帧/线程链部分已覆盖（test_frames/test_runtime）；idle 启发式、collect_thread、format/CLI 部分属批次 4/6 | 分层后职责在 observe/present |
+| tests/test_thread_names.py | （不存在——旧树 names 仅集成测试覆盖） | 批次 3 新增单元级覆盖（test_names.py），集成验证批次 4 端到端 |
 
 ### 批次 4 — `observe/`（首个端到端里程碑：snapshot 对 live target 出栈）
 
