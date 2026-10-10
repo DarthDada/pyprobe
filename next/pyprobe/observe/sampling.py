@@ -22,6 +22,10 @@ class Sampler:
     def __init__(self, pid: int, *, view_factory=None):
         self.pid = pid
         self.session = open_session(pid, view_factory=view_factory)
+        # 消费方面子集（dump_record/dump_top 经此读 proc_info；旧树
+        # sampler.proc_info 同款公开属性——批次 6 验收补登，缺它在
+        # live 路径即 AttributeError）。
+        self.proc_info = self.session.proc_info
 
     def sample(self):
         """Take one snapshot of all threads (SA1–SA4, SA6).

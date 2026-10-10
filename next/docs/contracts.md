@@ -365,7 +365,7 @@ reader 内部消费；跨度装配（如 CodeObject 头、ThreadState 字段簇�
 |------|------|----------|------------|
 | `observe/session.py` | 观测会话：进程存活期不变量一次性解析 + view 工厂注入 | `Session`（pid/exe_path/runtime_addr/interp_addr/trampoline_addr/layout/proc_info/names/version_warning/view_factory）；`open_session(pid, *, view_factory=None) -> Session` | 见 §5.1 批 4 表 |
 | `observe/snapshot.py` | 单次快照栈采集 + 空闲双启发式 | `collect_snapshot(session) -> list[dto.ThreadInfo]`；`build_thread(...)`；`is_thread_idle_by_stat(pid, tid)`；`is_thread_idle_by_frames(frames)` | 同上 |
-| `observe/sampling.py` | 采样器（热路径） | `Sampler(pid, *, view_factory=None)`（`.sample()`/`.refresh_names()`；`.session`） | 同上 |
+| `observe/sampling.py` | 采样器（热路径） | `Sampler(pid, *, view_factory=None)`（`.sample()`/`.refresh_names()`；`.session`；`.proc_info`——批次 6 验收补登：dump 层消费面，旧树同款公开属性） | 同上 |
 | `observe/profile.py` | record 折叠栈聚合 | `fold_key(thread) -> str`；`collect_profile(pid, *, rate=50, duration=None, sampler_factory=Sampler) -> dto.ProfileData` | 同上 |
 | `observe/topstats.py` | top 增量聚合（A7 P0-1 修复；纯数据，render 归 present） | `TopStats`（`.update(threads)`；状态：own/total/samples/idle_samples/current/idle_threads） | 同上 |
 | `kernel/procfs.py`（增补） | /proc stat 状态字段 | `read_stat_state(pid, tid) -> str \| None` | P6（见批 4 表） |
@@ -473,6 +473,7 @@ SnapshotView（单次快照语义），长时追踪（批次 5 syscalls）用 Li
 | SY11 | **spec-oracle**：SYSCALL_NAMES 全量 vs /usr/include/x86_64-linux-gnu/asm/unistd_64.h 解析（§10.2-1；头文件缺失 skip）；OPEN/MAP/PROT flags 抽样 vs fcntl.h/mman.h | （新增，§10.2-1） | 同 |
 | SY12 | **spec-oracle**：渲染样例 vs strace 真实输出（§10.2-1；ptrace_scope=1 下 strace 包裹同一程序的独立实例——兄弟进程非祖先后不可 attach）。**归一化的是文档化差异而非行为差异**（§10.3 复刻约束）：pyprobe 全显 6 参数、timespec 无名花括号、常量数值渲染；strace 按真实元数、{tv_sec=…} 具名、常量名解码——归一化规则在测试中（§10.7：oracle 归一化属主代理资产） | （新增，§10.2-1） | 同（integration） |
 | SY13 | 集成：collect_syscalls 对 fast-syscall target（0.2s 级 nanosleep，**§10.2-7 fast target 子项落地**）捕获 clock_nanosleep 且 elapsed≥0.1 | test_collect_returns_events/clock_nanosleep_captured | 同（integration，≤15s 预算） |
+| SY14 | **批次 6 契约增补**：`collect_syscalls(..., on_event=None)`——发射即回调（dump 层流式输出与 KeyboardInterrupt 部分结果的通道；默认 None 不改变批 5 语义） | （旧 SyscallTracer.run 的 on_event 语义） | test_syscalls.py 增补 + DP3 |
 
 **observe/native.py**（旧 `native_dump.py` collect 侧；format/dump 归批次 6；A2 迁移使 native 行为有变，§10.5-1 的 `stack --native --json` 旧新差异对比为其强制验证项（批 7 出口））
 
@@ -501,10 +502,86 @@ SnapshotView（单次快照语义），长时追踪（批次 5 syscalls）用 Li
 
 | 模块 | 职责 | 公开 API | 行为点清单 |
 |------|------|----------|------------|
-| `present/text.py` | 全部文本格式化（A5 落地） | TBD | TBD |
-| `present/jsonout.py` | JSON 输出（schema 复刻约束） | TBD | TBD |
-| `present/color.py` | 颜色策略（A6 保留） | TBD | TBD |
-| `cli.py` | argparse 薄壳 | TBD | TBD |
+| `present/color.py` | 颜色策略（A6 保留，clicolors 规则；仅 present/cli 可引用，A8 细化） | `RESET/BOLD/DIM/RED/GREEN/YELLOW/CYAN`；`yellow_bold/green/cyan/dim/red(text, color=False)`；`should_color(stream)` | 见 §5.1 批 6 表 |
+| `present/text.py` | 全部文本格式化（A5 落地；旧 types.format()、stack_dump/native_dump/record/top/syscall_render 的 format 侧全收） | `format_frame/frame 等帧/线程/进程头`、`format_process`、`format_native`、`format_syscall_event`、`format_summary`（+`SyscallStat`）、`format_folded`、`render_top(stats, proc_info, *, elapsed, color, top_n)`；`HIDE_CURSOR/SHOW_CURSOR/CLEAR_SCREEN`；`_shorten_path`；errno 名/描述表 | 同上 |
+| `present/jsonout.py` | JSON 输出（schema 复刻约束） | `format_process_json`、`format_native_json`、`format_syscalls_json` | 同上 |
+| `present/dumps.py` | dump_* 编排（批次 6 契约增补：collect + 颜色决策 + 打印 + 退出码 + 版本警告 surfacing；cli 保持纯 argparse 薄壳） | `dump_python/dump_native/dump_syscalls/dump_record/dump_top` | 同上 |
+| `cli.py` + `__main__.py` | argparse 薄壳（A6 保留） | `build_parser()`；`main(argv=None) -> int` | 同上 |
+| `__init__.py` + `offsets.py` facade | 库 API 面（§10.5-2 预落地：__all__ 名单一致 + resolve_layout 例外） | 旧 `__all__` 全名（绑定新实现）+ `resolve_layout` | 同上 |
+
+#### 批 6 行为点清单（§5.1 实例）
+
+**present/color.py**（旧 `colors.py` 逐字语义）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| CL1 | color=False 恒等返回（非着色路径与无颜色输出逐字节一致） | TestHelpersIdentity | test_color.py |
+| CL2 | 五色包装：yellow_bold=BOLD+YELLOW（PID/TID）、green（函数/符号）、cyan（文件/模块）、dim（行号/PC/idle 标记）、red（错误行）；空串照包 | TestHelpersWrap 全量 | 同 |
+| CL3 | should_color 优先级（clicolors spec）：CLICOLOR_FORCE≠"0"→True（压 NO_COLOR/非 tty）；NO_COLOR 非空→False（空串不失效）；非 tty→False；TERM=dumb→False；CLICOLOR=="0"→False；否则 True | TestShouldColor 全量 10 条 | 同 |
+
+**present/text.py**（A5 落地——旧 `types.py` format 方法 + `stack_dump.format_process` + `native_dump.format_native` + `record.format_folded` + `top.TopStats.render` + `syscall_render.format_summary`；errno 表与 _shorten_path 自 types.py 迁入）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| TX1 | 帧行：`  #<i> <name\|?> (<filename\|?>:<line>)`；非 verbose 路径末 2 级缩短（**复刻约束 Python 帧末 2 级**）、verbose 全路径；≤2 级不动；颜色包装点位 | TestFrameInfo 全量 9 条 | test_text.py |
+| TX2 | 线程块：`Thread <tid>[ (idle)][: "name"]` + 帧行；无帧 → `  (no Python frame — thread may be in C code or idle)`；颜色点位 | TestThreadInfo 全量 10 条 | 同 |
+| TX3 | 进程头：`Process <pid>: <cmdline>\nPython v<ver> (<exe>)\n` | TestProcessInfo 2 条 | 同 |
+| TX4 | format_process：进程头 + 逐线程块 + 空行分隔 | TestFormatProcess 5 条 | 同 |
+| TX5 | native 线程：`Thread <i> (LWP <tid>) "<comm>":`；帧 `  #<j>  0x<pc16> in <sym> () [from <module>]`；非 verbose 模块 basename（**复刻约束 native basename**）；unwind_failed 且无帧 → red "Backtrace stopped: Cannot access memory at address 0x0" | TestNativeFrame 全量 7 条 | 同 |
+| TX6 | syscall 事件行：`<tid>  <name>(<rendered>) = <ret>`；error → `= -1 <ENAME> (<edesc>)`（未知 errno → ERRNO_<n>/Unknown error）；elapsed 非 0 → ` <0.000123>`（**复刻约束 elapsed 格式**）；errno 名/描述表自旧 types.py 逐字 | TestSyscallEvent 全量 9 条 | 同 |
+| TX7 | format_summary：表头列 `syscall/calls/errors/total/total/s/per-call`（**复刻约束 total/s 列**）、82 连字符分隔、按 total_time 降序、总计行；SyscallStat 累加器 | TestFormatSummary 5 条 | 同 |
+| TX8 | format_folded：计数降序 + 键升序确定性排序；空 → ""；单行尾换行 | TestFormatFolded 3 条 | 同 |
+| TX9 | render_top：进程头 rstrip + `Elapsed <t>s \| <n> samples (idle <m>)` + Active 表（OWN% 按顶帧计）+ Idle threads 行 + Top functions 表（own%/total%/time 列、top_n 截断）；**A7 P1-8 修复：无名顶帧 OWN% 以 "?" 归一查表（旧用 frame.name=None 查询恒 0）** | TestRender 4 条 +（旧 §9 P1-8） | 同（新增无名帧 OWN% 非 0 守护） |
+| TX10 | 终端控制序列：HIDE_CURSOR/SHOW_CURSOR/CLEAR_SCREEN 逐字 | （旧 top.py L21-23） | 同（常量 pin） |
+
+**present/jsonout.py**（旧三处 json 输出合并；schema 复刻约束）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| JS1 | 三函数均 `json.dumps(asdict, indent=2, ensure_ascii=False) + "\n"`；键集 = dto asdict（D1 已 pin 的数据面，此处 pin 包装形态） | test_json_output.py 结构断言 | test_jsonout.py |
+| JS2 | format_process_json：{"process":…,"threads":[…]}；format_native_json：process 仅 pid/cmdline（无 Python 元数据——旧注释语义）；format_syscalls_json：{"events":[…]} | 同上 | 同 |
+
+**present/dumps.py**（旧各 dump_* 编排段；collect/format/dump 三层契约的 dump 层）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| DP1 | 错误打印：`[!] <err>` 经 red 到 stderr，rc=1；颜色按流独立判定（stdout/stderr 各自 should_color；--color 强制时两流一致） | TestDumpPythonCli/TestDumpNativeCli 全量 | test_dumps.py |
+| DP2 | dump_python：版本警告先于线程收集打印（警告是后续失败根因，不得被提前 return 吞掉——旧 stack_dump L338-342 语义）；JSON 时无警告色、走 jsonout | test_version_warning_printed_when_thread_collection_fails | 同 |
+| DP3 | dump_syscalls：attach 失败捕获（AttachFailed/ProcessNotFound/UnsupportedArchitecture）→ rc=1；流式打印（非 summary/json 时逐事件 ev 行）；KeyboardInterrupt 仍出 summary；json 优先于 summary 且永不着色 | （旧 dump_syscalls 语义 + test_cli 间接） | 同 |
+| DP4 | dump_record：folded 文本只去 stdout（或 -o 文件），进度/摘要 `[i] pyprobe recorded …` 只去 stderr（管道洁净，复刻约束）；版本警告打印；目标错误 rc=1 | TestDumpRecord 3 条 | 同 |
+| DP5 | dump_top：非 tty → 提示 + **rc=2**（非交互无降级，README 承诺）；正常退出（Ctrl-C/ProcessExited）rc=0 且恢复光标（finally SHOW_CURSOR）；启动即渲染首屏（不等首个 interval）；摘要 `[i] pyprobe top: …` 到 stderr | TestDumpTop 5 条 | 同 |
+
+**cli.py**（旧 `cli.py` 逐字结构；A6 薄壳）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| CLI1 | 四子命令分发与全部选项形态（-p/--pid、--native、-v、--json、--color auto/always/never、-e/--trace、--max-events、--summary/-json 互斥、-r/--rate、-d/--duration、-o/--output、-i/--interval）；`trace=` 前缀剥离（strace 兼容） | test_cli.py 全量 ~50 条 | test_cli.py（复刻） |
+| CLI2 | 参数错误：缺子命令/未知子命令/缺 pid/pid 非整数/rate、duration、interval 越界（`_positive_float(lo,hi]` 消息形态）→ SystemExit 2 | TestArgumentErrors 等 | 同 |
+| CLI3 | --version 输出 `pyprobe <版本>`（importlib.metadata，失败回退 0.0.0+unknown） | TestVersion | 同 |
+| CLI4 | 退出码透传 dump_* 返回值 | （旧 main 语义） | 同 |
+
+**API 面与打包**（§10.5-2 预落地 + package-data）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| API1 | `__all__` 与旧树名单**逐项一致**（名单 pin 在测试中）+ 显式例外 `resolve_layout`；star-import 全部可解析 | test_api_exports.py 2 条 +（§10.5-2） | test_api_exports.py |
+| API2 | 兼容映射：dto 七类型、errors 十异常、collect_python（open_session+collect_snapshot 组合）、collect_native/collect_syscalls/collect_profile/Sampler/TopStats/TraceFilter/SyscallStat、format_*/dump_*（present）、ProcessSession=Session、resolve_process=open_session、collect_frames=walk_frames、collect_thread=build_thread、read_thread_chain、is_thread_idle_by_stat、DEFAULT_VERSION、offsets（facade 模块）、colors（=present.color） | （§10.5-2） | 同（语义抽查） |
+| API3 | offsets facade：`get`/`get_or`/`DEFAULT_VERSION`/`supported_versions`/`resolve_layout` 只读可用（默认布局为 DEFAULT_VERSION 的不可变 Layout——无 configure 全局副作用；新代码不得引用，结构测试守护） | （旧 offsets.get 常用面） | 同 |
+| PK1 | wheel 打包含 `pyprobe/offsets.json` 与全部子包（setuptools find + package-data；§10.6-3 smoke 的前置验证——本批以构建产物检查落地） | （§10.6-3 前置） | 打包脚本验证（验收记录） |
+
+#### 批 6 旧测试标注（§5.2 实例）
+
+| 旧测试文件 | 覆盖判定 | 放弃理由 |
+|------------|----------|----------|
+| tests/test_types.py | format 部分已覆盖（test_text TX1/2/3/5/6）；dataclass 数据部分批次 1 已覆盖（test_dto） | A5：format() 自 dto 剥离 |
+| tests/test_colors.py | 已覆盖（test_color CL1–CL3） | — |
+| tests/test_stack_dump.py::TestFormatProcess | 已覆盖（TX4） | — |
+| tests/test_record.py::TestFormatFolded | 已覆盖（TX8） | — |
+| tests/test_top.py::TestRender/TestDumpTop | 已覆盖（TX9/DP5，含 A7 P1-8 修复守护） | — |
+| tests/test_syscall_render.py::TestFormatSummary | 已覆盖（TX7） | — |
+| tests/test_json_output.py | 已覆盖（test_jsonout JS1/JS2） | — |
+| tests/test_cli.py | 已覆盖（test_cli CLI1–CLI3 复刻） | — |
+| tests/test_api_exports.py | 已覆盖（test_api_exports API1/2，名单 pin 强化） | — |
 
 ## 5. 行为点清单机制（§10.3 落地模板）
 

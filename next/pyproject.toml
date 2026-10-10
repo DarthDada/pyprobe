@@ -21,8 +21,9 @@ build-backend = "setuptools.build_meta"
 name = "pyprobe"
 version = "0.1.0"
 description = "CPython out-of-process inspection toolset (stack, memory, CPU)"
-readme = "../README.md"
 requires-python = ">=3.11"
+# readme 故意缺席：setuptools 不允许引用项目根之外的 ../README.md；
+# §10.6-2 替换为本文件成为根 pyproject 时恢复 readme = "README.md"。
 
 [project.scripts]
 pyprobe = "pyprobe.cli:main"

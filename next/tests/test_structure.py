@@ -19,7 +19,8 @@ PKG = Path(__file__).resolve().parent.parent / "pyprobe"
 
 LAYERS = ["kernel", "target", "cpython", "observe", "present"]
 CROSS_CUTTING = {"errors", "dto"}
-TOP_LEVELS = set(LAYERS) | CROSS_CUTTING | {"cli", "__main__"}
+TOP_LEVELS = set(LAYERS) | CROSS_CUTTING | {"cli", "__main__", "offsets",
+                                            "colors"}
 
 
 def _rank(name: str) -> int | None:
@@ -101,4 +102,19 @@ def test_every_import_target_is_known():
             top = imp.removeprefix("pyprobe").lstrip(".").split(".")[0]
             if top and top not in TOP_LEVELS:
                 violations.append(f"{path.relative_to(PKG)}: unknown {imp}")
+    assert violations == []
+
+
+def test_layers_do_not_import_offsets_facade():
+    """API3 守护：除包根 __init__.py（facade 的再出口点）外，任何模块
+    不得 import pyprobe.offsets 兼容门面——新代码必须经 target/layout.py
+    显式取 Layout，防全局单例借 facade 还魂（A1 的根治对象）。"""
+    violations = []
+    for path in _iter_modules():
+        rel = path.relative_to(PKG)
+        if rel.name == "__init__.py" and len(rel.parts) == 1:
+            continue  # 包根：facade 的唯一合法再出口点
+        for imp in _pyprobe_imports(path):
+            if imp == "pyprobe.offsets" or imp.startswith("pyprobe.offsets."):
+                violations.append(f"{rel}: imports offsets facade")
     assert violations == []

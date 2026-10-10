@@ -124,11 +124,11 @@
 ### 10.1 架构决策记录（ADR——重构允许的全部架构变更）
 
 - [x] A1. **Layout 值对象化**（吞并 §8.1）：`resolve_layout(version) -> Layout` 显式传递，消灭 `_active` 全局单例与读路径副作用；可同时观测不同 CPython 版本进程；dev override（offsets.json）语义保留（批次 2 落地 `target/layout.py`；旧 `configure()` 抛异常语义改为 `Layout.verified` 标记，警告组装归批次 4 session）
-- [ ] A2. **ptrace 统一引擎**（`kernel/ptrace.py`）：一套 seize/interrupt/wait 状态机 + GETREGS + detach，syscall 追踪与 native 回溯共享；native 侧 ATTACH→SEIZE（与 design.md §14.2 相同的安全 detach 理由）；消灭 native_dump 与 syscall_tracer 两套 attach 逻辑
+- [x] A2. **ptrace 统一引擎**（`kernel/ptrace.py`）：一套 seize/interrupt/wait 状态机 + GETREGS + detach，syscall 追踪与 native 回溯共享；native 侧 ATTACH→SEIZE（与 design.md §14.2 相同的安全 detach 理由）；消灭 native_dump 与 syscall_tracer 两套 attach 逻辑（批次 1 引擎、批次 5 双消费方落地；`stack --native --json` 旧新差异对比留批 7 强制验证）
 - [x] A3. **CPython 对象模型层**（`cpython/`）：PyLong/Unicode/Bytes/Dict/Code/Frame/ThreadState/InterpreterState 各有绑定 Layout 的 typed reader；遍历代码零裸偏移运算（消灭 stack_dump 内 co_lo/co_hi 式跨度心算），版本差异只住 Layout（批次 3 落地）
 - [x] A4. **内存视图分离**：`SnapshotView`（页级 LRU，单次快照语义）/ `LiveView`（不缓存，长时观测）替代"RemoteReader 缓存 + read_uncached + _UncachedReader + 每 sample 手工新建 reader"四个零散机制；每种观测声明自己的一致性需求（批次 1 落地 `kernel/views.py`）
-- [ ] A5. **DTO 去 format() 化**：数据与呈现严格分离（反转 §8.9 妥协），格式化全部入 `present/text.py`；dto 只存数据
-- [ ] A6. **保留决策**（第一性原理验证后保留，非惯性）：collect/format/dump 三层、CLI 薄壳、errors 层级、clicolors 颜色策略
+- [x] A5. **DTO 去 format() 化**：数据与呈现严格分离（反转 §8.9 妥协），格式化全部入 `present/text.py`；dto 只存数据（批次 1 数据半、批次 6 呈现半落地）
+- [x] A6. **保留决策**（第一性原理验证后保留，非惯性）：collect/format/dump 三层、CLI 薄壳、errors 层级、clicolors 颜色策略（各批次逐层落地；批次 6 present/color.py 收官）
 - [ ] A7. **行为修复**（吞并 §9 P0/P1）：TopStats idle 统计（§9 P0-1）、arch 检查下沉（§9 P0-2）、TraceFilter 混合表达式（§9 P0-3）、§9 P1 批次（timespec_out exit 重读 / EOF 空渲染 / execve 走用户过滤器 / attach 全异常回滚 / 无名帧 OWN% 归一 / 琐碎项）
 - [ ] A8. **子包化与依赖规则**：`kernel/ target/ cpython/ observe/ present/` + 横切（errors/dto/color）；import 方向由结构契约测试机械强制（禁反向）
 
@@ -137,9 +137,9 @@
 - [ ] 1. **spec-oracle 测试**（最高价值，新增）：linetable 解析 vs CPython 自带 `co_lines()`（2026-10 审查验证过的方法）；layout 表 vs gen_offsets 真实头文件产物；errno/flag/syscall 号常量 vs 系统头文件；syscall 渲染样例 vs strace 真实输出；native 线程头/符号样例 vs gdb 输出
 - [x] 2. **构造内存单测**：FakeMemory 构造器由 Layout 驱动（禁止从被测常量照抄）；版本布局 × 对象变体矩阵参数化（批次 3 落地：next/tests/fakemem.py + 3.11–3.14 矩阵）
 - [x] 3. **状态机单测**：统一 ptrace 引擎以 stubbed libc/waitpid 覆盖全状态路径（CLONE/EXEC/信号转发/detach 幂等）——批次 1 落地（next/tests/test_ptrace.py）
-- [ ] 4. **存活集成测试**：~~target~~（批次 4 已落地：READY 行就绪握手）/spin/fast-syscall 三 fixture；session→snapshot→sampling→tracing 端到端（session→snapshot 批次 4 已通）；integration ≤15s 预算
+- [x] 4. **存活集成测试**：~~target~~（批次 4：READY 行就绪握手）/~~spin~~（批次 6：record CLI 全链路）/~~fast-syscall~~（批次 5）三 fixture；session→snapshot→sampling→tracing 端到端（批次 4/5/6 分段全通）；integration ≤15s 预算
 - [ ] 5. **差异对比测试**：旧新 CLI 子进程（§10.5-1）
-- [ ] 6. **结构契约测试**：公共 API 面 + 子包 import 方向（A8）机械强制
+- [x] 6. **结构契约测试**：公共 API 面 + 子包 import 方向（A8）机械强制（批次 0 test_structure 落地，批次 6 增补 offsets facade 守护与 API 面名单 pin）
 - [ ] 7. conftest/fixture 重设计（原 D6）：~~override 隔离~~（批次 2 已落地：A1 显式 `overrides_path` 参数 + conftest autouse 指不存在路径，契约 L12）、~~就绪轮询替代固定 `sleep(0.5)`~~（批次 4 已落地：target_app READY 行握手）、~~fast syscall target~~（批次 5 已落地：fast_syscall_app 0.2s nanosleep）、`run_tests.sh` mode 与透传 `-m` 合并为 and 表达式（pytest 多个 `-m` 后者胜的静默覆盖坑）
 
 ### 10.3 行为点清单机制（"参考旧代码"的落地）
@@ -156,7 +156,7 @@
 - [x] 3. `cpython/`：objects / dicts / code / frames / runtime / names（A3 落地；spec-oracle 测试同步上）
 - [x] 4. `observe/`：session / snapshot / sampling / profile / topstats（A7 中 TopStats 修复；首个端到端里程碑：snapshot 对 live target 出栈）
 - [x] 5. `observe/`：syscalls / native（共享批 1 ptrace 引擎；A7 中 syscall 修复）
-- [ ] 6. `present/` + `cli` + 打包：text / jsonout / color（A5 落地）/ argparse 薄壳 / package-data
+- [x] 6. `present/` + `cli` + 打包：text / jsonout / color（A5 落地）/ argparse 薄壳 / package-data
 - [ ] 7. 对齐验收（§10.5 全量）+ 替换（§10.6 runbook）
 
 ### 10.5 对齐验收门禁（批 7 出口；行为对齐是约束，全部量化）

@@ -179,6 +179,13 @@ class TestInit:
         sampler, session = _make_sampler(monkeypatch, FakeMemory())
         assert sampler.session is session
 
+    def test_proc_info_exposed(self, monkeypatch):
+        """SA 组合（批次 6 验收补登）：sampler.proc_info 即
+        session.proc_info——dump_record/dump_top 的消费面（旧树同款公开
+        属性；缺它 live 路径 AttributeError，stub 测试无法发现）。"""
+        sampler, session = _make_sampler(monkeypatch, FakeMemory())
+        assert sampler.proc_info is session.proc_info
+
 
 class TestThreadStateRefUsage:
     def test_tref_fields_drive_build(self, monkeypatch):

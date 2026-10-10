@@ -272,6 +272,24 @@ class TestLiveViewUsage:
         assert len(seen) == 1  # 每次追踪一个 LiveView
 
 
+class TestOnEvent:
+    def test_on_event_called_per_emission(self, engine_factory):
+        """SY14：on_event 在每次发射即回调（dump 层流式输出的通道；
+        且回调先于 return——KeyboardInterrupt 时已发事件不丢）。"""
+        entry = make_regs(0, args=(0, 0x10, 1, 0, 0, 0))
+        exit_ = make_regs(0, rax=1)
+        events = [SyscallStop(100), SyscallStop(100), Exited(100, 0, False)]
+        *_, created = engine_factory(events, {100: [entry, exit_]})
+        seen = []
+        out = collect_syscalls(PID, on_event=seen.append)
+        assert seen == out  # 回调序列与返回列表一致
+
+    def test_on_event_none_by_default(self, engine_factory):
+        """SY14：默认 None 不改变批 5 语义（无回调、行为不变）。"""
+        *_, created = engine_factory([], {})
+        assert collect_syscalls(PID) == []
+
+
 # ---------------------------------------------------------------------------
 # TraceFilter (SY8, A7 P0-3)
 # ---------------------------------------------------------------------------

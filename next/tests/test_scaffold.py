@@ -30,6 +30,9 @@ def test_offsets_json_is_copied_and_versioned():
 def test_legacy_modules_are_not_importable():
     """冻结铁律守护：旧模块名在 next 树永不可导入——其重现意味着跨树
     泄漏或未经授权的旧代码搬运（均为 §10 违规）。新架构模块住
-    kernel/ target/ cpython/ observe/ present/ cli（ADR A8），不复用这些名字。"""
-    for legacy in ("stack_dump", "sampler", "syscall_tracer", "native_dump", "offsets"):
+    kernel/ target/ cpython/ observe/ present/ cli（ADR A8），不复用这些名字。
+    例外：pyprobe.offsets 是 §10.5-2 API 契约（API3）批准的兼容门面
+    （只读、无 configure 全局副作用，由 test_structure.py 守护），
+    非旧模块回归。"""
+    for legacy in ("stack_dump", "sampler", "syscall_tracer", "native_dump"):
         assert importlib.util.find_spec(f"pyprobe.{legacy}") is None

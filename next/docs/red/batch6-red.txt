@@ -1,0 +1,1258 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/admin/projects/pyprobe/next
+configfile: pyproject.toml
+plugins: cov-7.1.0, anyio-4.15.1
+collected 893 items
+
+tests/test_api_exports.py ........                                       [  0%]
+tests/test_cli.py ...........................                            [  3%]
+tests/test_cli_live.py FFFFF.                                            [  4%]
+tests/test_code.py ............................                          [  7%]
+tests/test_color.py .....................                                [ 10%]
+tests/test_dicts.py ....................................                 [ 14%]
+tests/test_dto.py .........                                              [ 15%]
+tests/test_dumps.py FFFFFFFFFFFFFFFF.F.F                                 [ 17%]
+tests/test_errors.py ......................                              [ 19%]
+tests/test_frames.py ........................................            [ 24%]
+tests/test_identity.py .........                                         [ 25%]
+tests/test_jsonout.py FFFFFF                                             [ 25%]
+tests/test_layout.py ................................................... [ 31%]
+........................................................................ [ 39%]
+........................................................................ [ 47%]
+................                                                         [ 49%]
+tests/test_mem.py ..........                                             [ 50%]
+tests/test_names.py ..........                                           [ 51%]
+tests/test_native.py ..........                                          [ 52%]
+tests/test_objects.py .................................................. [ 58%]
+......................................                                   [ 62%]
+tests/test_procfs.py ...................                                 [ 64%]
+tests/test_profile.py ...........                                        [ 66%]
+tests/test_ptrace.py ...............................                     [ 69%]
+tests/test_ptrace_live.py .....                                          [ 70%]
+tests/test_runtime.py ............................................       [ 75%]
+tests/test_sampling.py ..........                                        [ 76%]
+tests/test_scaffold.py ..F                                               [ 76%]
+tests/test_session.py ........                                           [ 77%]
+tests/test_session_snapshot.py .....                                     [ 78%]
+tests/test_snapshot.py ....................                              [ 80%]
+tests/test_structure.py ....                                             [ 80%]
+tests/test_symbols.py ..................                                 [ 82%]
+tests/test_syscall_abi.py .........                                      [ 83%]
+tests/test_syscalls.py ..............F.................................. [ 89%]
+.................                                                        [ 91%]
+tests/test_text.py FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF.F.FF.FFF.            [ 95%]
+tests/test_topstats.py ........                                          [ 96%]
+tests/test_views.py .............................                        [100%]
+
+=================================== FAILURES ===================================
+_____________ TestStackCliLive.test_stack_json_against_live_target _____________
+
+self = <tests.test_cli_live.TestStackCliLive object at 0x7e33664aa120>
+target_pid = 49895
+
+    def test_stack_json_against_live_target(self, target_pid):
+        """端到端：`stack --json` 对 live target——退出码 0、schema 合法、
+        pid/线程/bg-worker 名正确（CLI 薄壳到 cpython 遍历的全链路）。"""
+        proc = run_cli("stack", "-p", str(target_pid), "--json")
+>       assert proc.returncode == 0, proc.stderr
+E       AssertionError: 
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/home/admin/projects/pyprobe/.venv/bin/python3', '-m', 'pyprobe', 'stack', '-p', '49895', '--json'], returncode=1, stdout='', stderr='').returncode
+
+tests/test_cli_live.py:37: AssertionError
+______________ TestStackCliLive.test_stack_text_has_thread_header ______________
+
+self = <tests.test_cli_live.TestStackCliLive object at 0x7e33664ba5a0>
+target_pid = 49895
+
+    def test_stack_text_has_thread_header(self, target_pid):
+        """端到端：文本输出含进程头与 Thread 块（复刻格式在真实管道中）。"""
+        proc = run_cli("stack", "-p", str(target_pid))
+>       assert proc.returncode == 0, proc.stderr
+E       AssertionError: 
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/home/admin/projects/pyprobe/.venv/bin/python3', '-m', 'pyprobe', 'stack', '-p', '49895'], returncode=1, stdout='', stderr='').returncode
+
+tests/test_cli_live.py:46: AssertionError
+___________________ TestStackCliLive.test_stack_dead_pid_rc1 ___________________
+
+self = <tests.test_cli_live.TestStackCliLive object at 0x7e33664ba600>
+
+    def test_stack_dead_pid_rc1(self):
+        """端到端失败模式：不存在的 pid → rc=1 + `[!]` 到 stderr。"""
+        proc = run_cli("stack", "-p", str(1 << 22))
+        assert proc.returncode == 1
+>       assert "[!]" in proc.stderr
+E       AssertionError: assert '[!]' in ''
+E        +  where '' = CompletedProcess(args=['/home/admin/projects/pyprobe/.venv/bin/python3', '-m', 'pyprobe', 'stack', '-p', '4194304'], returncode=1, stdout='', stderr='').stderr
+
+tests/test_cli_live.py:54: AssertionError
+___________________ TestStackCliLive.test_syscall_max_events ___________________
+
+self = <tests.test_cli_live.TestStackCliLive object at 0x7e33664ba000>
+fast_syscall_pid = 49900
+
+    def test_syscall_max_events(self, fast_syscall_pid):
+        """端到端：`syscall --max-events 2` 捕获事件后自动退出 rc=0
+        （ptrace 引擎经 CLI 全链路）。"""
+        proc = run_cli("syscall", "-p", str(fast_syscall_pid),
+                       "--max-events", "2")
+>       assert proc.returncode == 0, proc.stderr
+E       AssertionError: 
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/home/admin/projects/pyprobe/.venv/bin/python3', '-m', 'pyprobe', 'syscall', '-p', '49900', '--max-events', '2'], returncode=1, stdout='', stderr='').returncode
+
+tests/test_cli_live.py:61: AssertionError
+_____________ TestStackCliLive.test_record_duration_writes_folded ______________
+
+self = <tests.test_cli_live.TestStackCliLive object at 0x7e33664b93a0>
+target_pid = 49895
+tmp_path = PosixPath('/tmp/pytest-of-admin/pytest-71/test_record_duration_writes_fo0')
+
+    def test_record_duration_writes_folded(self, target_pid, tmp_path):
+        """端到端：`record -d 0.5 -o file` 产出 folded 文件 + stderr 摘要
+        （采样引擎经 CLI 全链路；≤15s 预算内）。"""
+        out = tmp_path / "out.folded"
+        proc = run_cli("record", "-p", str(target_pid), "-r", "100",
+                       "-d", "0.5", "-o", str(out))
+>       assert proc.returncode == 0, proc.stderr
+E       AssertionError: 
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/home/admin/projects/pyprobe/.venv/bin/python3', '-m', 'pyprobe', 'record', '-p', '49895', '-r...'-o', '/tmp/pytest-of-admin/pytest-71/test_record_duration_writes_fo0/out.folded'], returncode=1, stdout='', stderr='').returncode
+
+tests/test_cli_live.py:70: AssertionError
+_______________________ TestDumpPython.test_success_text _______________________
+
+self = <tests.test_dumps.TestDumpPython object at 0x7e33665869f0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7e33660fa630>
+capsys = <_pytest.capture.CaptureFixture object at 0x7e33660fa810>
+
+    def test_success_text(self, monkeypatch, capsys):
+        """DP1：成功路径——文本输出含进程头与线程块，rc=0。"""
+        monkeypatch.setattr(dumps, "open_session", lambda pid: StubSession())
+        monkeypatch.setattr(dumps, "collect_snapshot",
+                            lambda s: _threads())
+>       assert dumps.dump_python(PID, color=False) == 0
+E       assert 1 == 0
+E        +  where 1 = <function dump_python at 0x7e336668dee0>(4242, color=False)
+E        +    where <function dump_python at 0x7e336668dee0> = dumps.dump_python
+
+tests/test_dumps.py:44: AssertionError
+_________________ TestDumpPython.test_error_goes_to_stderr_rc1 _________________
+
+self = <tests.test_dumps.TestDumpPython object at 0x7e3366587b90>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7e33660fb8c0>
+capsys = <_pytest.capture.CaptureFixture object at 0x7e33660fb230>
+
+    def test_error_goes_to_stderr_rc1(self, monkeypatch, capsys):
+        """DP1：目标错误 → `[!] <err>` 到 stderr，rc=1，无 stdout。"""
+        def boom(pid):
+            raise ProcessNotFound(pid)
+    
+        monkeypatch.setattr(dumps, "open_session", boom)
+        assert dumps.dump_python(999, color=False) == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+>       assert "[!] Process 999 not found" in captured.err
+E       AssertionError: assert '[!] Process 999 not found' in ''
+E        +  where '' = CaptureResult(out='', err='').err
+
+tests/test_dumps.py:59: AssertionError
+____________________ TestDumpPython.test_error_color_forced ____________________
+
+self = <tests.test_dumps.TestDumpPython object at 0x7e336652be60>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7e33660fbd10>
+capsys = <_pytest.capture.CaptureFixture object at 0x7e33660f95b0>
+
+    def test_error_color_forced(self, monkeypatch, capsys):
+        """DP1：--color always 时错误行带 ANSI（非 tty 也生效）。"""
+        def boom(pid):
+            raise ProcessNotFound(pid)
+    
+        monkeypatch.setattr(dumps, "open_session", boom)
+        dumps.dump_python(999, color=True)
+>       assert "\x1b[31m[!]" in capsys.readouterr().err
+E       AssertionError: assert '\x1b[31m[!]' in ''
+E        +  where '' = CaptureResult(out='', err='').err
+E        +    where CaptureResult(out='', err='') = readouterr()
+E        +      where readouterr = <_pytest.capture.CaptureFixture object at 0x7e33660f95b0>.readouterr
+
+tests/test_dumps.py:68: AssertionError
+________ TestDumpPython.test_version_warning_before_collection_failure _________
+
+self = <tests.test_dumps.TestDumpPython object at 0x7e336652b3e0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7e33665293a0>
+capsys = <_pytest.capture.CaptureFixture object at 0x7e3365df4a10>
+
+    def test_version_warning_before_collection_failure(self, monkeypatch,
+                                                       capsys):
+        """DP2：版本警告先于线程收集失败打印（警告是后续失败的根因，
+        不得被提前 return 吞掉——旧 stack_dump L338-342 语义）。"""
+        monkeypatch.setattr(dumps, "open_session",
+                            lambda pid: StubSession(warning="[!] fake warn"))
+        def boom(session):
+            raise NoThreadState()
+    
+        monkeypatch.setattr(dumps, "collect_snapshot", boom)
+        assert dumps.dump_python(PID, color=False) == 1
+        err = capsys.readouterr().err
+>       assert "[!] fake warn" in err
+E       AssertionError: assert '[!] fake warn' in ''
+
+tests/test_dumps.py:82: AssertionError
+________________ TestDumpPython.test_json_output_never_colored _________________
+
+self = <tests.test_dumps.TestDumpPython object at 0x7e336652bb90>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7e3365df4dd0>
+capsys = <_pytest.capture.CaptureFixture object at 0x7e3365df41d0>
+
+    def test_json_output_never_colored(self, monkeypatch, capsys):
+        """DP1/DP2：--json 输出 JSON 文档，color=True 也无 ANSI。"""
+        monkeypatch.setattr(dumps, "open_session", lambda pid: StubSession())
+        monkeypatch.setattr(dumps, "collect_snapshot",
+                            lambda s: _threads())
+>       assert dumps.dump_python(PID, color=True, json_output=True) == 0
+E       assert 1 == 0
+E        +  where 1 = <function dump_python at 0x7e336668dee0>(4242, color=True, json_output=True)
+E        +    where <function dump_python at 0x7e336668dee0> = dumps.dump_python
+
+tests/test_dumps.py:91: AssertionError
+_______________ TestDumpNative.test_success_prints_single_header _______________
+
+self = <tests.test_dumps.TestDumpNative object at 0x7e336652afc0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7e3365df4560>
+capsys = <_pytest.capture.CaptureFixture object at 0x7e33665d56a0>
+
+    def test_success_prints_single_header(self, monkeypatch, capsys):
+        """DP1：成功——进程头一次（旧树曾重复打印，2026-10 修复语义）+
+        线程块，rc=0。"""
+        monkeypatch.setattr(dumps, "collect_native",
+                            lambda pid: self._native_threads())
+        monkeypatch.setattr(dumps, "read_cmdline",
+                            lambda pid: "python3 app.py")
+>       assert dumps.dump_native(PID, color=False) == 0
+E       assert 1 == 0
+E        +  where 1 = <function dump_native at 0x7e336668e660>(4242, color=False)
+E        +    where <function dump_native at 0x7e336668e660> = dumps.dump_native
+
+tests/test_dumps.py:111: AssertionError
+________________________ TestDumpNative.test_error_rc1 _________________________
+
+self = <tests.test_dumps.TestDumpNative object at 0x7e336652b050>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7e33664aadb0>
+capsys = <_pytest.capture.CaptureFixture object at 0x7e33664a8cb0>
+
+    def test_error_rc1(self, monkeypatch, capsys):
+        """DP1：attach 失败 → stderr + rc=1。"""
+        def boom(pid):
+            raise AttachFailed(pid, "Operation not permitted")
+    
+        monkeypatch.setattr(dumps, "collect_native", boom)
+        monkeypatch.setattr(dumps, "read_cmdline", lambda pid: "x")
+        assert dumps.dump_native(PID, color=False) == 1
+>       assert "[!]" in capsys.readouterr().err
+E       AssertionError: assert '[!]' in ''
+E        +  where '' = CaptureResult(out='', err='').err
+E        +    where CaptureResult(out='', err='') = readouterr()
+E        +      where readouterr = <_pytest.capture.CaptureFixture object at 0x7e33664a8cb0>.readouterr
+
+tests/test_dumps.py:124: AssertionError
+___________________________ TestDumpNative.test_json ___________________________
+
+self = <tests.test_dumps.TestDumpNative object at 0x7e336652ad50>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7e33664c1760>
+capsys = <_pytest.capture.CaptureFixture object at 0x7e3366647890>
+
+    def test_json(self, monkeypatch, capsys):
+        """DP1：--json 走 format_native_json（process 仅 pid/cmdline）。"""
+        monkeypatch.setattr(dumps, "collect_native",
+                            lambda pid: self._native_threads())
+        monkeypatch.setattr(dumps, "read_cmdline",
+                            lambda pid: "python3 app.py")
+>       assert dumps.dump_native(PID, color=False, json_output=True) == 0
+E       assert 1 == 0
+E        +  where 1 = <function dump_native at 0x7e336668e660>(4242, color=False, json_output=True)
+E        +    where <function dump_native at 0x7e336668e660> = dumps.dump_native
+
+tests/test_dumps.py:132: AssertionError
+_____________________ TestDumpSyscalls.test_streams_events _____________________
+
+self = <tests.test_dumps.TestDumpSyscalls object at 0x7e336652ac30>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7e3366107a40>
+capsys = <_pytest.capture.CaptureFixture object at 0x7e3366105bb0>
+
+    def test_streams_events(self, monkeypatch, capsys):
+        """DP3：流式模式逐事件打印（含 elapsed 尾），rc=0。"""
+        self._stub_collect(monkeypatch, [self._event()])
+>       assert dumps.dump_syscalls(PID, color=False) == 0
+E       assert 1 == 0
+E        +  where 1 = <function dump_syscalls at 0x7e336668e700>(4242, color=False)
+E        +    where <function dump_syscalls at 0x7e336668e700> = dumps.dump_syscalls
+
+tests/test_dumps.py:158: AssertionError
+_______________ TestDumpSyscalls.test_summary_instead_of_stream ________________
+
+self = <tests.test_dumps.TestDumpSyscalls object at 0x7e336652a750>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7e3365e15c10>
+capsys = <_pytest.capture.CaptureFixture object at 0x7e3365e14f80>
+
+    def test_summary_instead_of_stream(self, monkeypatch, capsys):
+        """DP3：--summary 出汇总表不流式（total/s 列在）。"""
+        self._stub_collect(monkeypatch, [self._event()])
+>       assert dumps.dump_syscalls(PID, color=False, summary=True) == 0
+E       assert 1 == 0
+E        +  where 1 = <function dump_syscalls at 0x7e336668e700>(4242, color=False, summary=True)
+E        +    where <function dump_syscalls at 0x7e336668e700> = dumps.dump_syscalls
+
+tests/test_dumps.py:166: AssertionError
+_____________ TestDumpSyscalls.test_json_precedence_never_colored ______________
+
+self = <tests.test_dumps.TestDumpSyscalls object at 0x7e336652a330>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7e3365e17770>
+capsys = <_pytest.capture.CaptureFixture object at 0x7e3365e15550>
+
+    def test_json_precedence_never_colored(self, monkeypatch, capsys):
+        """DP3：--json 为单个 JSON 文档且永不着色。"""
+        self._stub_collect(monkeypatch, [self._event()])
+>       assert dumps.dump_syscalls(PID, color=True, json_output=True) == 0
+E       assert 1 == 0
+E        +  where 1 = <function dump_syscalls at 0x7e336668e700>(4242, color=True, json_output=True)
+E        +    where <function dump_syscalls at 0x7e336668e700> = dumps.dump_syscalls
+
+tests/test_dumps.py:174: AssertionError
+____________________ TestDumpSyscalls.test_attach_error_rc1 ____________________
+
+self = <tests.test_dumps.TestDumpSyscalls object at 0x7e3366529d60>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7e3365e140e0>
+capsys = <_pytest.capture.CaptureFixture object at 0x7e3365e146e0>
+
+    def test_attach_error_rc1(self, monkeypatch, capsys):
+        """DP3：attach 失败（arch/权限/进程）→ `[!]` + rc=1（A7 P0-2 的
+        CLI 面——UnsupportedArchitecture 同样走此径）。"""
+        self._stub_collect(monkeypatch, [], error=AttachFailed(PID, "x"))
+        assert dumps.dump_syscalls(PID, color=False) == 1
+>       assert "[!]" in capsys.readouterr().err
+E       AssertionError: assert '[!]' in ''
+E        +  where '' = CaptureResult(out='', err='').err
+E        +    where CaptureResult(out='', err='') = readouterr()
+E        +      where readouterr = <_pytest.capture.CaptureFixture object at 0x7e3365e146e0>.readouterr
+
+tests/test_dumps.py:184: AssertionError
+___________ TestDumpSyscalls.test_keyboardinterrupt_still_summarizes ___________
+
+self = <tests.test_dumps.TestDumpSyscalls object at 0x7e336652a0c0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7e33664b9fd0>
+capsys = <_pytest.capture.CaptureFixture object at 0x7e33666064b0>
+
+    def test_keyboardinterrupt_still_summarizes(self, monkeypatch, capsys):
+        """DP3：Ctrl-C 干净退出——已捕获事件仍出 summary，rc=0
+        （SY14 on_event 是部分结果的通道）。"""
+        events = [self._event(tid=1234), self._event(tid=1235)]
+        self._stub_collect(monkeypatch, events,
+                           error=KeyboardInterrupt())
+>       assert dumps.dump_syscalls(PID, color=False, summary=True) == 0
+E       assert 1 == 0
+E        +  where 1 = <function dump_syscalls at 0x7e336668e700>(4242, color=False, summary=True)
+E        +    where <function dump_syscalls at 0x7e336668e700> = dumps.dump_syscalls
+
+tests/test_dumps.py:192: AssertionError
+_______________ TestDumpRecord.test_stdout_folded_stderr_summary _______________
+
+self = <tests.test_dumps.TestDumpRecord object at 0x7e33665296d0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7e33664a8ce0>
+capsys = <_pytest.capture.CaptureFixture object at 0x7e33664a8950>
+
+    def test_stdout_folded_stderr_summary(self, monkeypatch, capsys):
+        """DP4：folded 文本只去 stdout，摘要 `[i]` 只去 stderr（管道洁净，
+        复刻约束）。"""
+        monkeypatch.setattr(dumps, "collect_profile",
+                            lambda pid, **kw: self._profile())
+>       assert dumps.dump_record(PID, color=False) == 0
+E       assert 1 == 0
+E        +  where 1 = <function dump_record at 0x7e336668e7a0>(4242, color=False)
+E        +    where <function dump_record at 0x7e336668e7a0> = dumps.dump_record
+
+tests/test_dumps.py:211: AssertionError
+_______________________ TestDumpRecord.test_output_file ________________________
+
+self = <tests.test_dumps.TestDumpRecord object at 0x7e3366528710>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7e3365df4470>
+capsys = <_pytest.capture.CaptureFixture object at 0x7e3365df4770>
+tmp_path = PosixPath('/tmp/pytest-of-admin/pytest-71/test_output_file0')
+
+    def test_output_file(self, monkeypatch, capsys, tmp_path):
+        """DP4：-o 写文件——stdout 无 folded 文本。"""
+        monkeypatch.setattr(dumps, "collect_profile",
+                            lambda pid, **kw: self._profile())
+        out_file = tmp_path / "out.folded"
+>       assert dumps.dump_record(PID, color=False,
+                                 output=str(out_file)) == 0
+E       AssertionError: assert 1 == 0
+E        +  where 1 = <function dump_record at 0x7e336668e7a0>(4242, color=False, output='/tmp/pytest-of-admin/pytest-71/test_output_file0/out.folded')
+E        +    where <function dump_record at 0x7e336668e7a0> = dumps.dump_record
+E        +    and   '/tmp/pytest-of-admin/pytest-71/test_output_file0/out.folded' = str(PosixPath('/tmp/pytest-of-admin/pytest-71/test_output_file0/out.folded'))
+
+tests/test_dumps.py:222: AssertionError
+_________________ TestDumpRecord.test_version_warning_printed __________________
+
+self = <tests.test_dumps.TestDumpRecord object at 0x7e33665297c0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7e3365df6b40>
+capsys = <_pytest.capture.CaptureFixture object at 0x7e3365df4920>
+
+    def test_version_warning_printed(self, monkeypatch, capsys):
+        """DP4：版本警告打到 stderr（dump 层 surfacing 职责，§8.5 语义）。"""
+        monkeypatch.setattr(dumps, "collect_profile",
+                            lambda pid, **kw: self._profile(warning="[!] w"))
+        dumps.dump_record(PID, color=False)
+>       assert "[!] w" in capsys.readouterr().err
+E       AssertionError: assert '[!] w' in ''
+E        +  where '' = CaptureResult(out='', err='').err
+E        +    where CaptureResult(out='', err='') = readouterr()
+E        +      where readouterr = <_pytest.capture.CaptureFixture object at 0x7e3365df4920>.readouterr
+
+tests/test_dumps.py:232: AssertionError
+________________________ TestDumpTop.test_not_a_tty_rc2 ________________________
+
+self = <tests.test_dumps.TestDumpTop object at 0x7e336652a4b0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7e33660fa840>
+capsys = <_pytest.capture.CaptureFixture object at 0x7e33660f9640>
+
+    def test_not_a_tty_rc2(self, monkeypatch, capsys):
+        """DP5：非 tty → 提示 + rc=2（无降级——README 承诺，复刻约束）。"""
+        monkeypatch.setattr(dumps, "_stdout_is_tty", lambda: False)
+>       assert dumps.dump_top(PID, color=False) == 2
+E       assert 1 == 2
+E        +  where 1 = <function dump_top at 0x7e336668e840>(4242, color=False)
+E        +    where <function dump_top at 0x7e336668e840> = dumps.dump_top
+
+tests/test_dumps.py:263: AssertionError
+___________________ TestDumpTop.test_exits_on_process_exited ___________________
+
+self = <tests.test_dumps.TestDumpTop object at 0x7e336652b350>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7e33660fb2f0>
+capsys = <_pytest.capture.CaptureFixture object at 0x7e33660fadb0>
+
+    def test_exits_on_process_exited(self, monkeypatch, capsys):
+        """DP5：目标退出 → rc=0、恢复光标（finally SHOW_CURSOR）、
+        首屏已渲染（不等首个 interval）、摘要到 stderr。"""
+        monkeypatch.setattr(dumps, "_stdout_is_tty", lambda: True)
+        rounds = [[dto.ThreadInfo(native_tid=101, frames=[
+            dto.FrameInfo("burn", "app/spin.py", 7)])],
+                  ProcessExited(PID)]
+        monkeypatch.setattr(dumps, "Sampler",
+                            lambda pid, **kw: StubSampler(pid, rounds))
+>       assert dumps.dump_top(PID, color=False, rate=1000,
+                              interval=60) == 0
+E       assert 1 == 0
+E        +  where 1 = <function dump_top at 0x7e336668e840>(4242, color=False, rate=1000, interval=60)
+E        +    where <function dump_top at 0x7e336668e840> = dumps.dump_top
+
+tests/test_dumps.py:285: AssertionError
+____________ TestWrappingShape.test_indent_two_and_trailing_newline ____________
+
+self = <tests.test_jsonout.TestWrappingShape object at 0x7e336652b5c0>
+
+    def test_indent_two_and_trailing_newline(self):
+        out = format_process_json(_proc(), [])
+>       assert out.endswith("}\n")
+E       AssertionError: assert False
+E        +  where False = <built-in method endswith of str object at 0x153b6e8>('}\n')
+E        +    where <built-in method endswith of str object at 0x153b6e8> = ''.endswith
+
+tests/test_jsonout.py:24: AssertionError
+__________________ TestWrappingShape.test_non_ascii_preserved __________________
+
+self = <tests.test_jsonout.TestWrappingShape object at 0x7e3366591790>
+
+    def test_non_ascii_preserved(self):
+        """JS1：ensure_ascii=False——非 ASCII 字符串不转义（人读性）。"""
+        p = dto.ProcessInfo(pid=1, cmdline="python3 应用.py", exe_path="/x")
+>       assert "应用" in format_process_json(p, [])
+E       AssertionError: assert '应用' in ''
+E        +  where '' = format_process_json(ProcessInfo(pid=1, cmdline='python3 应用.py', exe_path='/x', python_version='?'), [])
+
+tests/test_jsonout.py:31: AssertionError
+________________ TestProcessJson.test_process_and_threads_keys _________________
+
+self = <tests.test_jsonout.TestProcessJson object at 0x7e3366591a60>
+
+    def test_process_and_threads_keys(self):
+        """JS2：{"process":…,"threads":[…]} 键集与 dto asdict 一致（D1 的
+        数据面在此封装）。"""
+        t = dto.ThreadInfo(native_tid=101, name="main", frames=[
+            dto.FrameInfo("run", "app/main.py", 10)])
+>       doc = json.loads(format_process_json(_proc(), [t]))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_jsonout.py:40: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../../.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/json/decoder.py:338: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <json.decoder.JSONDecoder object at 0x7e3366b9f0e0>, s = '', idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+            obj, end = self.scan_once(s, idx)
+        except StopIteration as err:
+>           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+../../../.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/json/decoder.py:356: JSONDecodeError
+________________ TestProcessJson.test_full_paths_not_shortened _________________
+
+self = <tests.test_jsonout.TestProcessJson object at 0x7e33665933b0>
+
+    def test_full_paths_not_shortened(self):
+        """JS2：JSON 保留全路径（缩短是 text 层的显示关切，数据不丢）。"""
+        t = dto.ThreadInfo(native_tid=1, frames=[
+            dto.FrameInfo("run", "/a/b/c/d/runners.py", 1)])
+>       doc = json.loads(format_process_json(_proc(), [t]))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_jsonout.py:51: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../../.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/json/decoder.py:338: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <json.decoder.JSONDecoder object at 0x7e3366b9f0e0>, s = '', idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+            obj, end = self.scan_once(s, idx)
+        except StopIteration as err:
+>           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+../../../.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/json/decoder.py:356: JSONDecodeError
+___________ TestNativeJson.test_process_carries_pid_and_cmdline_only ___________
+
+self = <tests.test_jsonout.TestNativeJson object at 0x7e3366591010>
+
+    def test_process_carries_pid_and_cmdline_only(self):
+        """JS2：native 路径无 CPython 元数据——process 仅 pid/cmdline
+        （旧注释语义：那些是 Python 栈概念）。"""
+        t = dto.NativeThreadInfo(tid=101, comm="python3", frames=[
+            dto.NativeFrame(pc=0x1000, symbol="main",
+                            module="/usr/bin/python3.12")])
+>       doc = json.loads(format_native_json(100, "python3 app.py", [t]))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_jsonout.py:63: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../../.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/json/decoder.py:338: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <json.decoder.JSONDecoder object at 0x7e3366b9f0e0>, s = '', idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+            obj, end = self.scan_once(s, idx)
+        except StopIteration as err:
+>           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+../../../.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/json/decoder.py:356: JSONDecodeError
+______________________ TestSyscallsJson.test_events_list _______________________
+
+self = <tests.test_jsonout.TestSyscallsJson object at 0x7e3366591fa0>
+
+    def test_events_list(self):
+        """JS2：{"events":[…]}，事件键集含 rendered/error/elapsed。"""
+        ev = dto.SyscallEvent(tid=1234, nr=257, name="openat",
+                              rendered='AT_FDCWD, "/tmp/x"', ret=3,
+                              elapsed=0.000123)
+>       doc = json.loads(format_syscalls_json([ev]))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_jsonout.py:75: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../../.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/json/decoder.py:338: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <json.decoder.JSONDecoder object at 0x7e3366b9f0e0>, s = '', idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+            obj, end = self.scan_once(s, idx)
+        except StopIteration as err:
+>           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+../../../.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/json/decoder.py:356: JSONDecodeError
+____________________ test_legacy_modules_are_not_importable ____________________
+
+    def test_legacy_modules_are_not_importable():
+        """冻结铁律守护：旧模块名在 next 树永不可导入——其重现意味着跨树
+        泄漏或未经授权的旧代码搬运（均为 §10 违规）。新架构模块住
+        kernel/ target/ cpython/ observe/ present/ cli（ADR A8），不复用这些名字。"""
+        for legacy in ("stack_dump", "sampler", "syscall_tracer", "native_dump", "offsets"):
+>           assert importlib.util.find_spec(f"pyprobe.{legacy}") is None
+E           AssertionError: assert ModuleSpec(name='pyprobe.offsets', loader=<_frozen_importlib_external.SourceFileLoader object at 0x7e33665d7440>, origin='/home/admin/projects/pyprobe/next/pyprobe/offsets.py') is None
+E            +  where ModuleSpec(name='pyprobe.offsets', loader=<_frozen_importlib_external.SourceFileLoader object at 0x7e33665d7440>, origin='/home/admin/projects/pyprobe/next/pyprobe/offsets.py') = <function find_spec at 0x7e336743cd60>('pyprobe.offsets')
+E            +    where <function find_spec at 0x7e336743cd60> = <module 'importlib.util' (frozen)>.find_spec
+E            +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_scaffold.py:35: AssertionError
+________________ TestOnEvent.test_on_event_called_per_emission _________________
+
+self = <tests.test_syscalls.TestOnEvent object at 0x7e33660cd490>
+engine_factory = <function engine_factory.<locals>.script at 0x7e3366144f40>
+
+    def test_on_event_called_per_emission(self, engine_factory):
+        """SY14：on_event 在每次发射即回调（dump 层流式输出的通道；
+        且回调先于 return——KeyboardInterrupt 时已发事件不丢）。"""
+        entry = make_regs(0, args=(0, 0x10, 1, 0, 0, 0))
+        exit_ = make_regs(0, rax=1)
+        events = [SyscallStop(100), SyscallStop(100), Exited(100, 0, False)]
+        *_, created = engine_factory(events, {100: [entry, exit_]})
+        seen = []
+>       out = collect_syscalls(PID, on_event=seen.append)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: collect_syscalls() got an unexpected keyword argument 'on_event'
+
+tests/test_syscalls.py:284: TypeError
+__________________________ TestFormatFrame.test_basic __________________________
+
+self = <tests.test_text.TestFormatFrame object at 0x7e33660fe2a0>
+
+    def test_basic(self):
+        """TX1：帧行基本形态（索引/名称/文件：行号）。"""
+>       assert format_frame(_frame("foo"), 0) == "  #0 foo (bar.py:10)"
+E       AssertionError: assert '' == '  #0 foo (bar.py:10)'
+E         
+E         -   #0 foo (bar.py:10)
+
+tests/test_text.py:36: AssertionError
+_______________________ TestFormatFrame.test_high_index ________________________
+
+self = <tests.test_text.TestFormatFrame object at 0x7e33660fe840>
+
+    def test_high_index(self):
+        """TX1：索引原样透传（不补零）。"""
+>       assert format_frame(_frame("baz", "x.py", 3), 42) == "  #42 baz (x.py:3)"
+E       AssertionError: assert '' == '  #42 baz (x.py:3)'
+E         
+E         -   #42 baz (x.py:3)
+
+tests/test_text.py:40: AssertionError
+_________________ TestFormatFrame.test_none_name_and_filename __________________
+
+self = <tests.test_text.TestFormatFrame object at 0x7e33660fe7b0>
+
+    def test_none_name_and_filename(self):
+        """TX1：None 名称/文件 → "?" 占位（两处独立）。"""
+>       assert format_frame(_frame(None), 0) == "  #0 ? (bar.py:10)"
+E       AssertionError: assert '' == '  #0 ? (bar.py:10)'
+E         
+E         -   #0 ? (bar.py:10)
+
+tests/test_text.py:44: AssertionError
+__________________________ TestFormatFrame.test_color __________________________
+
+self = <tests.test_text.TestFormatFrame object at 0x7e33660feff0>
+
+    def test_color(self):
+        """TX1：颜色点位（名绿/文件青/行号暗）。"""
+>       assert format_frame(_frame("foo"), 0, color=True) == (
+            "  #0 \x1b[32mfoo\x1b[0m "
+            "(\x1b[36mbar.py\x1b[0m:\x1b[2m10\x1b[0m)")
+E       AssertionError: assert '' == '  #0 \x1b[32...[2m10\x1b[0m)'
+E         
+E         -   #0 [32mfoo[0m ([36mbar.py[0m:[2m10[0m)
+
+tests/test_text.py:49: AssertionError
+____________ TestFormatFrame.test_path_shortened_to_two_components _____________
+
+self = <tests.test_text.TestFormatFrame object at 0x7e33660ff650>
+
+    def test_path_shortened_to_two_components(self):
+        """TX1（复刻约束 Python 帧末 2 级）：长路径默认缩短。"""
+        f = _frame("run", "/a/b/c/d/runners.py", 118)
+>       assert format_frame(f, 0) == "  #0 run (d/runners.py:118)"
+E       AssertionError: assert '' == '  #0 run (d/runners.py:118)'
+E         
+E         -   #0 run (d/runners.py:118)
+
+tests/test_text.py:56: AssertionError
+_________________ TestFormatFrame.test_verbose_keeps_full_path _________________
+
+self = <tests.test_text.TestFormatFrame object at 0x7e33660f7890>
+
+    def test_verbose_keeps_full_path(self):
+        """TX1：-v 保留全路径。"""
+        f = _frame("run", "/a/b/c/d/runners.py", 118)
+>       assert format_frame(f, 0, verbose=True) == (
+            "  #0 run (/a/b/c/d/runners.py:118)")
+E       AssertionError: assert '' == '  #0 run (/a...nners.py:118)'
+E         
+E         -   #0 run (/a/b/c/d/runners.py:118)
+
+tests/test_text.py:61: AssertionError
+________________ TestFormatFrame.test_two_components_unchanged _________________
+
+self = <tests.test_text.TestFormatFrame object at 0x7e33660f4050>
+
+    def test_two_components_unchanged(self):
+        """TX1 边界：≤2 级路径原样。"""
+>       assert format_frame(_frame("run", "c/runners.py", 1), 0) == \
+            "  #0 run (c/runners.py:1)"
+E       AssertionError: assert '' == '  #0 run (c/runners.py:1)'
+E         
+E         -   #0 run (c/runners.py:1)
+
+tests/test_text.py:66: AssertionError
+_____________________ TestShortenPath.test_depth_semantics _____________________
+
+self = <tests.test_text.TestShortenPath object at 0x7e33660f6fc0>
+
+    def test_depth_semantics(self):
+        """TX1 配套：_shorten_path 深度语义（>depth 才截）。"""
+>       assert _shorten_path("/a/b/c/d.py") == "c/d.py"
+E       AssertionError: assert '/a/b/c/d.py' == 'c/d.py'
+E         
+E         - c/d.py
+E         + /a/b/c/d.py
+
+tests/test_text.py:73: AssertionError
+______________________ TestFormatThread.test_with_frames _______________________
+
+self = <tests.test_text.TestFormatThread object at 0x7e33660f5fa0>
+
+    def test_with_frames(self):
+        """TX2：线程头 + 编号帧行。"""
+        t = dto.ThreadInfo(native_tid=100, name="worker",
+                           frames=[_frame("f1", "a.py", 1),
+                                   _frame("f2", "b.py", 2)])
+        out = format_thread(t)
+>       assert 'Thread 100: "worker"' in out
+E       assert 'Thread 100: "worker"' in ''
+
+tests/test_text.py:85: AssertionError
+______________________ TestFormatThread.test_idle_marker _______________________
+
+self = <tests.test_text.TestFormatThread object at 0x7e33660f4fe0>
+
+    def test_idle_marker(self):
+        """TX2：idle 线程头带 (idle) 标记。"""
+>       assert "Thread 5 (idle)" in format_thread(
+            dto.ThreadInfo(native_tid=5, idle=True))
+E       AssertionError: assert 'Thread 5 (idle)' in ''
+E        +  where '' = format_thread(ThreadInfo(native_tid=5, thread_id=0, name='', frames=[], idle=True))
+E        +    where ThreadInfo(native_tid=5, thread_id=0, name='', frames=[], idle=True) = <class 'pyprobe.dto.ThreadInfo'>(native_tid=5, idle=True)
+E        +      where <class 'pyprobe.dto.ThreadInfo'> = dto.ThreadInfo
+
+tests/test_text.py:91: AssertionError
+________________________ TestFormatThread.test_no_name _________________________
+
+self = <tests.test_text.TestFormatThread object at 0x7e33661064b0>
+
+    def test_no_name(self):
+        """TX2：无名线程头无引号段。"""
+>       assert format_thread(dto.ThreadInfo(native_tid=7)).startswith(
+            "Thread 7")
+E       AssertionError: assert False
+E        +  where False = <built-in method startswith of str object at 0x153b6e8>('Thread 7')
+E        +    where <built-in method startswith of str object at 0x153b6e8> = ''.startswith
+E        +      where '' = format_thread(ThreadInfo(native_tid=7, thread_id=0, name='', frames=[], idle=False))
+E        +        where ThreadInfo(native_tid=7, thread_id=0, name='', frames=[], idle=False) = <class 'pyprobe.dto.ThreadInfo'>(native_tid=7)
+E        +          where <class 'pyprobe.dto.ThreadInfo'> = dto.ThreadInfo
+
+tests/test_text.py:96: AssertionError
+_______________________ TestFormatThread.test_no_frames ________________________
+
+self = <tests.test_text.TestFormatThread object at 0x7e3366105eb0>
+
+    def test_no_frames(self):
+        """TX2：无帧 → 提示行（C 代码/空闲说明，逐字复刻）。"""
+        out = format_thread(dto.ThreadInfo(native_tid=7))
+>       assert "  (no Python frame — thread may be in C code or idle)" in out
+E       AssertionError: assert '  (no Python frame — thread may be in C code or idle)' in ''
+
+tests/test_text.py:102: AssertionError
+_________________________ TestFormatThread.test_color __________________________
+
+self = <tests.test_text.TestFormatThread object at 0x7e3366105ca0>
+
+    def test_color(self):
+        """TX2：颜色点位（tid 黄粗、idle 暗）。"""
+        t = dto.ThreadInfo(native_tid=100, name="worker",
+                           frames=[_frame("f1", "a.py", 1)])
+        out = format_thread(t, color=True)
+>       assert 'Thread \x1b[1m\x1b[33m100\x1b[0m: "worker"' in out
+E       assert 'Thread \x1b[1m\x1b[33m100\x1b[0m: "worker"' in ''
+
+tests/test_text.py:109: AssertionError
+_____________________ TestFormatProcessHeader.test_header ______________________
+
+self = <tests.test_text.TestFormatProcessHeader object at 0x7e3366105610>
+
+    def test_header(self):
+        """TX3：进程头两行（pid/cmdline + 版本/exe）。"""
+        p = dto.ProcessInfo(pid=123, cmdline="python app.py",
+                            exe_path="/usr/bin/python3.12",
+                            python_version="3.12.13")
+        out = format_process_header(p)
+>       assert "Process 123: python app.py" in out
+E       AssertionError: assert 'Process 123: python app.py' in ''
+
+tests/test_text.py:124: AssertionError
+__________________ TestFormatProcessHeader.test_header_color ___________________
+
+self = <tests.test_text.TestFormatProcessHeader object at 0x7e33660f7620>
+
+    def test_header_color(self):
+        """TX3：pid 黄粗。"""
+        p = dto.ProcessInfo(pid=123, cmdline="python app.py",
+                            exe_path="/usr/bin/python3.12",
+                            python_version="3.12.13")
+>       assert "Process \x1b[1m\x1b[33m123\x1b[0m: python app.py" in \
+            format_process_header(p, color=True)
+E       AssertionError: assert 'Process \x1b[1m\x1b[33m123\x1b[0m: python app.py' in ''
+E        +  where '' = format_process_header(ProcessInfo(pid=123, cmdline='python app.py', exe_path='/usr/bin/python3.12', python_version='3.12.13'), color=True)
+
+tests/test_text.py:132: AssertionError
+______________________ TestFormatProcess.test_full_output ______________________
+
+self = <tests.test_text.TestFormatProcess object at 0x7e33660f4ef0>
+
+    def test_full_output(self):
+        """TX4：进程头 + 逐线程块 + 空行分隔。"""
+        p = dto.ProcessInfo(pid=1, cmdline="python x", exe_path="/x",
+                            python_version="3.12.13")
+        t = dto.ThreadInfo(native_tid=100, frames=[_frame("f", "a.py", 1)])
+        out = format_process(p, [t])
+>       assert "Process 1: python x" in out
+E       AssertionError: assert 'Process 1: python x' in ''
+
+tests/test_text.py:143: AssertionError
+_____________________ TestFormatProcess.test_empty_threads _____________________
+
+self = <tests.test_text.TestFormatProcess object at 0x7e33660ff7d0>
+
+    def test_empty_threads(self):
+        """TX4 边界：无线程仍出进程头。"""
+        p = dto.ProcessInfo(pid=1, cmdline="python x", exe_path="/x")
+>       assert "Process 1" in format_process(p, [])
+E       AssertionError: assert 'Process 1' in ''
+E        +  where '' = format_process(ProcessInfo(pid=1, cmdline='python x', exe_path='/x', python_version='?'), [])
+
+tests/test_text.py:150: AssertionError
+___________________ TestFormatNativeThread.test_with_module ____________________
+
+self = <tests.test_text.TestFormatNativeThread object at 0x7e33660fec30>
+
+    def test_with_module(self):
+        """TX5：gdb 风格线程头 + 帧行（模块非 verbose 取 basename——
+        复刻约束 native basename）。"""
+        t = dto.NativeThreadInfo(
+            tid=100, comm="python3",
+            frames=[dto.NativeFrame(pc=0x1000, symbol="foo",
+                                    module="/lib/libc.so"),
+                    dto.NativeFrame(pc=0x2000, symbol="bar", module=None)])
+        out = format_native_thread(t, 1)
+>       assert 'Thread 1 (LWP 100) "python3"' in out
+E       assert 'Thread 1 (LWP 100) "python3"' in ''
+
+tests/test_text.py:163: AssertionError
+____________ TestFormatNativeThread.test_verbose_keeps_full_module _____________
+
+self = <tests.test_text.TestFormatNativeThread object at 0x7e33660ff260>
+
+    def test_verbose_keeps_full_module(self):
+        """TX5：-v 保留模块全路径。"""
+        t = dto.NativeThreadInfo(
+            tid=100, comm="python3",
+            frames=[dto.NativeFrame(pc=0x1000, symbol="foo",
+                                    module="/lib/libc.so")])
+>       assert "from /lib/libc.so" in format_native_thread(t, 1, verbose=True)
+E       AssertionError: assert 'from /lib/libc.so' in ''
+E        +  where '' = format_native_thread(NativeThreadInfo(tid=100, comm='python3', frames=[NativeFrame(pc=4096, symbol='foo', module='/lib/libc.so')], unwind_failed=False), 1, verbose=True)
+
+tests/test_text.py:173: AssertionError
+__________________ TestFormatNativeThread.test_unwind_failed ___________________
+
+self = <tests.test_text.TestFormatNativeThread object at 0x7e33660ff5f0>
+
+    def test_unwind_failed(self):
+        """TX5：回溯失败且无帧 → Backtrace stopped 提示（逐字复刻）。"""
+        t = dto.NativeThreadInfo(tid=5, comm="x", unwind_failed=True)
+>       assert "Backtrace stopped: Cannot access memory" in \
+            format_native_thread(t, 1)
+E       AssertionError: assert 'Backtrace stopped: Cannot access memory' in ''
+E        +  where '' = format_native_thread(NativeThreadInfo(tid=5, comm='x', frames=[], unwind_failed=True), 1)
+
+tests/test_text.py:178: AssertionError
+______________________ TestFormatNativeThread.test_color _______________________
+
+self = <tests.test_text.TestFormatNativeThread object at 0x7e3366105a90>
+
+    def test_color(self):
+        """TX5：颜色点位（pc 暗/符号绿/模块青/失败红）。"""
+        t = dto.NativeThreadInfo(
+            tid=100, comm="python3",
+            frames=[dto.NativeFrame(pc=0x1000, symbol="foo",
+                                    module="/lib/libc.so")])
+        out = format_native_thread(t, 1, color=True)
+>       assert 'Thread 1 (LWP \x1b[1m\x1b[33m100\x1b[0m) "python3"' in out
+E       assert 'Thread 1 (LWP \x1b[1m\x1b[33m100\x1b[0m) "python3"' in ''
+
+tests/test_text.py:188: AssertionError
+____________________ TestFormatNative.test_multiple_threads ____________________
+
+self = <tests.test_text.TestFormatNative object at 0x7e3366105df0>
+
+    def test_multiple_threads(self):
+        """TX5 配套：多线程块顺序拼接（线程顺序由 collect 保证升序）。"""
+        threads = [
+            dto.NativeThreadInfo(tid=101, comm="a",
+                                 frames=[dto.NativeFrame(pc=0x1, symbol="f")]),
+            dto.NativeThreadInfo(tid=102, comm="b",
+                                 frames=[dto.NativeFrame(pc=0x2, symbol="g")]),
+        ]
+        out = format_native(threads)
+>       assert 'Thread 1 (LWP 101) "a"' in out
+E       assert 'Thread 1 (LWP 101) "a"' in ''
+
+tests/test_text.py:207: AssertionError
+_____________________ TestFormatSyscallEvent.test_success ______________________
+
+self = <tests.test_text.TestFormatSyscallEvent object at 0x7e33661053a0>
+
+    def test_success(self):
+        """TX6：成功事件行（tid 双空格分隔，= ret）。"""
+>       assert format_syscall_event(self._event()) == \
+            '1234  openat(AT_FDCWD, "/tmp/x", O_RDONLY) = 3'
+E       assert '' == '1234  openat...O_RDONLY) = 3'
+E         
+E         - 1234  openat(AT_FDCWD, "/tmp/x", O_RDONLY) = 3
+
+tests/test_text.py:220: AssertionError
+______________________ TestFormatSyscallEvent.test_error _______________________
+
+self = <tests.test_text.TestFormatSyscallEvent object at 0x7e3366105190>
+
+    def test_error(self):
+        """TX6（复刻约束 errno 名解码）：= -1 ENAME (desc)。"""
+        out = format_syscall_event(self._event(error=2, ret=-1))
+>       assert "= -1 ENOENT (No such file or directory)" in out
+E       AssertionError: assert '= -1 ENOENT (No such file or directory)' in ''
+
+tests/test_text.py:226: AssertionError
+__________________ TestFormatSyscallEvent.test_unknown_errno ___________________
+
+self = <tests.test_text.TestFormatSyscallEvent object at 0x7e33661049b0>
+
+    def test_unknown_errno(self):
+        """TX6：表外 errno → ERRNO_<n> / Unknown error。"""
+        out = format_syscall_event(self._event(error=999, ret=-1))
+>       assert "ERRNO_999" in out
+E       AssertionError: assert 'ERRNO_999' in ''
+
+tests/test_text.py:231: AssertionError
+_____________________ TestFormatSyscallEvent.test_elapsed ______________________
+
+self = <tests.test_text.TestFormatSyscallEvent object at 0x7e3366104950>
+
+    def test_elapsed(self):
+        """TX6（复刻约束 elapsed 格式）：尾部 <0.000123>；0 不显示。"""
+>       assert format_syscall_event(
+            self._event(elapsed=0.000123)).endswith("<0.000123>")
+E       assert False
+E        +  where False = <built-in method endswith of str object at 0x153b6e8>('<0.000123>')
+E        +    where <built-in method endswith of str object at 0x153b6e8> = ''.endswith
+E        +      where '' = format_syscall_event(SyscallEvent(tid=1234, nr=257, name='openat', args=[], rendered='AT_FDCWD, "/tmp/x", O_RDONLY', ret=3, error=None, elapsed=0.000123))
+E        +        where SyscallEvent(tid=1234, nr=257, name='openat', args=[], rendered='AT_FDCWD, "/tmp/x", O_RDONLY', ret=3, error=None, elapsed=0.000123) = _event(elapsed=0.000123)
+E        +          where _event = <tests.test_text.TestFormatSyscallEvent object at 0x7e3366104950>._event
+
+tests/test_text.py:236: AssertionError
+________________ TestFormatSyscallEvent.test_error_and_elapsed _________________
+
+self = <tests.test_text.TestFormatSyscallEvent object at 0x7e33661046b0>
+
+    def test_error_and_elapsed(self):
+        """TX6：错误与计时并存。"""
+        out = format_syscall_event(
+            self._event(error=13, ret=-1, elapsed=0.5))
+>       assert "= -1 EACCES (Permission denied) " in out
+E       AssertionError: assert '= -1 EACCES (Permission denied) ' in ''
+
+tests/test_text.py:244: AssertionError
+______________________ TestFormatSyscallEvent.test_color _______________________
+
+self = <tests.test_text.TestFormatSyscallEvent object at 0x7e33661042c0>
+
+    def test_color(self):
+        """TX6：tid 黄粗、name 绿、错误红。"""
+        out = format_syscall_event(self._event(), color=True)
+>       assert "\x1b[1m\x1b[33m1234\x1b[0m" in out
+E       AssertionError: assert '\x1b[1m\x1b[33m1234\x1b[0m' in ''
+
+tests/test_text.py:250: AssertionError
+______________________ TestFormatSummary.test_header_row _______________________
+
+self = <tests.test_text.TestFormatSummary object at 0x7e3366106180>
+
+    def test_header_row(self):
+        """TX7（复刻约束 total/s 列）：表头六列齐备。"""
+        out = format_summary(self._events())
+>       header = out.splitlines()[0]
+                 ^^^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+tests/test_text.py:268: IndexError
+_______________ TestFormatSummary.test_counts_errors_and_totals ________________
+
+self = <tests.test_text.TestFormatSummary object at 0x7e3366106870>
+
+    def test_counts_errors_and_totals(self):
+        """TX7：按名聚合 calls/errors/total_time 与总计行。"""
+        out = format_summary(self._events())
+>       assert "read" in out and "write" in out
+E       AssertionError: assert ('read' in '')
+
+tests/test_text.py:276: AssertionError
+_________________ TestFormatSummary.test_sorted_by_total_time __________________
+
+self = <tests.test_text.TestFormatSummary object at 0x7e3366107170>
+
+    def test_sorted_by_total_time(self):
+        """TX7：按 total_time 降序（write 0.010 在 read 0.003 前）。"""
+        lines = format_summary(self._events()).splitlines()
+>       assert lines.index(next(l for l in lines if l.startswith("write"))) < \
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            lines.index(next(l for l in lines if l.startswith("read")))
+E       StopIteration
+
+tests/test_text.py:285: StopIteration
+____________________ TestFormatSummary.test_separator_rows _____________________
+
+self = <tests.test_text.TestFormatSummary object at 0x7e33661074d0>
+
+    def test_separator_rows(self):
+        """TX7：82 连字符分隔行（复刻约束）。"""
+        out = format_summary(self._events())
+>       assert "-" * 82 in out.splitlines()
+E       AssertionError: assert ('-' * 82) in []
+E        +  where [] = <built-in method splitlines of str object at 0x153b6e8>()
+E        +    where <built-in method splitlines of str object at 0x153b6e8> = ''.splitlines
+
+tests/test_text.py:291: AssertionError
+__________ TestFormatFolded.test_sorted_count_desc_then_lexicographic __________
+
+self = <tests.test_text.TestFormatFolded object at 0x7e33660f78c0>
+
+    def test_sorted_count_desc_then_lexicographic(self):
+        """TX8：计数降序、同计数键升序（确定性输出，复刻约束）。"""
+        p = dto.ProfileData(
+            proc_info=dto.ProcessInfo(pid=1, cmdline="c", exe_path="/x"),
+            counts={"b;f": 1, "a;f": 3, "c;f": 3})
+        lines = format_folded(p).splitlines()
+>       assert lines == ["a;f 3", "c;f 3", "b;f 1"]
+E       AssertionError: assert [] == ['a;f 3', 'c;f 3', 'b;f 1']
+E         
+E         Right contains 3 more items, first extra item: 'a;f 3'
+E         Use -v to get more diff
+
+tests/test_text.py:310: AssertionError
+____________________ TestFormatFolded.test_trailing_newline ____________________
+
+self = <tests.test_text.TestFormatFolded object at 0x7e3366107410>
+
+    def test_trailing_newline(self):
+        """TX8：非空输出以换行结尾（flamegraph 工具行格式）。"""
+        p = dto.ProfileData(
+            proc_info=dto.ProcessInfo(pid=1, cmdline="c", exe_path="/x"),
+            counts={"a;f": 1})
+>       assert format_folded(p) == "a;f 1\n"
+E       AssertionError: assert '' == 'a;f 1\n'
+E         
+E         - a;f 1
+
+tests/test_text.py:323: AssertionError
+_________________ TestRenderTop.test_layout_headers_and_values _________________
+
+self = <tests.test_text.TestRenderTop object at 0x7e33661040b0>
+
+    def test_layout_headers_and_values(self):
+        """TX9：屏幕骨架——进程头/Elapsed 行/Active 表/Top functions 表。"""
+        p = dto.ProcessInfo(pid=1, cmdline="python x", exe_path="/x",
+                            python_version="3.12.13")
+        out = render_top(self._stats(), p, elapsed=2.0)
+>       assert "Process 1: python x" in out
+E       AssertionError: assert 'Process 1: python x' in ''
+
+tests/test_text.py:339: AssertionError
+______________________ TestRenderTop.test_top_n_truncates ______________________
+
+self = <tests.test_text.TestRenderTop object at 0x7e33661049e0>
+
+    def test_top_n_truncates(self):
+        """TX9：Top functions 按 top_n 截断。"""
+        s = TopStats()
+        for i in range(20):
+            s.update([dto.ThreadInfo(native_tid=100 + i, frames=[
+                dto.FrameInfo(f"f{i}", "a.py", 1)])])
+        p = dto.ProcessInfo(pid=1, cmdline="c", exe_path="/x")
+        out = render_top(s, p, elapsed=1.0, top_n=5)
+        fnames = [l for l in out.splitlines()
+                  if l.strip().startswith(("0.", "1"))]
+>       assert "f19" in out
+E       AssertionError: assert 'f19' in ''
+
+tests/test_text.py:361: AssertionError
+____________________ TestRenderTop.test_idle_threads_listed ____________________
+
+self = <tests.test_text.TestRenderTop object at 0x7e33661051f0>
+
+    def test_idle_threads_listed(self):
+        """TX9：Idle threads 行（去重升序，A7 P0-1 修复后的展示面）。"""
+        s = self._stats()
+        s.update([dto.ThreadInfo(native_tid=105, idle=True)])
+        p = dto.ProcessInfo(pid=1, cmdline="c", exe_path="/x")
+        out = render_top(s, p, elapsed=1.0)
+>       assert "Idle threads: 105" in out
+E       AssertionError: assert 'Idle threads: 105' in ''
+
+tests/test_text.py:370: AssertionError
+_____________ TestRenderTop.test_unnamed_top_frame_own_pct_nonzero _____________
+
+self = <tests.test_text.TestRenderTop object at 0x7e3366106450>
+
+    def test_unnamed_top_frame_own_pct_nonzero(self):
+        """TX9（A7 P1-8 修复）：无名顶帧的 OWN% 以 "?" 归一查表——旧树
+        用 frame.name（None）查询，OWN% 恒 0。"""
+        s = TopStats()
+        s.update([dto.ThreadInfo(native_tid=101, frames=[
+            dto.FrameInfo(None, "a.py", 1)])])
+        p = dto.ProcessInfo(pid=1, cmdline="c", exe_path="/x")
+        out = render_top(s, p, elapsed=1.0)
+>       active_line = next(l for l in out.splitlines() if "101" in l)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       StopIteration
+
+tests/test_text.py:381: StopIteration
+=========================== short test summary info ============================
+FAILED tests/test_cli_live.py::TestStackCliLive::test_stack_json_against_live_target
+FAILED tests/test_cli_live.py::TestStackCliLive::test_stack_text_has_thread_header
+FAILED tests/test_cli_live.py::TestStackCliLive::test_stack_dead_pid_rc1 - As...
+FAILED tests/test_cli_live.py::TestStackCliLive::test_syscall_max_events - As...
+FAILED tests/test_cli_live.py::TestStackCliLive::test_record_duration_writes_folded
+FAILED tests/test_dumps.py::TestDumpPython::test_success_text - assert 1 == 0
+FAILED tests/test_dumps.py::TestDumpPython::test_error_goes_to_stderr_rc1 - A...
+FAILED tests/test_dumps.py::TestDumpPython::test_error_color_forced - Asserti...
+FAILED tests/test_dumps.py::TestDumpPython::test_version_warning_before_collection_failure
+FAILED tests/test_dumps.py::TestDumpPython::test_json_output_never_colored - ...
+FAILED tests/test_dumps.py::TestDumpNative::test_success_prints_single_header
+FAILED tests/test_dumps.py::TestDumpNative::test_error_rc1 - AssertionError: ...
+FAILED tests/test_dumps.py::TestDumpNative::test_json - assert 1 == 0
+FAILED tests/test_dumps.py::TestDumpSyscalls::test_streams_events - assert 1 ...
+FAILED tests/test_dumps.py::TestDumpSyscalls::test_summary_instead_of_stream
+FAILED tests/test_dumps.py::TestDumpSyscalls::test_json_precedence_never_colored
+FAILED tests/test_dumps.py::TestDumpSyscalls::test_attach_error_rc1 - Asserti...
+FAILED tests/test_dumps.py::TestDumpSyscalls::test_keyboardinterrupt_still_summarizes
+FAILED tests/test_dumps.py::TestDumpRecord::test_stdout_folded_stderr_summary
+FAILED tests/test_dumps.py::TestDumpRecord::test_output_file - AssertionError...
+FAILED tests/test_dumps.py::TestDumpRecord::test_version_warning_printed - As...
+FAILED tests/test_dumps.py::TestDumpTop::test_not_a_tty_rc2 - assert 1 == 2
+FAILED tests/test_dumps.py::TestDumpTop::test_exits_on_process_exited - asser...
+FAILED tests/test_jsonout.py::TestWrappingShape::test_indent_two_and_trailing_newline
+FAILED tests/test_jsonout.py::TestWrappingShape::test_non_ascii_preserved - A...
+FAILED tests/test_jsonout.py::TestProcessJson::test_process_and_threads_keys
+FAILED tests/test_jsonout.py::TestProcessJson::test_full_paths_not_shortened
+FAILED tests/test_jsonout.py::TestNativeJson::test_process_carries_pid_and_cmdline_only
+FAILED tests/test_jsonout.py::TestSyscallsJson::test_events_list - json.decod...
+FAILED tests/test_scaffold.py::test_legacy_modules_are_not_importable - Asser...
+FAILED tests/test_syscalls.py::TestOnEvent::test_on_event_called_per_emission
+FAILED tests/test_text.py::TestFormatFrame::test_basic - AssertionError: asse...
+FAILED tests/test_text.py::TestFormatFrame::test_high_index - AssertionError:...
+FAILED tests/test_text.py::TestFormatFrame::test_none_name_and_filename - Ass...
+FAILED tests/test_text.py::TestFormatFrame::test_color - AssertionError: asse...
+FAILED tests/test_text.py::TestFormatFrame::test_path_shortened_to_two_components
+FAILED tests/test_text.py::TestFormatFrame::test_verbose_keeps_full_path - As...
+FAILED tests/test_text.py::TestFormatFrame::test_two_components_unchanged - A...
+FAILED tests/test_text.py::TestShortenPath::test_depth_semantics - AssertionE...
+FAILED tests/test_text.py::TestFormatThread::test_with_frames - assert 'Threa...
+FAILED tests/test_text.py::TestFormatThread::test_idle_marker - AssertionErro...
+FAILED tests/test_text.py::TestFormatThread::test_no_name - AssertionError: a...
+FAILED tests/test_text.py::TestFormatThread::test_no_frames - AssertionError:...
+FAILED tests/test_text.py::TestFormatThread::test_color - assert 'Thread \x1b...
+FAILED tests/test_text.py::TestFormatProcessHeader::test_header - AssertionEr...
+FAILED tests/test_text.py::TestFormatProcessHeader::test_header_color - Asser...
+FAILED tests/test_text.py::TestFormatProcess::test_full_output - AssertionErr...
+FAILED tests/test_text.py::TestFormatProcess::test_empty_threads - AssertionE...
+FAILED tests/test_text.py::TestFormatNativeThread::test_with_module - assert ...
+FAILED tests/test_text.py::TestFormatNativeThread::test_verbose_keeps_full_module
+FAILED tests/test_text.py::TestFormatNativeThread::test_unwind_failed - Asser...
+FAILED tests/test_text.py::TestFormatNativeThread::test_color - assert 'Threa...
+FAILED tests/test_text.py::TestFormatNative::test_multiple_threads - assert '...
+FAILED tests/test_text.py::TestFormatSyscallEvent::test_success - assert '' =...
+FAILED tests/test_text.py::TestFormatSyscallEvent::test_error - AssertionErro...
+FAILED tests/test_text.py::TestFormatSyscallEvent::test_unknown_errno - Asser...
+FAILED tests/test_text.py::TestFormatSyscallEvent::test_elapsed - assert False
+FAILED tests/test_text.py::TestFormatSyscallEvent::test_error_and_elapsed - A...
+FAILED tests/test_text.py::TestFormatSyscallEvent::test_color - AssertionErro...
+FAILED tests/test_text.py::TestFormatSummary::test_header_row - IndexError: l...
+FAILED tests/test_text.py::TestFormatSummary::test_counts_errors_and_totals
+FAILED tests/test_text.py::TestFormatSummary::test_sorted_by_total_time - Sto...
+FAILED tests/test_text.py::TestFormatSummary::test_separator_rows - Assertion...
+FAILED tests/test_text.py::TestFormatFolded::test_sorted_count_desc_then_lexicographic
+FAILED tests/test_text.py::TestFormatFolded::test_trailing_newline - Assertio...
+FAILED tests/test_text.py::TestRenderTop::test_layout_headers_and_values - As...
+FAILED tests/test_text.py::TestRenderTop::test_top_n_truncates - AssertionErr...
+FAILED tests/test_text.py::TestRenderTop::test_idle_threads_listed - Assertio...
+FAILED tests/test_text.py::TestRenderTop::test_unnamed_top_frame_own_pct_nonzero
+======================== 69 failed, 824 passed in 7.34s ========================

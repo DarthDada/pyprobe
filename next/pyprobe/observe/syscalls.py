@@ -320,7 +320,8 @@ class TraceFilter:
 # Tracing engine consumer (SY1–SY7)
 # ---------------------------------------------------------------------------
 
-def _emit(events, view, tid, nr, args, ret, elapsed, flt, verbose):
+def _emit(events, view, tid, nr, args, ret, elapsed, flt, verbose,
+          on_event=None):
     """Build one SyscallEvent from a paired entry/exit (SY3)."""
     name = SYSCALL_NAMES.get(nr, f"sys_{nr}")
     if not flt.matches(name):
@@ -335,14 +336,21 @@ def _emit(events, view, tid, nr, args, ret, elapsed, flt, verbose):
     if error is None:
         rendered = fill_out_args(view, name, args, ret, rendered,
                                  verbose=verbose)
-    events.append(dto.SyscallEvent(
+    ev = dto.SyscallEvent(
         tid=tid, nr=nr, name=name,
         args=[a & 0xFFFFFFFFFFFFFFFF for a in args],
-        rendered=rendered, ret=ret, error=error, elapsed=elapsed))
+        rendered=rendered, ret=ret, error=error, elapsed=elapsed)
+    events.append(ev)
+    # SY14 (批次 6 契约增补): fire the callback right at emission — the
+    # dump layer's live-streaming channel, and the only way partial
+    # results survive a KeyboardInterrupt (which never returns here).
+    if on_event is not None:
+        on_event(ev)
 
 
 def collect_syscalls(pid: int, *, trace=None, max_events=None,
-                     verbose: bool = False) -> list[dto.SyscallEvent]:
+                     verbose: bool = False,
+                     on_event=None) -> list[dto.SyscallEvent]:
     """Trace syscalls of ``pid`` (all threads) and return paired events.
 
     Engine: PtraceEngine(feature="syscall tracing") → seize(PTRACE_OPTIONS)
@@ -350,6 +358,10 @@ def collect_syscalls(pid: int, *, trace=None, max_events=None,
     Raises ``AttachFailed`` / ``ProcessNotFound`` /
     ``UnsupportedArchitecture`` (the last from the engine, SY1/T16).
     No printing.
+
+    ``on_event`` (SY14, 批次 6 契约增补): called with each event as it is
+    emitted (same sequence as the returned list); ``None`` keeps the
+    batch-5 semantics unchanged.
     """
     flt = TraceFilter(trace or "")
     engine = PtraceEngine(pid, feature="syscall tracing")
@@ -380,7 +392,8 @@ def collect_syscalls(pid: int, *, trace=None, max_events=None,
                         # the *user* filter (old tree hardcoded
                         # TraceFilter("") and bypassed it)
                         _emit(events, view, ev.tid, nr, args, 0,
-                              time.monotonic() - t0, flt, verbose)
+                              time.monotonic() - t0, flt, verbose,
+                              on_event)
                 engine.resume(ev.tid)
             elif isinstance(ev, SyscallStop):
                 regs = engine.getregs(ev.tid)
@@ -398,7 +411,8 @@ def collect_syscalls(pid: int, *, trace=None, max_events=None,
                     nr, args, t0 = pending
                     del stash[ev.tid]
                     _emit(events, view, ev.tid, nr, args, regs.rax,
-                          time.monotonic() - t0, flt, verbose)
+                          time.monotonic() - t0, flt, verbose,
+                          on_event)
                 engine.resume(ev.tid)
             if max_events is not None and len(events) >= max_events:
                 break  # SY7: quota checked after the event is emitted
