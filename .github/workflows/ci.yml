@@ -38,3 +38,19 @@ jobs:
           python-version: "3.12"
       - name: CI pipeline (sync gen-offsets lint test smoke)
         run: scripts/ci.sh
+
+  # Dual-tree phase (TODO §10): the next/ rebuild tree gets its own job so a
+  # next-side failure is attributable at a glance and the legacy pipeline
+  # timing stays unchanged. Removed at replacement (§10.6-2).
+  next:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      UV_PYTHON_PREFERENCE: only-managed
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: next tree pipeline (sync lint next)
+        run: scripts/ci.sh sync lint next

@@ -269,8 +269,9 @@ Top functions
 | `scripts/build_wheels.sh` | 双架构（x86_64 + aarch64）wheel |
 | `scripts/smoke.sh` | wheel 冒烟测试（构建 + 隔离 venv 安装 + import/CLI 校验） |
 | `scripts/run_tests.sh` | 测试（`unit`/`integration`/全部；`--cov` 覆盖率基线；`watch` 保存即重跑） |
-| `scripts/lint.sh` | ruff 代码检查（`--fix` 自动修复；`format` 应用格式化） |
-| `scripts/ci.sh` | CI 全流程编排（`sync gen-offsets lint test smoke`，`full` 含 `build-c`） |
+| `scripts/next.sh` | next/ 重构树（TODO §10）：`test`（`unit`/`integration`/`--cov`）与 `lint`，与旧树共享环境、导入隔离 |
+| `scripts/lint.sh` | ruff 代码检查（`--fix` 自动修复；`format` 应用格式化；§10 双树期含 next/） |
+| `scripts/ci.sh` | CI 全流程编排（`sync gen-offsets lint test smoke`，`full` 含 `build-c`，`next` 跑重构树套件） |
 | `scripts/_common.sh` | 公共逻辑（被各脚本 source，不单独执行） |
 
 `scripts/ci.sh` 用法：

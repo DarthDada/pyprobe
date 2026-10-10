@@ -12,13 +12,16 @@ set -e
 cd "$(dirname "$0")/.."
 source "$(dirname "$0")/_common.sh"
 
+targets=(pyprobe/ tests/)
+[ -d next ] && targets+=(next/)
+
 if [ "$1" = "format" ]; then
-    py_run -m ruff format pyprobe/ tests/
+    py_run -m ruff format "${targets[@]}"
     exit 0
 fi
 
 if [ "$1" = "--fix" ]; then
-    py_run -m ruff check --fix pyprobe/ tests/
+    py_run -m ruff check --fix "${targets[@]}"
 fi
 
-py_run -m ruff check pyprobe/ tests/
+py_run -m ruff check "${targets[@]}"
