@@ -27,6 +27,8 @@ class ScriptedSyscall:
 
 
 def test_full_read_single_call():
+    """M1 快乐路径：一次填满即返回，syscall 恰好一次、地址/长度原样透传——
+    防读循环在快乐路径上多余的二次调用（性能回归）。"""
     sc = ScriptedSyscall([b"abcdefgh"])
     t = Transport(PID, syscall=sc)
     assert t.read(0x1000, 8) == b"abcdefgh"

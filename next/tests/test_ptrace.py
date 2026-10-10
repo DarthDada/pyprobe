@@ -178,6 +178,8 @@ class TestSeize:
         assert engine.tids == set()
 
     def test_missing_process_propagates_without_ptrace(self, monkeypatch):
+        """T2/T3 边界：首次 list_tids 即 ProcessNotFound——原样传播且不得有
+        任何 ptrace 调用（防对不存在进程发出 SEIZE 的无效/误伤序列）。"""
         stub = StubKernel()
         engine = make_engine(
             monkeypatch, stub, pid=9999, tid_scans=[ProcessNotFound(9999)])
@@ -204,6 +206,8 @@ class TestStopAndRestart:
         engine.stop_all()  # must not raise
 
     def test_restart_all_uses_restart_op(self, monkeypatch):
+        """T4 配套：restart_all 对每线程发 restart_op 且不转发信号——
+        防批量续行误带 data（会把上次信号幽灵注入所有线程）。"""
         stub = StubKernel()
         engine = make_engine(monkeypatch, stub, tids=[100, 101])
         engine.restart_all()
@@ -212,6 +216,8 @@ class TestStopAndRestart:
         assert all(c[3] == 0 for c in restarts)
 
     def test_resume_forwards_signal(self, monkeypatch):
+        """T7 原语面：resume(tid, sig) 把信号放进 restart data——信号转发
+        的唯一合法通道，防回归成吞信号（sig=0 恒值）。"""
         stub = StubKernel()
         engine = make_engine(monkeypatch, stub, tids=[100])
         engine.resume(100, 9)
@@ -311,6 +317,8 @@ class TestWaitEvent:
         assert 100 not in engine.tids
 
     def test_signaled_reports_signal(self, monkeypatch):
+        """T12 变体：WIFSIGNALED 路径——exit_code 取 WTERMSIG、signaled=True，
+        与正常退出（WEXITSTATUS/False）区分两种死亡语义，防状态字解码混淆。"""
         stub = StubKernel(stops={100: [_signal_status(9)]})
         engine = make_engine(monkeypatch, stub, tids=[100])
         ev = engine.wait_event()
@@ -367,6 +375,8 @@ class TestDetach:
         assert len(stub.requests(pt.PTRACE_DETACH)) == 1
 
     def test_detach_empty_is_noop(self, monkeypatch):
+        """T14 边界：空 tids（未 seize 或 seize 全失败回滚后）detach 不得
+        发出任何 ptrace 调用——partial-failed seize 路径的收尾保障。"""
         stub = StubKernel()
         engine = make_engine(monkeypatch, stub, tids=[])
         engine.detach()
@@ -386,11 +396,13 @@ class TestArchCheck:
 
     @pytest.mark.parametrize("machine", ["x86_64", "AMD64"])
     def test_supported_arches(self, monkeypatch, machine):
+        """T16 反面：两个已支持 arch 别名（Linux/Windows 命名）都不得误抛——
+        防白名单过窄把合法环境误判为不支持。"""
         monkeypatch.setattr(pt.platform, "machine", lambda: machine)
         PtraceEngine(100)  # must not raise
 
     def test_real_arch_is_supported(self):
-        # spec-oracle: this test suite only runs meaningfully on x86-64;
-        # guard the development machine assumption explicitly.
+        """T16 spec-oracle：本套件只在 x86-64 上有意义——显式钉住开发机
+        假设，在非 x86-64 机器上尽早以失败提示而非静默跑过。"""
         assert os.uname().machine == "x86_64"
         PtraceEngine(100)

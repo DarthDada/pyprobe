@@ -60,6 +60,8 @@ def _iter_modules():
 
 
 def test_no_layer_imports_upwards():
+    """A8 核心守护：层模块不得 import 更高层（kernel→…→cli 单向）——反向
+    依赖会悄然腐蚀分层，code review 难以肉眼发现，必须机械钉死。"""
     violations = []
     for path in _iter_modules():
         rel = path.relative_to(PKG)
@@ -76,6 +78,8 @@ def test_no_layer_imports_upwards():
 
 
 def test_cross_cutting_imports_no_layer():
+    """A8 横切约束：errors/dto 不得 import 任何层模块——横切层一旦被层
+    依赖反向咬住，"可被任意层引用"的前提即告破裂。"""
     violations = []
     for path in _iter_modules():
         rel = path.relative_to(PKG)

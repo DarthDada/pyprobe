@@ -39,16 +39,21 @@ def make_page(fill=0x41):
 
 class TestSnapshotView:
     def test_zero_length_no_transport_call(self):
+        """M6/V1 边界：length=0 → b"" 且不触 transport——防空读白耗一次
+        syscall（栈遍历高频小读路径上的性能守护）。"""
         t = FakeTransport({0: make_page()})
         assert SnapshotView(t).read(0, 0) == b""
         assert t.calls == []
 
     def test_single_page_hit(self):
+        """V1 快乐路径：页内偏移切片正确（帧链/对象字段小读是快照期
+        最高频路径，切片错位即全盘皆错）。"""
         page = bytes(range(256)) * 16
         v = SnapshotView(FakeTransport({0: page}))
         assert v.read(10, 4) == page[10:14]
 
     def test_unreadable_page_returns_none(self):
+        """V2 失败模式：整页不可读 → None（调用方以 None 判失败，不抛异常）。"""
         v = SnapshotView(FakeTransport({}))
         assert v.read(0, 4) is None
 
@@ -129,11 +134,14 @@ class TestLiveView:
         assert len(t.calls) == 2
 
     def test_zero_length_no_transport_call(self):
+        """V8 边界：LiveView 同样空读短路——两视图共享的 M6 语义。"""
         t = FakeTransport({})
         assert LiveView(t).read(0, 0) == b""
         assert t.calls == []
 
     def test_unreadable_returns_none(self):
+        """V8 失败模式：LiveView 不可读 → None（与 SnapshotView 一致的
+        失败约定，消费方无需分辨视图种类）。"""
         assert LiveView(FakeTransport({})).read(0, 4) is None
 
 
@@ -148,26 +156,34 @@ class TestTypedHelpers:
 
     @pytest.mark.parametrize("view_cls", [SnapshotView, LiveView])
     def test_read_ptr(self, view_cls):
+        """V7：8 字节指针小端解码（遍历代码最频繁的读原语，解码错位即
+        全盘地址错误）。"""
         v = view_cls(FakeTransport({0: self._page_with("<Q", 16, 0xDEADBEEF)}))
         assert v.read_ptr(16) == 0xDEADBEEF
 
     @pytest.mark.parametrize("view_cls", [SnapshotView, LiveView])
     def test_read_u32(self, view_cls):
+        """V7：4 字节无符号解码（u32 字段读取，如 flags/版本号）。"""
         v = view_cls(FakeTransport({0: self._page_with("<I", 32, 0x12345678)}))
         assert v.read_u32(32) == 0x12345678
 
     @pytest.mark.parametrize("view_cls", [SnapshotView, LiveView])
     def test_read_u64(self, view_cls):
+        """V7：8 字节无符号解码（与 read_ptr 同宽但语义为值而非地址）。"""
         v = view_cls(FakeTransport({0: self._page_with("<Q", 40, 0xCAFEBABE)}))
         assert v.read_u64(40) == 0xCAFEBABE
 
     @pytest.mark.parametrize("view_cls", [SnapshotView, LiveView])
     def test_read_int_signed(self, view_cls):
+        """V7：4 字节有符号解码——负数符号位不丢（refcount 类字段允许
+        负值语义，无符号化会静默错值）。"""
         v = view_cls(FakeTransport({0: self._page_with("<i", 48, -42)}))
         assert v.read_int(48) == -42
 
     @pytest.mark.parametrize("view_cls", [SnapshotView, LiveView])
     def test_unreadable_returns_none(self, view_cls):
+        """V7 失败模式：四个类型助手在不可读地址一律 None——调用方统一
+        以 None 判失败，防某个助手漏判长度退化成 struct.error 异常。"""
         v = view_cls(FakeTransport({}))
         assert v.read_ptr(0) is None
         assert v.read_u32(0) is None
@@ -176,7 +192,8 @@ class TestTypedHelpers:
 
     @pytest.mark.parametrize("view_cls", [SnapshotView, LiveView])
     def test_short_read_returns_none(self, view_cls):
-        # 4-byte partial page; an 8-byte ptr read observes the short read.
+        """V7 边界：映射末尾部分页导致短读 → None（长度校验契约——短读
+        硬解会产出垃圾值，比失败更糟）。4 字节页上读 8 字节指针。"""
         v = view_cls(FakeTransport({0: b"\x01\x02\x03\x04"}))
         assert v.read_ptr(0) is None
 
@@ -185,13 +202,17 @@ class TestConstants:
     """V9: values are 复刻约束 (old memory.py; page size from getconf)."""
 
     def test_page_size_is_4096(self):
+        """V9：页大小 pin（缓存正确性的地基常数，改动即缓存键全错）。"""
         assert PAGE_SIZE == 4096
 
     def test_ptr_size_is_8(self):
+        """V9：指针宽 pin（64 位 LP64 假设，aarch64 验证时同样成立）。"""
         assert PTR_SIZE == 8
 
     def test_bypass_threshold_equals_page_size(self):
+        """V9：绕过阈值 == 页大小（大读不挤占热页缓存的策略不变量）。"""
         assert BYPASS_CACHE_THRESHOLD == PAGE_SIZE
 
     def test_cache_max_pages_is_256(self):
+        """V9：缓存上限 256 页 = 1MB（内存占用预算的复刻约束）。"""
         assert CACHE_MAX_PAGES == 256
