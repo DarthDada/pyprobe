@@ -1,0 +1,1190 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/admin/projects/pyprobe/next
+configfile: pyproject.toml
+plugins: cov-7.1.0, anyio-4.15.1
+collected 759 items
+
+tests/test_code.py ............................                          [  3%]
+tests/test_dicts.py ....................................                 [  8%]
+tests/test_dto.py .........                                              [  9%]
+tests/test_errors.py ......................                              [ 12%]
+tests/test_frames.py ........................................            [ 17%]
+tests/test_identity.py .........                                         [ 18%]
+tests/test_layout.py ................................................... [ 25%]
+........................................................................ [ 35%]
+........................................................................ [ 44%]
+................                                                         [ 46%]
+tests/test_mem.py ..........                                             [ 48%]
+tests/test_names.py ..........                                           [ 49%]
+tests/test_native.py FFFFFFFFFF                                          [ 50%]
+tests/test_objects.py .................................................. [ 57%]
+......................................                                   [ 62%]
+tests/test_procfs.py ...................                                 [ 64%]
+tests/test_profile.py ...........                                        [ 66%]
+tests/test_ptrace.py ...............................                     [ 70%]
+tests/test_ptrace_live.py FFFFF                                          [ 71%]
+tests/test_runtime.py ............................................       [ 76%]
+tests/test_sampling.py ..........                                        [ 78%]
+tests/test_scaffold.py ...                                               [ 78%]
+tests/test_session.py ........                                           [ 79%]
+tests/test_session_snapshot.py .....                                     [ 80%]
+tests/test_snapshot.py ....................                              [ 82%]
+tests/test_structure.py ...                                              [ 83%]
+tests/test_symbols.py ..................                                 [ 85%]
+tests/test_syscall_abi.py .......ss                                      [ 86%]
+tests/test_syscalls.py FFFFFFF..FF.FF.FFFFFFF.FFF.FFFFFFFFFFFFFFFFFFFFFF [ 93%]
+FFFF.FFFFFFFFF                                                           [ 95%]
+tests/test_topstats.py ........                                          [ 96%]
+tests/test_views.py .............................                        [100%]
+
+=================================== FAILURES ===================================
+__________________ TestEngineIntegration.test_engine_sequence __________________
+
+self = <tests.test_native.TestEngineIntegration object at 0x7b6e9a634350>
+fake_libdw = <function fake_libdw.<locals>.install at 0x7b6e9a28f4c0>
+stub_engine = []
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7b6e9a4fbe90>
+
+    def test_engine_sequence(self, fake_libdw, stub_engine, monkeypatch):
+        """NA8（A2 迁移）：seize(options=0) → stop_all → dwfl 展开 →
+        detach 的调用序列；feature 名透传；assume_ptrace_stopped=True。"""
+        fake_libdw(FakeLibdw(threads=[
+            {"tid": 100, "comm": "python3",
+             "frames": [(0x1000, True, "main", "/usr/bin/python3.12")]}]))
+        monkeypatch.setattr(nat_mod, "read_comm",
+                            lambda pid, tid: "python3")
+        collect_native(PID)
+>       eng = stub_engine[0]
+              ^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+tests/test_native.py:173: IndexError
+_______________ TestEngineIntegration.test_detach_on_dwfl_error ________________
+
+self = <tests.test_native.TestEngineIntegration object at 0x7b6e9a634bc0>
+fake_libdw = <function fake_libdw.<locals>.install at 0x7b6e9a28f380>
+stub_engine = []
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7b6e9a2420c0>
+
+    def test_detach_on_dwfl_error(self, fake_libdw, stub_engine, monkeypatch):
+        """NA8 失败模式：dwfl report 失败仍 detach（finally 语义——tracee
+        不得滞留停止态）。"""
+        fake_libdw(FakeLibdw(report_rc=-1))
+        monkeypatch.setattr(nat_mod, "read_comm", lambda pid, tid: "")
+>       with pytest.raises(AttachFailed):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AttachFailed
+
+tests/test_native.py:186: Failed
+_______________________ TestDwflSetup.test_begin_failure _______________________
+
+self = <tests.test_native.TestDwflSetup object at 0x7b6e9a635010>
+fake_libdw = <function fake_libdw.<locals>.install at 0x7b6e9a2398a0>
+stub_engine = []
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7b6e9a243bc0>
+
+    def test_begin_failure(self, fake_libdw, stub_engine, monkeypatch):
+        """NA2 失败模式：dwfl_begin 失败 → AttachFailed 带 dwfl 错误信息。"""
+        fake_libdw(FakeLibdw(begin_ok=False))
+        monkeypatch.setattr(nat_mod, "read_comm", lambda pid, tid: "")
+>       with pytest.raises(AttachFailed, match="dwfl_begin failed"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AttachFailed
+
+tests/test_native.py:196: Failed
+______________________ TestDwflSetup.test_report_failure _______________________
+
+self = <tests.test_native.TestDwflSetup object at 0x7b6e9a6353a0>
+fake_libdw = <function fake_libdw.<locals>.install at 0x7b6e9a239620>
+stub_engine = []
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7b6e9a240950>
+
+    def test_report_failure(self, fake_libdw, stub_engine, monkeypatch):
+        """NA3 失败模式：proc_report 失败 → AttachFailed（strerror 诊断）。"""
+        fake_libdw(FakeLibdw(report_rc=-1))
+        monkeypatch.setattr(nat_mod, "read_comm", lambda pid, tid: "")
+>       with pytest.raises(AttachFailed, match="dwfl_linux_proc_report"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AttachFailed
+
+tests/test_native.py:203: Failed
+______________________ TestDwflSetup.test_attach_failure _______________________
+
+self = <tests.test_native.TestDwflSetup object at 0x7b6e9a6357c0>
+fake_libdw = <function fake_libdw.<locals>.install at 0x7b6e9a239b20>
+stub_engine = []
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7b6e9a2414f0>
+
+    def test_attach_failure(self, fake_libdw, stub_engine, monkeypatch):
+        """NA3 失败模式：proc_attach 失败 → AttachFailed。"""
+        fake_libdw(FakeLibdw(attach_rc=-1))
+        monkeypatch.setattr(nat_mod, "read_comm", lambda pid, tid: "")
+>       with pytest.raises(AttachFailed, match="dwfl_linux_proc_attach"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AttachFailed
+
+tests/test_native.py:210: Failed
+___________________ TestFrameMapping.test_frames_and_symbols ___________________
+
+self = <tests.test_native.TestFrameMapping object at 0x7b6e9a635ac0>
+fake_libdw = <function fake_libdw.<locals>.install at 0x7b6e9a239940>
+stub_engine = []
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7b6e9a241c40>
+
+    def test_frames_and_symbols(self, fake_libdw, stub_engine, monkeypatch):
+        """NA4：帧 pc/符号/模块路径映射；结果线程按 tid 升序（NA7）。"""
+        fake_libdw(FakeLibdw(threads=[
+            {"tid": 102, "comm": "worker",
+             "frames": [(0x2000, True, "worker_fn", "/lib/w.so")]},
+            {"tid": 101, "comm": "main",
+             "frames": [(0x1000, True, "main", "/usr/bin/python3.12"),
+                        (0x1500, True, "PyRun", "/usr/bin/python3.12")]}]))
+        comms = {101: "main", 102: "worker"}
+        monkeypatch.setattr(nat_mod, "read_comm",
+                            lambda pid, tid: comms[tid])
+        threads = collect_native(PID)
+>       assert [t.tid for t in threads] == [101, 102]  # NA7 升序
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert [] == [101, 102]
+E         
+E         Right contains 2 more items, first extra item: 101
+E         Use -v to get more diff
+
+tests/test_native.py:227: AssertionError
+________ TestFrameMapping.test_non_activated_frame_lookup_pc_minus_one _________
+
+self = <tests.test_native.TestFrameMapping object at 0x7b6e9a635e50>
+fake_libdw = <function fake_libdw.<locals>.install at 0x7b6e9a239440>
+stub_engine = []
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7b6e9a2425d0>
+
+    def test_non_activated_frame_lookup_pc_minus_one(self, fake_libdw,
+                                                     stub_engine,
+                                                     monkeypatch):
+        """NA4：非激活帧以 pc−1 查符号（返回地址语义——调用点在下一条
+        指令，减一回到调用指令内）。"""
+        fake_libdw(FakeLibdw(threads=[
+            {"tid": 100, "comm": "",
+             "frames": [(0x1000, True, "top", None),
+                        (0x2000, False, "caller", None)]}]))
+        monkeypatch.setattr(nat_mod, "read_comm", lambda pid, tid: "")
+        fake = fake_libdw.fake["fake"]
+        collect_native(PID)
+>       assert fake.addrname_lookups == [0x1000, 0x1FFF]
+E       assert [] == [4096, 8191]
+E         
+E         Right contains 2 more items, first extra item: 4096
+E         Use -v to get more diff
+
+tests/test_native.py:246: AssertionError
+____________ TestFrameMapping.test_missing_symbol_is_question_marks ____________
+
+self = <tests.test_native.TestFrameMapping object at 0x7b6e9a6361e0>
+fake_libdw = <function fake_libdw.<locals>.install at 0x7b6e9a239e40>
+stub_engine = []
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7b6e9a243410>
+
+    def test_missing_symbol_is_question_marks(self, fake_libdw, stub_engine,
+                                              monkeypatch):
+        """NA4 失败模式：符号缺失 → "??"（strip 过的二进制常态占位）。"""
+        fake_libdw(FakeLibdw(threads=[
+            {"tid": 100, "comm": "", "frames": [(0x9000, True, None, None)]}]))
+        monkeypatch.setattr(nat_mod, "read_comm", lambda pid, tid: "")
+        # dwfl_addrmodule 返回模块但 addrname 命中不了 → 需 FakeLibdw 支持
+        # 无符号帧：sym=None → addrname 返回 None
+        threads = collect_native(PID)
+>       assert threads[0].frames[0].symbol == "??"
+               ^^^^^^^^^^
+E       IndexError: list index out of range
+
+tests/test_native.py:257: IndexError
+_______________________ TestFrameMapping.test_frame_cap ________________________
+
+self = <tests.test_native.TestFrameMapping object at 0x7b6e9a636570>
+fake_libdw = <function fake_libdw.<locals>.install at 0x7b6e9a239bc0>
+stub_engine = []
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7b6e9a1d5ca0>
+
+    def test_frame_cap(self, fake_libdw, stub_engine, monkeypatch):
+        """NA5：单线程帧上限 MAX_FRAMES=256（失控展开防护，复刻约束）。"""
+        frames = [(0x1000 + i * 16, True, f"f{i}", None) for i in range(300)]
+        fake_libdw(FakeLibdw(threads=[{"tid": 100, "comm": "",
+                                       "frames": frames}]))
+        monkeypatch.setattr(nat_mod, "read_comm", lambda pid, tid: "")
+        threads = collect_native(PID)
+>       assert len(threads[0].frames) == 256
+                   ^^^^^^^^^^
+E       IndexError: list index out of range
+
+tests/test_native.py:266: IndexError
+___________________ TestFrameMapping.test_unwind_failed_flag ___________________
+
+self = <tests.test_native.TestFrameMapping object at 0x7b6e9a636900>
+fake_libdw = <function fake_libdw.<locals>.install at 0x7b6e9a23a840>
+stub_engine = []
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7b6e9a1f5d00>
+
+    def test_unwind_failed_flag(self, fake_libdw, stub_engine, monkeypatch):
+        """NA6（复刻旧判定）：getframes 非 0 且 0 帧 → unwind_failed=True；
+        有帧则 False（§4 P0-3 修正为冻结期新功能，不实施）。"""
+        fake_libdw(FakeLibdw(threads=[
+            {"tid": 100, "comm": "", "frames": [], "getframes_rc": -1},
+            {"tid": 101, "comm": "",
+             "frames": [(0x1000, True, "f", None)], "getframes_rc": -1}]))
+        monkeypatch.setattr(nat_mod, "read_comm", lambda pid, tid: "")
+        threads = collect_native(PID)
+>       assert threads[0].unwind_failed is True
+               ^^^^^^^^^^
+E       IndexError: list index out of range
+
+tests/test_native.py:277: IndexError
+______ TestSyscallTracingLive.test_captures_clock_nanosleep_with_elapsed _______
+
+self = <tests.test_ptrace_live.TestSyscallTracingLive object at 0x7b6e9a6a37a0>
+fast_syscall_pid = 39892
+
+    def test_captures_clock_nanosleep_with_elapsed(self, fast_syscall_pid):
+        """SY13：对 fast target 捕获 clock_nanosleep 且 elapsed≥0.1s
+        （entry/exit 配对、计时、引擎全链路的活体互证）。"""
+        events = collect_syscalls(fast_syscall_pid, max_events=5)
+>       assert events, "no events captured from a sleeping target"
+E       AssertionError: no events captured from a sleeping target
+E       assert []
+
+tests/test_ptrace_live.py:27: AssertionError
+______________ TestSyscallTracingLive.test_filter_selects_events _______________
+
+self = <tests.test_ptrace_live.TestSyscallTracingLive object at 0x7b6e9a6a1be0>
+fast_syscall_pid = 39892
+
+    def test_filter_selects_events(self, fast_syscall_pid):
+        """SY13/SY8 活体：-e trace=clock_nanosleep 只捕获目标 syscall。"""
+        events = collect_syscalls(fast_syscall_pid,
+                                  trace="clock_nanosleep", max_events=3)
+>       assert events
+E       assert []
+
+tests/test_ptrace_live.py:37: AssertionError
+_________________ TestSyscallTracingLive.test_dead_pid_raises __________________
+
+self = <tests.test_ptrace_live.TestSyscallTracingLive object at 0x7b6e9a71c530>
+
+    def test_dead_pid_raises(self):
+        """SY1 失败模式活体：不存在的 PID → PyProbeError 子类（非 traceback）。"""
+        from pyprobe.errors import PyProbeError
+    
+>       with pytest.raises(PyProbeError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE PyProbeError
+
+tests/test_ptrace_live.py:44: Failed
+_________ TestStraceOracle.test_clock_nanosleep_render_matches_strace __________
+
+self = <tests.test_ptrace_live.TestStraceOracle object at 0x7b6e9a71c710>
+fast_syscall_pid = 39892
+
+    @pytest.mark.skipif(shutil.which("strace") is None,
+                        reason="strace not installed")
+    def test_clock_nanosleep_render_matches_strace(self, fast_syscall_pid):
+        """SY12：同一存活目标上，pyprobe 与 strace 对 clock_nanosleep 的
+        渲染在归一化（地址/tid/timespec 值抹零）后一致——渲染格式的
+        权威对照。"""
+        ours = collect_syscalls(fast_syscall_pid, trace="clock_nanosleep",
+                                max_events=2)
+>       assert ours, "no clock_nanosleep captured by pyprobe"
+E       AssertionError: no clock_nanosleep captured by pyprobe
+E       assert []
+
+tests/test_ptrace_live.py:59: AssertionError
+_______________ TestNativeUnwindLive.test_collect_native_frames ________________
+
+self = <tests.test_ptrace_live.TestNativeUnwindLive object at 0x7b6e9a71ca40>
+target_pid = 39893
+
+    def test_collect_native_frames(self, target_pid):
+        """NA9：对 live target 出 native 帧——线程非空、主线程有帧、
+        tid 升序（libdw/权限不足时 skip，旧 or-skip 语义保留）。"""
+        try:
+            threads = collect_native(target_pid)
+        except (AttachFailed, OSError) as e:
+            pytest.skip(f"native unwind unavailable: {e}")
+>       assert threads
+E       assert []
+
+tests/test_ptrace_live.py:97: AssertionError
+____________ TestCollectEngineFlow.test_engine_sequence_and_detach _____________
+
+self = <tests.test_syscalls.TestCollectEngineFlow object at 0x7b6e9a4a3aa0>
+engine_factory = <function engine_factory.<locals>.script at 0x7b6e9a1519e0>
+
+    def test_engine_sequence_and_detach(self, engine_factory):
+        """SY1：seize(OPTIONS)→stop_all→restart_all→wait_event→detach
+        的引擎调用序列（A2 消费契约）；feature 名透传（T16 错误文案）。"""
+        events, regs, mem, created = engine_factory([], {})
+        out = collect_syscalls(PID)
+>       eng = created[0]
+              ^^^^^^^^^^
+E       IndexError: list index out of range
+
+tests/test_syscalls.py:131: IndexError
+__________________ TestCollectEngineFlow.test_detach_on_error __________________
+
+self = <tests.test_syscalls.TestCollectEngineFlow object at 0x7b6e9a4a3560>
+engine_factory = <function engine_factory.<locals>.script at 0x7b6e9a1536a0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7b6e9a1f7ef0>
+
+    def test_detach_on_error(self, engine_factory, monkeypatch):
+        """SY1 失败模式：循环内异常仍 detach（finally 语义——tracee 不得
+        滞留停止态）。"""
+        events, regs, mem, created = engine_factory([RuntimeError("boom")],
+                                                    {})
+>       with pytest.raises(RuntimeError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE RuntimeError
+
+tests/test_syscalls.py:143: Failed
+_____________ TestCollectEngineFlow.test_attach_failed_propagates ______________
+
+self = <tests.test_syscalls.TestCollectEngineFlow object at 0x7b6e9a4a3380>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7b6e9a1f5e50>
+
+    def test_attach_failed_propagates(self, monkeypatch):
+        """SY1 失败模式：seize 失败 → AttachFailed 原样传播（CLI `[!]`）。"""
+        def factory(pid, **kw):
+            raise AttachFailed(pid, "Operation not permitted")
+    
+        monkeypatch.setattr(sc_mod, "PtraceEngine", factory)
+>       with pytest.raises(AttachFailed):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AttachFailed
+
+tests/test_syscalls.py:153: Failed
+________________ TestEntryExitPairing.test_pairing_emits_event _________________
+
+self = <tests.test_syscalls.TestEntryExitPairing object at 0x7b6e9a4a3350>
+engine_factory = <function engine_factory.<locals>.script at 0x7b6e9a151580>
+
+    def test_pairing_emits_event(self, engine_factory):
+        """SY2/SY3：entry 存 (nr, 6 寄存器 args 全显, t0)，exit 配对发射——
+        nr/name/args/ret/tid/elapsed 全字段。"""
+        entry = make_regs(257, rax=-1 % (1 << 64),
+                          args=(0x9C, 0x1000, 0, 0, 0, 0))
+        exit_ = make_regs(257, rax=3)
+        events = [SyscallStop(100), SyscallStop(100), Exited(100, 0, False)]
+        *_, created = engine_factory(events, {100: [entry, exit_]})
+        out = collect_syscalls(PID)
+>       assert len(out) == 1
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+tests/test_syscalls.py:167: AssertionError
+____________________ TestEntryExitPairing.test_errno_decode ____________________
+
+self = <tests.test_syscalls.TestEntryExitPairing object at 0x7b6e9a4a2de0>
+engine_factory = <function engine_factory.<locals>.script at 0x7b6e9a153e20>
+
+    def test_errno_decode(self, engine_factory):
+        """SY3：rax 为 -errno 的无符号形态 → error=errno、ret=-1。"""
+        entry = make_regs(0, args=(0, 0x2000, 8, 0, 0, 0))
+        exit_ = make_regs(0, rax=(1 << 64) - 2)  # -ENOENT
+        events = [SyscallStop(100), SyscallStop(100), Exited(100, 0, False)]
+        *_, created = engine_factory(events, {100: [entry, exit_]})
+>       (ev,) = collect_syscalls(PID)
+        ^^^^^
+E       ValueError: not enough values to unpack (expected 1, got 0)
+
+tests/test_syscalls.py:180: ValueError
+________________ TestEntryExitPairing.test_unknown_syscall_name ________________
+
+self = <tests.test_syscalls.TestEntryExitPairing object at 0x7b6e9a4a2bd0>
+engine_factory = <function engine_factory.<locals>.script at 0x7b6e9a152ac0>
+
+    def test_unknown_syscall_name(self, engine_factory):
+        """SY3：表外 nr → "sys_<nr>"（新内核 syscall 的前向兼容）。"""
+        entry = make_regs(9999)
+        exit_ = make_regs(9999, rax=0)
+        events = [SyscallStop(100), SyscallStop(100), Exited(100, 0, False)]
+        *_, created = engine_factory(events, {100: [entry, exit_]})
+>       (ev,) = collect_syscalls(PID)
+        ^^^^^
+E       ValueError: not enough values to unpack (expected 1, got 0)
+
+tests/test_syscalls.py:190: ValueError
+_________________ TestEntryExitPairing.test_multithread_events _________________
+
+self = <tests.test_syscalls.TestEntryExitPairing object at 0x7b6e9a4a1fd0>
+engine_factory = <function engine_factory.<locals>.script at 0x7b6e9a151440>
+
+    def test_multithread_events(self, engine_factory):
+        """SY2：两线程各自配对（stash 按 tid 隔离，交错 stop 不串）。"""
+        e1, x1 = make_regs(1, args=(1, 0x10, 5, 0, 0, 0)), make_regs(1, rax=5)
+        e2, x2 = make_regs(1, args=(1, 0x20, 5, 0, 0, 0)), make_regs(1, rax=5)
+        events = [SyscallStop(100), SyscallStop(101), SyscallStop(100),
+                  SyscallStop(101), Exited(100, 0, False),
+                  Exited(101, 0, False)]
+        *_, created = engine_factory(
+            events, {100: [e1, x1], 101: [e2, x2]})
+        out = collect_syscalls(PID)
+>       assert {ev.tid for ev in out} == {100, 101}
+E       assert set() == {100, 101}
+E         
+E         Extra items in the right set:
+E         100
+E         101
+E         Use -v to get more diff
+
+tests/test_syscalls.py:203: AssertionError
+__________________ TestEntryExitPairing.test_max_events_stops __________________
+
+self = <tests.test_syscalls.TestEntryExitPairing object at 0x7b6e9a4a1cd0>
+engine_factory = <function engine_factory.<locals>.script at 0x7b6e9a153920>
+
+    def test_max_events_stops(self, engine_factory):
+        """SY7：到量即停（多余 stop 不消费）。"""
+        pairs = []
+        regs = []
+        for _ in range(5):
+            pairs += [SyscallStop(100), SyscallStop(100)]
+            regs += [make_regs(0, args=(0, 0x10, 1, 0, 0, 0)),
+                     make_regs(0, rax=1)]
+        *_, created = engine_factory(pairs, {100: regs})
+        out = collect_syscalls(PID, max_events=3)
+>       assert len(out) == 3
+E       assert 0 == 3
+E        +  where 0 = len([])
+
+tests/test_syscalls.py:227: AssertionError
+_____________ TestExecEvent.test_execve_exit_emitted_on_exec_event _____________
+
+self = <tests.test_syscalls.TestExecEvent object at 0x7b6e9a4a1760>
+engine_factory = <function engine_factory.<locals>.script at 0x7b6e9a1537e0>
+
+    def test_execve_exit_emitted_on_exec_event(self, engine_factory):
+        """SY5：execve 的 exit 事件由 PTRACE_EVENT_EXEC 补发（ret=0——
+        成功 execve 无返回）。"""
+        events, regs = self._script()
+        *_, created = engine_factory(events, regs)
+>       (ev,) = collect_syscalls(PID)
+        ^^^^^
+E       ValueError: not enough values to unpack (expected 1, got 0)
+
+tests/test_syscalls.py:241: ValueError
+____________ TestExecEvent.test_execve_included_by_matching_filter _____________
+
+self = <tests.test_syscalls.TestExecEvent object at 0x7b6e9a4a1490>
+engine_factory = <function engine_factory.<locals>.script at 0x7b6e9a153600>
+
+    def test_execve_included_by_matching_filter(self, engine_factory):
+        """SY5 配套：trace=process 组含 execve → 补发事件保留。"""
+        events, regs = self._script()
+        *_, created = engine_factory(events, regs)
+>       (ev,) = collect_syscalls(PID, trace="process")
+        ^^^^^
+E       ValueError: not enough values to unpack (expected 1, got 0)
+
+tests/test_syscalls.py:256: ValueError
+________________ TestLiveViewUsage.test_arg_reads_use_live_view ________________
+
+self = <tests.test_syscalls.TestLiveViewUsage object at 0x7b6e9a4a18e0>
+engine_factory = <function engine_factory.<locals>.script at 0x7b6e9a152f20>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7b6e9a240f50>
+
+    def test_arg_reads_use_live_view(self, engine_factory, monkeypatch):
+        """SY4（A4）：参数解码经 LiveView（长时追踪不缓存——快照缓存会
+        在多次 stop 间供陈旧数据，旧 _UncachedReader 语义）。"""
+        seen = []
+    
+        class SpyLive:
+            def __init__(self, transport):
+                seen.append(transport)
+    
+        monkeypatch.setattr(sc_mod, "LiveView", SpyLive)
+        *_, created = engine_factory([], {})
+        collect_syscalls(PID)
+>       assert len(seen) == 1  # 每次追踪一个 LiveView
+        ^^^^^^^^^^^^^^^^^^^^^
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+tests/test_syscalls.py:273: AssertionError
+_____________________ TestTraceFilter.test_explicit_names ______________________
+
+self = <tests.test_syscalls.TestTraceFilter object at 0x7b6e9a4a2150>
+
+    def test_explicit_names(self):
+        """SY8：显式名单仅匹配名单内。"""
+        f = TraceFilter("read,write")
+        assert f.matches("read") is True
+>       assert f.matches("openat") is False
+E       AssertionError: assert True is False
+E        +  where True = matches('openat')
+E        +    where matches = <pyprobe.observe.syscalls.TraceFilter object at 0x7b6e9a243170>.matches
+
+tests/test_syscalls.py:289: AssertionError
+__________________________ TestTraceFilter.test_group __________________________
+
+self = <tests.test_syscalls.TestTraceFilter object at 0x7b6e9a4a2b10>
+
+    def test_group(self):
+        """SY8：组名展开（file 组含 open/openat/close）。"""
+        f = TraceFilter("file")
+        assert f.matches("openat") is True
+>       assert f.matches("read") is False
+E       AssertionError: assert True is False
+E        +  where True = matches('read')
+E        +    where matches = <pyprobe.observe.syscalls.TraceFilter object at 0x7b6e9a241190>.matches
+
+tests/test_syscalls.py:295: AssertionError
+_________________ TestTraceFilter.test_mixed_groups_and_names __________________
+
+self = <tests.test_syscalls.TestTraceFilter object at 0x7b6e9a4a2cf0>
+
+    def test_mixed_groups_and_names(self):
+        """SY8：组与单名并集。"""
+        f = TraceFilter("network,read")
+        assert f.matches("connect") is True
+        assert f.matches("read") is True
+>       assert f.matches("openat") is False
+E       AssertionError: assert True is False
+E        +  where True = matches('openat')
+E        +    where matches = <pyprobe.observe.syscalls.TraceFilter object at 0x7b6e9a134200>.matches
+
+tests/test_syscalls.py:302: AssertionError
+_____________________ TestTraceFilter.test_pure_exclusion ______________________
+
+self = <tests.test_syscalls.TestTraceFilter object at 0x7b6e9a4a37a0>
+
+    def test_pure_exclusion(self):
+        """SY8：纯排除 → 除名单外全追踪。"""
+        f = TraceFilter("!futex")
+>       assert f.matches("futex") is False
+E       AssertionError: assert True is False
+E        +  where True = matches('futex')
+E        +    where matches = <pyprobe.observe.syscalls.TraceFilter object at 0x7b6e9a134770>.matches
+
+tests/test_syscalls.py:307: AssertionError
+__________________ TestTraceFilter.test_pure_exclusion_group ___________________
+
+self = <tests.test_syscalls.TestTraceFilter object at 0x7b6e9a4a3710>
+
+    def test_pure_exclusion_group(self):
+        """SY8：组也可排除（!file → 非文件全放行）。"""
+        f = TraceFilter("!file")
+>       assert f.matches("openat") is False
+E       AssertionError: assert True is False
+E        +  where True = matches('openat')
+E        +    where matches = <pyprobe.observe.syscalls.TraceFilter object at 0x7b6e9a135040>.matches
+
+tests/test_syscalls.py:313: AssertionError
+__________________ TestTraceFilter.test_mixed_include_exclude __________________
+
+self = <tests.test_syscalls.TestTraceFilter object at 0x7b6e9a4a0da0>
+
+    def test_mixed_include_exclude(self):
+        """SY8（A7 P0-3 修复）：混合表达式 = include − exclude——旧树把
+        ! 项并入包含集致 openat 反被追踪（实测复现的语义反转）。"""
+        f = TraceFilter("file,!openat")
+>       assert f.matches("openat") is False
+E       AssertionError: assert True is False
+E        +  where True = matches('openat')
+E        +    where matches = <pyprobe.observe.syscalls.TraceFilter object at 0x7b6e9a135880>.matches
+
+tests/test_syscalls.py:320: AssertionError
+______________ TestTraceFilter.test_unknown_name_matches_nothing _______________
+
+self = <tests.test_syscalls.TestTraceFilter object at 0x7b6e9a4a0a40>
+
+    def test_unknown_name_matches_nothing(self):
+        """SY8：未知名静默不匹配（不报错，防拼写错误炸掉追踪）。"""
+>       assert TraceFilter("nosuchcall").matches("read") is False
+E       AssertionError: assert True is False
+E        +  where True = matches('read')
+E        +    where matches = <pyprobe.observe.syscalls.TraceFilter object at 0x7b6e9a240d10>.matches
+E        +      where <pyprobe.observe.syscalls.TraceFilter object at 0x7b6e9a240d10> = TraceFilter('nosuchcall')
+
+tests/test_syscalls.py:328: AssertionError
+_______________________ TestEscapeBytes.test_plain_ascii _______________________
+
+self = <tests.test_syscalls.TestEscapeBytes object at 0x7b6e9a4a0050>
+
+    def test_plain_ascii(self):
+        """SY9：可打印 ASCII 原样。"""
+>       assert escape_bytes(b"hello") == "hello"
+E       AssertionError: assert '' == 'hello'
+E         
+E         - hello
+
+tests/test_syscalls.py:343: AssertionError
+__________________ TestEscapeBytes.test_quotes_and_backslash ___________________
+
+self = <tests.test_syscalls.TestEscapeBytes object at 0x7b6e9a4a0230>
+
+    def test_quotes_and_backslash(self):
+        """SY9：引号与反斜杠转义（strace 风格）。"""
+>       assert escape_bytes(b'a"b\\c') == 'a\\"b\\\\c'
+E       assert '' == 'a\\"b\\\\c'
+E         
+E         - a\"b\\c
+
+tests/test_syscalls.py:347: AssertionError
+___________________ TestEscapeBytes.test_nonprintable_octal ____________________
+
+self = <tests.test_syscalls.TestEscapeBytes object at 0x7b6e9a473b90>
+
+    def test_nonprintable_octal(self):
+        """SY9：不可打印字节 \\NNN 八进制（换行/ NUL/ 高位字节）。"""
+>       assert escape_bytes(b"a\nb\x00\xc3\xa9") == "a\\012b\\000\\303\\251"
+E       AssertionError: assert '' == 'a\\012b\\000\\303\\251'
+E         
+E         - a\012b\000\303\251
+
+tests/test_syscalls.py:351: AssertionError
+______________________ TestTruncate.test_short_untouched _______________________
+
+self = <tests.test_syscalls.TestTruncate object at 0x7b6e9a473020>
+
+    def test_short_untouched(self):
+        """SY9：短串不动。"""
+>       assert truncate_escaped("abc") == "abc"
+E       AssertionError: assert '' == 'abc'
+E         
+E         - abc
+
+tests/test_syscalls.py:361: AssertionError
+___________________ TestTruncate.test_exact_limit_untouched ____________________
+
+self = <tests.test_syscalls.TestTruncate object at 0x7b6e9a470da0>
+
+    def test_exact_limit_untouched(self):
+        """SY9 边界：恰好 32 字符不动。"""
+>       assert truncate_escaped("a" * 32) == "a" * 32
+E       AssertionError: assert '' == 'aaaaaaaaaaaa...aaaaaaaaaaaaa'
+E         
+E         - aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+tests/test_syscalls.py:365: AssertionError
+____________________ TestTruncate.test_over_limit_ellipsis _____________________
+
+self = <tests.test_syscalls.TestTruncate object at 0x7b6e9a4732c0>
+
+    def test_over_limit_ellipsis(self):
+        """SY9（复刻约束 32 字符截断）：超长截 32 + "..."。"""
+>       assert truncate_escaped("a" * 40) == "a" * 32 + "..."
+E       AssertionError: assert '' == 'aaaaaaaaaaaa...aaaaaaaaaa...'
+E         
+E         - aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...
+
+tests/test_syscalls.py:369: AssertionError
+_______________________ TestTruncate.test_render_str_arg _______________________
+
+self = <tests.test_syscalls.TestTruncate object at 0x7b6e9a4a05c0>
+
+    def test_render_str_arg(self):
+        """SY9：render_str_arg 加引号；非 verbose 截断、verbose 保留。"""
+>       assert render_str_arg(b"hello") == '"hello"'
+E       assert '' == '"hello"'
+E         
+E         - "hello"
+
+tests/test_syscalls.py:373: AssertionError
+____________________ TestReadCstr.test_reads_nul_terminated ____________________
+
+self = <tests.test_syscalls.TestReadCstr object at 0x7b6e9a4a0c50>
+
+    def test_reads_nul_terminated(self):
+        """SY9：NUL 结尾字符串读至 NUL。"""
+        mem = FakeMemory({0x1000: b"/tmp/x\x00rest"})
+>       assert read_cstr(mem, 0x1000) == '"/tmp/x"'
+E       assert '' == '"/tmp/x"'
+E         
+E         - "/tmp/x"
+
+tests/test_syscalls.py:382: AssertionError
+_______________________ TestReadCstr.test_truncates_long _______________________
+
+self = <tests.test_syscalls.TestReadCstr object at 0x7b6e9a4a3c80>
+
+    def test_truncates_long(self):
+        """SY9：超长走 32 字符截断。"""
+        mem = FakeMemory({0x1000: b"a" * 100 + b"\x00"})
+>       assert read_cstr(mem, 0x1000) == '"' + "a" * 32 + '..."'
+E       assert '' == '"aaaaaaaaaaa...aaaaaaaaa..."'
+E         
+E         - "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa..."
+
+tests/test_syscalls.py:387: AssertionError
+_________________________ TestReadCstr.test_null_addr __________________________
+
+self = <tests.test_syscalls.TestReadCstr object at 0x7b6e9a4a2ea0>
+
+    def test_null_addr(self):
+        """SY9：addr==0 → "NULL"。"""
+>       assert read_cstr(FakeMemory(), 0) == "NULL"
+E       AssertionError: assert '' == 'NULL'
+E         
+E         - NULL
+
+tests/test_syscalls.py:391: AssertionError
+______________________ TestReadCstr.test_unreadable_addr _______________________
+
+self = <tests.test_syscalls.TestReadCstr object at 0x7b6e9a4a2960>
+
+    def test_unreadable_addr(self):
+        """SY9：全不可读 → 原始 0x 地址（strace 对不可读内存的行为）。"""
+>       assert read_cstr(FakeMemory(), 0xDEAD) == "0xdead"
+E       AssertionError: assert '' == '0xdead'
+E         
+E         - 0xdead
+
+tests/test_syscalls.py:395: AssertionError
+__________________ TestReadCstr.test_partial_then_unreadable ___________________
+
+self = <tests.test_syscalls.TestReadCstr object at 0x7b6e9a4a1c40>
+
+    def test_partial_then_unreadable(self):
+        """SY9：首块可读但无 NUL、续读不可读 → 已读部分返回（边缘映射
+        经 read_available 二分探测）。"""
+        mem = FakeMemory({0x1000: b"/partial/path-no-nul" + bytes(236)})
+        # 0x1000+256 处不可读 → 二分找到 256 可读
+>       assert read_cstr(mem, 0x1000) == \
+            '"/partial/path-no-nul' + "\\000" * 19 + '..."'
+E       assert '' == '"/partial/pa...\000\\000..."'
+E         
+E         - "/partial/path-no-nul\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000..."
+
+tests/test_syscalls.py:402: AssertionError
+_______________________ TestReadAvailable.test_full_read _______________________
+
+self = <tests.test_syscalls.TestReadAvailable object at 0x7b6e9a473a10>
+
+    def test_full_read(self):
+        """SY9：整段可满足 → 全量返回。"""
+        mem = FakeMemory({0x1000: b"abcdefgh"})
+>       assert read_available(mem, 0x1000, 4) == b"abcd"
+E       AssertionError: assert b'' == b'abcd'
+E         
+E         Use -v to get more diff
+
+tests/test_syscalls.py:410: AssertionError
+_________________ TestReadAvailable.test_binary_search_largest _________________
+
+self = <tests.test_syscalls.TestReadAvailable object at 0x7b6e9a4710d0>
+
+    def test_binary_search_largest(self):
+        """SY9：边缘映射——二分最大可满足长度（映射尾部读取不丢数据）。"""
+        mem = FakeMemory({0x1000: b"abc"})
+>       assert read_available(mem, 0x1000, 8) == b"abc"
+E       AssertionError: assert b'' == b'abc'
+E         
+E         Use -v to get more diff
+
+tests/test_syscalls.py:415: AssertionError
+______________________ TestReadTimespec.test_reads_struct ______________________
+
+self = <tests.test_syscalls.TestReadTimespec object at 0x7b6e9a473d40>
+
+    def test_reads_struct(self):
+        """SY9：{tv_sec, tv_nsec} 双 i64 解码。"""
+        mem = FakeMemory({0x1000: struct.pack("<qq", 5, 123456789)})
+>       assert read_timespec(mem, 0x1000) == "{5, 123456789}"
+E       AssertionError: assert '' == '{5, 123456789}'
+E         
+E         - {5, 123456789}
+
+tests/test_syscalls.py:422: AssertionError
+__________________________ TestReadTimespec.test_null __________________________
+
+self = <tests.test_syscalls.TestReadTimespec object at 0x7b6e9a4735c0>
+
+    def test_null(self):
+        """SY9：NULL → "NULL"。"""
+>       assert read_timespec(FakeMemory(), 0) == "NULL"
+E       AssertionError: assert '' == 'NULL'
+E         
+E         - NULL
+
+tests/test_syscalls.py:426: AssertionError
+_______________________ TestReadTimespec.test_unreadable _______________________
+
+self = <tests.test_syscalls.TestReadTimespec object at 0x7b6e9a71e5d0>
+
+    def test_unreadable(self):
+        """SY9：不可读 → 0x 地址。"""
+>       assert read_timespec(FakeMemory(), 0xDEAD) == "0xdead"
+E       AssertionError: assert '' == '0xdead'
+E         
+E         - 0xdead
+
+tests/test_syscalls.py:430: AssertionError
+______________________ TestDecodeFlags.test_zero_accmode _______________________
+
+self = <tests.test_syscalls.TestDecodeFlags object at 0x7b6e9a44ebd0>
+
+    def test_zero_accmode(self):
+        """SY9：0 值命中表中 0 项（O_RDONLY 特例）。"""
+        from pyprobe.observe.syscall_abi import OPEN_FLAGS
+    
+>       assert decode_flags(0, OPEN_FLAGS) == "O_RDONLY"
+E       AssertionError: assert '' == 'O_RDONLY'
+E         
+E         - O_RDONLY
+
+tests/test_syscalls.py:438: AssertionError
+_____________________ TestDecodeFlags.test_or_combination ______________________
+
+self = <tests.test_syscalls.TestDecodeFlags object at 0x7b6e9a4b08f0>
+
+    def test_or_combination(self):
+        """SY9：位或组合按名拼接。"""
+        from pyprobe.observe.syscall_abi import OPEN_FLAGS
+    
+>       assert decode_flags(0x42, OPEN_FLAGS) == "O_RDWR|O_CREAT"
+E       AssertionError: assert '' == 'O_RDWR|O_CREAT'
+E         
+E         - O_RDWR|O_CREAT
+
+tests/test_syscalls.py:444: AssertionError
+____________________ TestDecodeFlags.test_unknown_bits_hex _____________________
+
+self = <tests.test_syscalls.TestDecodeFlags object at 0x7b6e9a4b0560>
+
+    def test_unknown_bits_hex(self):
+        """SY9：残余未知位以 hex 追加。"""
+        from pyprobe.observe.syscall_abi import OPEN_FLAGS
+    
+>       assert decode_flags(0x42 | 0x800000, OPEN_FLAGS) == \
+            "O_RDWR|O_CREAT|0x800000"
+E       AssertionError: assert '' == 'O_RDWR|O_CREAT|0x800000'
+E         
+E         - O_RDWR|O_CREAT|0x800000
+
+tests/test_syscalls.py:450: AssertionError
+________________________ TestRenderScalar.test_at_fdcwd ________________________
+
+self = <tests.test_syscalls.TestRenderScalar object at 0x7b6e9a4b3980>
+
+    def test_at_fdcwd(self):
+        """SY9：dirfd 的 AT_FDCWD 魔数识别（-100 的无符号形态）。"""
+>       assert render_scalar("dirfd", 0xFFFFFFFFFFFFFF9C) == "AT_FDCWD"
+E       AssertionError: assert '' == 'AT_FDCWD'
+E         
+E         - AT_FDCWD
+
+tests/test_syscalls.py:457: AssertionError
+_______________________ TestRenderScalar.test_mode_octal _______________________
+
+self = <tests.test_syscalls.TestRenderScalar object at 0x7b6e9a510c50>
+
+    def test_mode_octal(self):
+        """SY9：mode 八进制渲染。"""
+>       assert render_scalar("mode", 0o644) == "0o644"
+E       AssertionError: assert '' == '0o644'
+E         
+E         - 0o644
+
+tests/test_syscalls.py:461: AssertionError
+_________________________ TestRenderScalar.test_signal _________________________
+
+self = <tests.test_syscalls.TestRenderScalar object at 0x7b6e9a513aa0>
+
+    def test_signal(self):
+        """SY9：信号号 SIG<n>。"""
+>       assert render_scalar("signal", 9) == "SIG9"
+E       AssertionError: assert '' == 'SIG9'
+E         
+E         - SIG9
+
+tests/test_syscalls.py:465: AssertionError
+_______________________ TestRenderScalar.test_int_range ________________________
+
+self = <tests.test_syscalls.TestRenderScalar object at 0x7b6e9a4b02c0>
+
+    def test_int_range(self):
+        """SY9：32 位有符号范围内十进制，范围外 hex。"""
+>       assert render_scalar("count", 42) == "42"
+E       AssertionError: assert '' == '42'
+E         
+E         - 42
+
+tests/test_syscalls.py:469: AssertionError
+_______________________ TestDecodeArgs.test_openat_full ________________________
+
+self = <tests.test_syscalls.TestDecodeArgs object at 0x7b6e9a4b0800>
+
+    def test_openat_full(self):
+        """SY9：openat(dirfd, path, flags, mode) 全要素解码。"""
+        mem = FakeMemory({0x1000: b"/tmp/x\x00"})
+        out = decode_args(mem, "openat",
+                          [0xFFFFFFFFFFFFFF9C, 0x1000, 0x42, 0o644, 0, 0])
+>       assert out == 'AT_FDCWD, "/tmp/x", O_RDWR|O_CREAT, 0o644, 0x0, 0x0'
+E       assert '' == 'AT_FDCWD, "/...644, 0x0, 0x0'
+E         
+E         - AT_FDCWD, "/tmp/x", O_RDWR|O_CREAT, 0o644, 0x0, 0x0
+
+tests/test_syscalls.py:480: AssertionError
+________________ TestDecodeArgs.test_read_buf_as_addr_at_entry _________________
+
+self = <tests.test_syscalls.TestDecodeArgs object at 0x7b6e9a71c0b0>
+
+    def test_read_buf_as_addr_at_entry(self):
+        """SY9：buf_in 在 entry 阶段渲染为地址（内容 exit 才填充）。"""
+        out = decode_args(FakeMemory(), "read", [3, 0x7F00, 64, 0, 0, 0])
+>       assert out == "3, 0x7f00, 64, 0x0, 0x0, 0x0"
+E       AssertionError: assert '' == '3, 0x7f00, 64, 0x0, 0x0, 0x0'
+E         
+E         - 3, 0x7f00, 64, 0x0, 0x0, 0x0
+
+tests/test_syscalls.py:485: AssertionError
+________________________ TestDecodeArgs.test_mmap_flags ________________________
+
+self = <tests.test_syscalls.TestDecodeArgs object at 0x7b6e9a473ad0>
+
+    def test_mmap_flags(self):
+        """SY9：mmap prot/map_flags 双表解码。"""
+        out = decode_args(FakeMemory(), "mmap",
+                          [0, 4096, 3, 0x22, 0xFFFFFFFF, 0])
+>       assert out == ("0x0, 4096, PROT_READ|PROT_WRITE, "
+                       "MAP_PRIVATE|MAP_ANONYMOUS, -1, 0")
+E       AssertionError: assert '' == '0x0, 4096, P...NYMOUS, -1, 0'
+E         
+E         - 0x0, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0
+
+tests/test_syscalls.py:491: AssertionError
+_________________ TestDecodeArgs.test_clock_nanosleep_timespec _________________
+
+self = <tests.test_syscalls.TestDecodeArgs object at 0x7b6e9a4708f0>
+
+    def test_clock_nanosleep_timespec(self):
+        """SY9：timespec 参数 entry 即读（输入参数非输出）。"""
+        mem = FakeMemory({0x1000: struct.pack("<qq", 0, 200000000)})
+        out = decode_args(mem, "clock_nanosleep",
+                          [1, 0, 0x1000, 0, 0, 0])
+>       assert out == "1, 0, {0, 200000000}, NULL, 0x0, 0x0"
+E       AssertionError: assert '' == '1, 0, {0, 20...ULL, 0x0, 0x0'
+E         
+E         - 1, 0, {0, 200000000}, NULL, 0x0, 0x0
+
+tests/test_syscalls.py:499: AssertionError
+_________________ TestDecodeArgs.test_unknown_syscall_raw_hex __________________
+
+self = <tests.test_syscalls.TestDecodeArgs object at 0x7b6e9a4a1670>
+
+    def test_unknown_syscall_raw_hex(self):
+        """SY9：无 DECODE 元数据的 syscall 六参数全 hex（复刻约束）。"""
+        out = decode_args(FakeMemory(), "getrandom", [0x1000, 8, 0, 0, 0, 0])
+>       assert out == "0x1000, 0x8, 0x0, 0x0, 0x0, 0x0"
+E       AssertionError: assert '' == '0x1000, 0x8,...0x0, 0x0, 0x0'
+E         
+E         - 0x1000, 0x8, 0x0, 0x0, 0x0, 0x0
+
+tests/test_syscalls.py:504: AssertionError
+________________________ TestDecodeArgs.test_null_path _________________________
+
+self = <tests.test_syscalls.TestDecodeArgs object at 0x7b6e9a4a31a0>
+
+    def test_null_path(self):
+        """SY9 边界：path 参数为 0 → NULL。"""
+        out = decode_args(FakeMemory(), "unlink", [0])
+>       assert out == "NULL"
+E       AssertionError: assert '' == 'NULL'
+E         
+E         - NULL
+
+tests/test_syscalls.py:513: AssertionError
+__________________ TestFillOutArgs.test_read_content_spliced ___________________
+
+self = <tests.test_syscalls.TestFillOutArgs object at 0x7b6e9a4a0980>
+
+    def test_read_content_spliced(self):
+        """SY10：read 成功 → 缓冲区内容按 min(ret,32) 拼入 0xaddr/"..."。"""
+        mem = FakeMemory({0x2000: b"hello world"})
+        rendered = decode_args(FakeMemory(), "read", [3, 0x2000, 64, 0, 0, 0])
+        out = fill_out_args(mem, "read", [3, 0x2000, 64, 0, 0, 0], 5,
+                            rendered)
+>       assert out == '3, 0x2000/"hello", 64, 0x0, 0x0, 0x0'
+E       assert '' == '3, 0x2000/"h...0x0, 0x0, 0x0'
+E         
+E         - 3, 0x2000/"hello", 64, 0x0, 0x0, 0x0
+
+tests/test_syscalls.py:523: AssertionError
+__________________ TestFillOutArgs.test_write_content_spliced __________________
+
+self = <tests.test_syscalls.TestFillOutArgs object at 0x7b6e9a512840>
+
+    def test_write_content_spliced(self):
+        """SY10：write 的 buf_in 同样按 ret 截取（写的即内核接受的）。"""
+        mem = FakeMemory({0x2000: b"payload!"})
+        rendered = decode_args(FakeMemory(), "write", [1, 0x2000, 8, 0, 0, 0])
+        out = fill_out_args(mem, "write", [1, 0x2000, 8, 0, 0, 0], 8,
+                            rendered)
+>       assert '0x2000/"payload"' in out
+E       assert '0x2000/"payload"' in ''
+
+tests/test_syscalls.py:531: AssertionError
+________________ TestFillOutArgs.test_eof_renders_empty_string _________________
+
+self = <tests.test_syscalls.TestFillOutArgs object at 0x7b6e9a510a10>
+
+    def test_eof_renders_empty_string(self):
+        """SY10（A7 P1-7 修复）：ret==0（EOF）→ buf_in 渲染空串——旧树
+        按 32 字节读出内核未写的陈旧缓冲区内容展示（实测误导）。"""
+        mem = FakeMemory({0x2000: b"stale-bytes-not-written"})
+        rendered = decode_args(FakeMemory(), "read", [3, 0x2000, 64, 0, 0, 0])
+        out = fill_out_args(mem, "read", [3, 0x2000, 64, 0, 0, 0], 0,
+                            rendered)
+>       assert out == '3, 0x2000/"", 64, 0x0, 0x0, 0x0'
+E       assert '' == '3, 0x2000/""...0x0, 0x0, 0x0'
+E         
+E         - 3, 0x2000/"", 64, 0x0, 0x0, 0x0
+
+tests/test_syscalls.py:540: AssertionError
+_________________ TestFillOutArgs.test_buf_out_success_content _________________
+
+self = <tests.test_syscalls.TestFillOutArgs object at 0x7b6e9a512c30>
+
+    def test_buf_out_success_content(self):
+        """SY10：buf_out 的 ret 是状态码（stat 成功=0）→ 仍读内容
+        （与 buf_in 的 EOF 语义区分——P1-7 修复不得误伤 stat 类）。"""
+        mem = FakeMemory({0x2000: b"\x01" * 16})
+        rendered = decode_args(FakeMemory(), "stat", [0x1000, 0x2000])
+        out = fill_out_args(mem, "stat", [0x1000, 0x2000], 0, rendered)
+>       assert '0x2000/"' in out  # 内容拼接发生
+        ^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert '0x2000/"' in ''
+
+tests/test_syscalls.py:548: AssertionError
+________________ TestFillOutArgs.test_unreadable_buf_unchanged _________________
+
+self = <tests.test_syscalls.TestFillOutArgs object at 0x7b6e9a512f60>
+
+    def test_unreadable_buf_unchanged(self):
+        """SY10 失败模式：缓冲区不可读 → 保持 entry 的地址渲染。"""
+        rendered = decode_args(FakeMemory(), "read", [3, 0x2000, 64, 0, 0, 0])
+        out = fill_out_args(FakeMemory(), "read", [3, 0x2000, 64, 0, 0, 0],
+                            5, rendered)
+>       assert out == "3, 0x2000, 64, 0x0, 0x0, 0x0"
+E       AssertionError: assert '' == '3, 0x2000, 64, 0x0, 0x0, 0x0'
+E         
+E         - 3, 0x2000, 64, 0x0, 0x0, 0x0
+
+tests/test_syscalls.py:555: AssertionError
+____________________ TestFillOutArgs.test_truncated_content ____________________
+
+self = <tests.test_syscalls.TestFillOutArgs object at 0x7b6e9a5132c0>
+
+    def test_truncated_content(self):
+        """SY10：内容超 32 字符截断（复刻约束）。"""
+        mem = FakeMemory({0x2000: b"x" * 64})
+        rendered = decode_args(FakeMemory(), "read", [3, 0x2000, 64, 0, 0, 0])
+        out = fill_out_args(mem, "read", [3, 0x2000, 64, 0, 0, 0], 64,
+                            rendered)
+>       assert out == '3, 0x2000/"' + "x" * 32 + '...", 64, 0x0, 0x0, 0x0'
+E       assert '' == '3, 0x2000/"x...0x0, 0x0, 0x0'
+E         
+E         - 3, 0x2000/"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx...", 64, 0x0, 0x0, 0x0
+
+tests/test_syscalls.py:563: AssertionError
+_____________________ TestFillOutArgs.test_verbose_content _____________________
+
+self = <tests.test_syscalls.TestFillOutArgs object at 0x7b6e9a513650>
+
+    def test_verbose_content(self):
+        """SY10：-v 不截断。"""
+        mem = FakeMemory({0x2000: b"x" * 64})
+        rendered = decode_args(FakeMemory(), "read", [3, 0x2000, 64, 0, 0, 0])
+        out = fill_out_args(mem, "read", [3, 0x2000, 64, 0, 0, 0], 64,
+                            rendered, verbose=True)
+>       assert '0x2000/"' + "x" * 64 + '"' in out
+E       assert (('0x2000/"' + ('x' * 64)) + '"') in ''
+
+tests/test_syscalls.py:571: AssertionError
+_______________ TestFillOutArgs.test_timespec_out_reread_at_exit _______________
+
+self = <tests.test_syscalls.TestFillOutArgs object at 0x7b6e9a5139b0>
+
+    def test_timespec_out_reread_at_exit(self):
+        """SY10（A7 P1-6 修复）：clock_gettime 的 timespec_out 于 exit
+        重读——旧树在 entry 读到调用前陈旧内容（strace 在 exit 读）。
+        模拟内核在调用期间写入新值。"""
+        mem = FakeMemory({0x2000: struct.pack("<qq", 1, 0)})  # entry 旧值
+        rendered = decode_args(mem, "clock_gettime", [0, 0x2000])
+>       assert "{1, 0}" in rendered
+E       AssertionError: assert '{1, 0}' in ''
+
+tests/test_syscalls.py:579: AssertionError
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_syscall_abi.py:89: O_CREAT not found in /usr/include/x86_64-linux-gnu/bits/fcntl-linux.h
+SKIPPED [1] tests/test_syscall_abi.py:89: MAP_ANONYMOUS not found in /usr/include/x86_64-linux-gnu/bits/mman-linux.h
+FAILED tests/test_native.py::TestEngineIntegration::test_engine_sequence - In...
+FAILED tests/test_native.py::TestEngineIntegration::test_detach_on_dwfl_error
+FAILED tests/test_native.py::TestDwflSetup::test_begin_failure - Failed: DID ...
+FAILED tests/test_native.py::TestDwflSetup::test_report_failure - Failed: DID...
+FAILED tests/test_native.py::TestDwflSetup::test_attach_failure - Failed: DID...
+FAILED tests/test_native.py::TestFrameMapping::test_frames_and_symbols - asse...
+FAILED tests/test_native.py::TestFrameMapping::test_non_activated_frame_lookup_pc_minus_one
+FAILED tests/test_native.py::TestFrameMapping::test_missing_symbol_is_question_marks
+FAILED tests/test_native.py::TestFrameMapping::test_frame_cap - IndexError: l...
+FAILED tests/test_native.py::TestFrameMapping::test_unwind_failed_flag - Inde...
+FAILED tests/test_ptrace_live.py::TestSyscallTracingLive::test_captures_clock_nanosleep_with_elapsed
+FAILED tests/test_ptrace_live.py::TestSyscallTracingLive::test_filter_selects_events
+FAILED tests/test_ptrace_live.py::TestSyscallTracingLive::test_dead_pid_raises
+FAILED tests/test_ptrace_live.py::TestStraceOracle::test_clock_nanosleep_render_matches_strace
+FAILED tests/test_ptrace_live.py::TestNativeUnwindLive::test_collect_native_frames
+FAILED tests/test_syscalls.py::TestCollectEngineFlow::test_engine_sequence_and_detach
+FAILED tests/test_syscalls.py::TestCollectEngineFlow::test_detach_on_error - ...
+FAILED tests/test_syscalls.py::TestCollectEngineFlow::test_attach_failed_propagates
+FAILED tests/test_syscalls.py::TestEntryExitPairing::test_pairing_emits_event
+FAILED tests/test_syscalls.py::TestEntryExitPairing::test_errno_decode - Valu...
+FAILED tests/test_syscalls.py::TestEntryExitPairing::test_unknown_syscall_name
+FAILED tests/test_syscalls.py::TestEntryExitPairing::test_multithread_events
+FAILED tests/test_syscalls.py::TestEntryExitPairing::test_max_events_stops - ...
+FAILED tests/test_syscalls.py::TestExecEvent::test_execve_exit_emitted_on_exec_event
+FAILED tests/test_syscalls.py::TestExecEvent::test_execve_included_by_matching_filter
+FAILED tests/test_syscalls.py::TestLiveViewUsage::test_arg_reads_use_live_view
+FAILED tests/test_syscalls.py::TestTraceFilter::test_explicit_names - Asserti...
+FAILED tests/test_syscalls.py::TestTraceFilter::test_group - AssertionError: ...
+FAILED tests/test_syscalls.py::TestTraceFilter::test_mixed_groups_and_names
+FAILED tests/test_syscalls.py::TestTraceFilter::test_pure_exclusion - Asserti...
+FAILED tests/test_syscalls.py::TestTraceFilter::test_pure_exclusion_group - A...
+FAILED tests/test_syscalls.py::TestTraceFilter::test_mixed_include_exclude - ...
+FAILED tests/test_syscalls.py::TestTraceFilter::test_unknown_name_matches_nothing
+FAILED tests/test_syscalls.py::TestEscapeBytes::test_plain_ascii - AssertionE...
+FAILED tests/test_syscalls.py::TestEscapeBytes::test_quotes_and_backslash - a...
+FAILED tests/test_syscalls.py::TestEscapeBytes::test_nonprintable_octal - Ass...
+FAILED tests/test_syscalls.py::TestTruncate::test_short_untouched - Assertion...
+FAILED tests/test_syscalls.py::TestTruncate::test_exact_limit_untouched - Ass...
+FAILED tests/test_syscalls.py::TestTruncate::test_over_limit_ellipsis - Asser...
+FAILED tests/test_syscalls.py::TestTruncate::test_render_str_arg - assert '' ...
+FAILED tests/test_syscalls.py::TestReadCstr::test_reads_nul_terminated - asse...
+FAILED tests/test_syscalls.py::TestReadCstr::test_truncates_long - assert '' ...
+FAILED tests/test_syscalls.py::TestReadCstr::test_null_addr - AssertionError:...
+FAILED tests/test_syscalls.py::TestReadCstr::test_unreadable_addr - Assertion...
+FAILED tests/test_syscalls.py::TestReadCstr::test_partial_then_unreadable - a...
+FAILED tests/test_syscalls.py::TestReadAvailable::test_full_read - AssertionE...
+FAILED tests/test_syscalls.py::TestReadAvailable::test_binary_search_largest
+FAILED tests/test_syscalls.py::TestReadTimespec::test_reads_struct - Assertio...
+FAILED tests/test_syscalls.py::TestReadTimespec::test_null - AssertionError: ...
+FAILED tests/test_syscalls.py::TestReadTimespec::test_unreadable - AssertionE...
+FAILED tests/test_syscalls.py::TestDecodeFlags::test_zero_accmode - Assertion...
+FAILED tests/test_syscalls.py::TestDecodeFlags::test_or_combination - Asserti...
+FAILED tests/test_syscalls.py::TestDecodeFlags::test_unknown_bits_hex - Asser...
+FAILED tests/test_syscalls.py::TestRenderScalar::test_at_fdcwd - AssertionErr...
+FAILED tests/test_syscalls.py::TestRenderScalar::test_mode_octal - AssertionE...
+FAILED tests/test_syscalls.py::TestRenderScalar::test_signal - AssertionError...
+FAILED tests/test_syscalls.py::TestRenderScalar::test_int_range - AssertionEr...
+FAILED tests/test_syscalls.py::TestDecodeArgs::test_openat_full - assert '' =...
+FAILED tests/test_syscalls.py::TestDecodeArgs::test_read_buf_as_addr_at_entry
+FAILED tests/test_syscalls.py::TestDecodeArgs::test_mmap_flags - AssertionErr...
+FAILED tests/test_syscalls.py::TestDecodeArgs::test_clock_nanosleep_timespec
+FAILED tests/test_syscalls.py::TestDecodeArgs::test_unknown_syscall_raw_hex
+FAILED tests/test_syscalls.py::TestDecodeArgs::test_null_path - AssertionErro...
+FAILED tests/test_syscalls.py::TestFillOutArgs::test_read_content_spliced - a...
+FAILED tests/test_syscalls.py::TestFillOutArgs::test_write_content_spliced - ...
+FAILED tests/test_syscalls.py::TestFillOutArgs::test_eof_renders_empty_string
+FAILED tests/test_syscalls.py::TestFillOutArgs::test_buf_out_success_content
+FAILED tests/test_syscalls.py::TestFillOutArgs::test_unreadable_buf_unchanged
+FAILED tests/test_syscalls.py::TestFillOutArgs::test_truncated_content - asse...
+FAILED tests/test_syscalls.py::TestFillOutArgs::test_verbose_content - assert...
+FAILED tests/test_syscalls.py::TestFillOutArgs::test_timespec_out_reread_at_exit
+================== 71 failed, 686 passed, 2 skipped in 1.51s ===================

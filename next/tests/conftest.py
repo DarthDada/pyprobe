@@ -59,6 +59,18 @@ def target_pid():
     process_vm_readv 可用。TARGET_PYTHON 选择目标解释器（跨版本端到端，
     pyprobe 自身仍跑 venv 解释器）。
     """
+    yield from _spawn_target("target_app.py")
+
+
+@pytest.fixture(scope="session")
+def fast_syscall_pid():
+    """§10.2-7 fast target：0.2s 级 clock_nanosleep 循环（syscall 追踪
+    集成测试用，保住 elapsed≥0.1s 断言且事件窗口快）。"""
+    yield from _spawn_target("fast_syscall_app.py")
+
+
+def _spawn_target(script_name):
+    """Shared spawn/READY-handshake/teardown for target fixtures (E2E1)."""
     import os
     import subprocess
     import sys
@@ -67,7 +79,7 @@ def target_pid():
         pytest.skip("integration tests require Linux process_vm_readv")
 
     interpreter = os.environ.get("TARGET_PYTHON") or sys.executable
-    script = Path(__file__).parent / "targets" / "target_app.py"
+    script = Path(__file__).parent / "targets" / script_name
     child = subprocess.Popen(
         [interpreter, str(script)],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)

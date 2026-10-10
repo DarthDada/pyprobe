@@ -450,8 +450,52 @@ SnapshotView（单次快照语义），长时追踪（批次 5 syscalls）用 Li
 
 | 模块 | 职责 | 公开 API | 行为点清单 |
 |------|------|----------|------------|
-| `observe/syscalls.py` | syscall 追踪与渲染数据（A7 syscall 修复） | TBD | TBD |
-| `observe/native.py` | native 回溯（libdw/libdwfl） | TBD | TBD |
+| `observe/syscalls.py` | syscall 追踪（消费批 1 PtraceEngine）+ 参数解码 + TraceFilter（A7 syscall 修复） | `collect_syscalls(pid, *, trace=None, max_events=None, verbose=False) -> list[dto.SyscallEvent]`；`TraceFilter`；渲染助手（escape_bytes/truncate_escaped/render_str_arg 等，STR_MAX=32） | 见 §5.1 批 5 表 |
+| `observe/syscall_abi.py` | x86-64 syscall ABI 数据（批次 5 契约增补——旧 syscall_table.py 的归属；号表/flags/DECODE/TRACE_GROUPS 权威来源为系统头文件，逐字复刻） | `SYSCALL_NAMES`/`SYSCALL_NRS`/`OPEN_FLAGS`/`MAP_FLAGS`/`PROT_FLAGS`/`DECODE`/`TRACE_GROUPS` | 同上 |
+| `observe/native.py` | native 回溯（libdw/libdwfl，共享批 1 ptrace 引擎——A2 迁移：ATTACH→SEIZE） | `collect_native(pid) -> list[dto.NativeThreadInfo]` | 同上 |
+
+#### 批 5 行为点清单（§5.1 实例）
+
+**observe/syscalls.py**（旧 `syscall_tracer.py` 消费侧 + `syscall_render.py` 采集期解码 + `types.SyscallEvent` 渲染前提；format_summary/format_syscalls_json 归批次 6）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| SY1 | collect_syscalls：PtraceEngine(feature="syscall tracing") seize(TRACESYSGOOD\|TRACECLONE\|TRACEEXEC) → stop_all → restart_all → wait_event 循环 → finally detach；arch 检查经引擎（T16 已落地，CLI/库同径——A7 P0-2 的验证点） | TestCollectSyscalls::test_unsupported_arch | test_syscalls.py |
+| SY2 | entry/exit 配对：stash[tid]=(nr, args, t_entry)；syscall stop → getregs（失败跳过并 resume）；entry：nr=orig_rax&0xFFFFFFFF、args=6 寄存器（**全显**，复刻约束）；exit：配对发射 | test_entry_exit_pairing/multithread | 同 |
+| SY3 | emit：name=SYSCALL_NAMES 查表（未知 → "sys_<nr>"）；ret >0xFFFFFFFF00000000 → 减 1<<64；-4096<ret<0 → error=-ret、ret=-1；args 存 &0xFFFFFFFFFFFFFFFF；rendered=entry 解码 + exit 填充 | test_error_return_becomes_errno | 同 |
+| SY4 | 参数读取经 LiveView（A4：长时追踪不缓存——旧 _UncachedReader 语义） | （旧 _UncachedReader） | 同（类型断言守护） |
+| SY5 | ExecEvent：stash 中 nr==execve → 补发 exit 事件（ret=0，elapsed 计时），**走用户过滤器 flt（A7 P1-5 修复：旧用 TraceFilter("") 全匹配，-e trace=!execve 也输出）**；处理后 resume | （旧 §9 P1-5） | 同（过滤守护对：!execve 不输出 / 默认输出） |
+| SY6 | Exited：主线程退出结束循环；wait_event None（ECHILD）结束循环 | test_main_thread_exit | 同 |
+| SY7 | max_events 到量即停 | test_max_events_stops_loop | 同 |
+| SY8 | **TraceFilter（A7 P0-3 契约变更）**：空 spec → 全追踪；纯排除（"!a,!b"）→ 除 exclude 外全；混合（"file,!openat"）→ **include − exclude**（旧并入 include 致语义反转，实测复现）；组展开（TRACE_GROUPS）；未知名静默不匹配；空白容忍 | TestTraceFilter 全量 + （旧 §9 P0-3 实测） | 同（新增混合语义对） |
+| SY9 | 参数渲染（复刻约束）：escape（可打印保留、" 与 \ 转义、其余 \NNN 八进制）；32 字符截断 + "..."（verbose 不截）；cstr 读取（chunk 256 / 上限 4096 / 全不可读 → 0x 地址 / 边缘映射二分 _read_available）；timespec "{sec, nsec}"；AT_FDCWD 识别；OPEN/MAP/PROT flags OR 解码 + 残余 hex；mode 八进制；signal SIG<n>；int 范围 str 否则 hex；未识别 syscall 全 hex | TestEscapeBytes/Truncate/ReadCstr/ReadTimespec/DecodeFlags/DecodeArgs 全量 | 同 |
+| SY10 | exit 填充（**A7 P1-6/P1-7**）：buf_in/buf_out 拼接 0xaddr/"内容"（min(ret,4096) 字节）；**ret==0 且 buf_in → 渲染空串 ""**（P1-7：旧按 32 字节读内核未写的陈旧缓冲区；buf_out 的 ret 是状态码不受影响）；ret<0 分支不存在（死代码，契约删除）；**timespec_out 于 exit 重读并替换该段**（P1-6：旧 entry 读到调用前陈旧值——strace 在 exit 读） | TestFillOutArgs 全量 + （旧 §9 P1-6/7） | 同（新增 timespec_out 重读与 ret==0 空串守护） |
+| SY11 | **spec-oracle**：SYSCALL_NAMES 全量 vs /usr/include/x86_64-linux-gnu/asm/unistd_64.h 解析（§10.2-1；头文件缺失 skip）；OPEN/MAP/PROT flags 抽样 vs fcntl.h/mman.h | （新增，§10.2-1） | 同 |
+| SY12 | **spec-oracle**：渲染样例 vs strace 真实输出（§10.2-1；ptrace_scope=1 下 strace 包裹同一程序的独立实例——兄弟进程非祖先后不可 attach）。**归一化的是文档化差异而非行为差异**（§10.3 复刻约束）：pyprobe 全显 6 参数、timespec 无名花括号、常量数值渲染；strace 按真实元数、{tv_sec=…} 具名、常量名解码——归一化规则在测试中（§10.7：oracle 归一化属主代理资产） | （新增，§10.2-1） | 同（integration） |
+| SY13 | 集成：collect_syscalls 对 fast-syscall target（0.2s 级 nanosleep，**§10.2-7 fast target 子项落地**）捕获 clock_nanosleep 且 elapsed≥0.1 | test_collect_returns_events/clock_nanosleep_captured | 同（integration，≤15s 预算） |
+
+**observe/native.py**（旧 `native_dump.py` collect 侧；format/dump 归批次 6；A2 迁移使 native 行为有变，§10.5-1 的 `stack --native --json` 旧新差异对比为其强制验证项（批 7 出口））
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| NA1 | libdw 加载 libdw.so.1 + 全量函数签名装配（复刻；§4 P0-1 加载名回退为冻结期新功能，不实施） | （旧 _init_libs） | test_native.py |
+| NA2 | dwfl 回调装配（find_elf/find_debuginfo/section_address/debuginfo_path）；dwfl_begin 失败 → AttachFailed(pid, "dwfl_begin failed: …") | （旧 L157-159） | 同 |
+| NA3 | dwfl_linux_proc_report/attach 失败 → AttachFailed(pid, strerror) | （旧 L162-170） | 同 |
+| NA4 | 帧回调：pc 经 dwfl_frame_pc（非激活帧 lookup=pc−1）；符号 dwfl_module_addrname（缺 → "??"）；模块路径 dwfl_module_info mainfile | （旧 frame_cb） | 同（stub dwfl 守护） |
+| NA5 | 单线程帧上限 _MAX_FRAMES=256 | （旧 L111/200） | 同 |
+| NA6 | 线程回调：tid/comm（procfs.read_comm）；unwind_failed = (fr!=0 且 0 帧)（**复刻旧判定**；§4 P0-3 修正为冻结期新功能，不实施，记入批 7 差异豁免评估） | （旧 thread_cb） | 同 |
+| NA7 | 线程结果按 tid 升序 | （旧 L221） | 同 |
+| NA8 | **A2 迁移**：PtraceEngine(feature="native stack dump") seize(options=0) → stop_all → dwfl（assume_ptrace_stopped=True）→ finally detach；不再使用 PTRACE_ATTACH | （旧 _attach_all_threads/_detach_all） | 同（引擎调用序列守护） |
+| NA9 | 集成：collect_native 对 live target 出 native 帧（libdw 缺失/权限不足时 skip——旧 test_collect_native_or_skip 语义） | TestNativeDump::test_collect_native_or_skip | 同（integration） |
+
+#### 批 5 旧测试标注（§5.2 实例）
+
+| 旧测试文件 | 覆盖判定 | 放弃理由 |
+|------------|----------|----------|
+| tests/test_syscall_tracer.py | 消费侧已覆盖（test_syscalls SY1–SY7；引擎侧批次 1 已覆盖）；`_handle_exec` 绕过过滤器场景以 A7 修复语义覆盖（SY5） | 修复语义取代旧错误行为，不复制旧断言 |
+| tests/test_syscall_render.py | 已覆盖（SY8–SY10；format_summary/JSON 段属批次 6）；`_fill_out_args` ret<0 分支与 ret==0 读 32 字节两断言不移植 | A7 修复语义（死代码删除/空串渲染）取代 |
+| tests/test_syscall_table.py | 已覆盖（SY11 spec-oracle 取代人工抽样断言——头文件即权威，旧表内断言是对抄本的抄本） | spec-oracle 上位替代 |
+| tests/test_stack_dump.py::TestDumpNativeCli | CLI 段属批次 6；collect 侧已覆盖（NA 系） | — |
 
 ### 批次 6 — `present/` + `cli` + 打包
 
