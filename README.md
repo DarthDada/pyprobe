@@ -271,6 +271,8 @@ Top functions
 | `scripts/run_tests.sh` | 测试（`unit`/`integration`/全部；`--cov` 覆盖率基线；`watch` 保存即重跑） |
 | `scripts/lint.sh` | ruff 代码检查（`--fix` 自动修复；`format` 应用格式化） |
 | `scripts/ci.sh` | CI 全流程编排（`sync gen-offsets lint test smoke`，`full` 含 `build-c`） |
+| `scripts/ci_target.sh` | CI 跨版本阶段：对矩阵 `TARGET_PYTHON`（3.11–3.14）跑集成测试 |
+| `scripts/install_hooks.sh` | 启用 git hooks（`core.hooksPath=.githooks`；pre-commit/pre-push） |
 | `scripts/_common.sh` | 公共逻辑（被各脚本 source，不单独执行） |
 
 `scripts/ci.sh` 用法：
@@ -281,6 +283,10 @@ scripts/ci.sh full            # 上述 + build-c（需 libdw/libelf/zlib）
 scripts/ci.sh test            # 单阶段
 scripts/ci.sh sync gen-offsets   # 指定阶段，按给出顺序执行
 ```
+
+**Git hooks（可选）**：`scripts/install_hooks.sh` 把 `core.hooksPath` 指向入库的 `.githooks/`——`pre-commit` 跑 lint + 单元测试，`pre-push` 跑单元测试（均只经 `scripts/`）。撤销：`git config --unset core.hooksPath`。
+
+**CI 跨版本矩阵**：`.github/workflows/ci.yml` 除 `scripts/ci.sh` 主流水线外，另经 `scripts/ci_target.sh` 跑 `TARGET_PYTHON` 3.11–3.14 矩阵，验证对跨版本目标的端到端行为（pyprobe 自身仍跑 3.12）。
 
 ## 测试
 

@@ -64,11 +64,11 @@
 
 ## 6. 工程基础设施
 
-> 现状：912 个测试（含参数化展开；`scripts/run_tests.sh --cov` 实测 911 passed + 1 skipped，覆盖率 97.0%）+ FakeReader 构造内存/`Layout` 驱动对象构造器 + `target_pid`/`fast_syscall_pid` fixture（就绪握手 + `TARGET_PYTHON` 跨版本端到端）已具备；覆盖率基线（`scripts/run_tests.sh --cov`，CI test 阶段强制，79% fail-under）、远程 CI（`.github/workflows/ci.yml`，PR/push 触发、仅调用 `scripts/ci.sh`）、`slow` marker（真实采样/sleep 测试可经 `-m 'not slow'` 跳过）、watch 模式、pytest 严格化（`-ra`/`--strict-markers`/`--strict-config` + `filterwarnings = ["error"]`）、ruff lint（`scripts/lint.sh`）均已落地。以下为剩余缺口。TDD 是流程约束，靠自觉必退化。
+> 现状：914 个测试（含参数化展开；`scripts/run_tests.sh --cov` 实测 913 passed + 1 skipped，覆盖率 97.0%）+ FakeReader 构造内存/`Layout` 驱动对象构造器 + `target_pid`/`fast_syscall_pid` fixture（就绪握手 + `TARGET_PYTHON` 跨版本端到端）已具备；覆盖率基线（`scripts/run_tests.sh --cov`，CI test 阶段强制，79% fail-under）、远程 CI（`.github/workflows/ci.yml`，PR/push 触发、仅调用 `scripts/ci.sh`）、`slow` marker（真实采样/sleep 测试可经 `-m 'not slow'` 跳过）、watch 模式、pytest 严格化（`-ra`/`--strict-markers`/`--strict-config` + `filterwarnings = ["error"]`）、ruff lint（`scripts/lint.sh`）均已落地。以下为剩余缺口。TDD 是流程约束，靠自觉必退化。
 
 ### P1 — 流程纪律强制
 
-- [ ] 1. git hooks：pre-commit/pre-push 跑单元测试（无裸命令，走 `scripts/run_tests.sh unit`）；CI 版本矩阵（3.11–3.14 × `TARGET_PYTHON`，机制已在 conftest 而 CI 闲置）随之一并落地
+- [x] 1. git hooks：`.githooks/`（pre-commit 跑 lint+单元测试、pre-push 跑单元测试，均走 `scripts/`）经 `scripts/install_hooks.sh` 启用；CI 跨版本矩阵（3.11–3.14 × `TARGET_PYTHON`，`scripts/ci_target.sh`）已落地；结构守护见 `tests/test_infra.py`（矩阵暴露并修复 3.14 目标 `InterpreterState.sysdict` 偏移 bug）
 
 ### P2 — "绿"的质量与重构安全网
 

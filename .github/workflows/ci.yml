@@ -1,7 +1,8 @@
-# Remote CI: enforce all-green commits by running the exact same
-# pipeline as a local `scripts/ci.sh` (sync gen-offsets lint test smoke). The
-# workflow must not hand-type build/test commands — everything is orchestrated
-# by the scripts/ layer, so CI and local can't drift.
+# Remote CI (TODO §6-1): enforce all-green commits by running the exact same
+# pipeline as a local `scripts/ci.sh` (sync gen-offsets lint test smoke), plus
+# a cross-version integration matrix (TARGET_PYTHON 3.11–3.14) driven by
+# scripts/ci_target.sh. The workflow must not hand-type build/test commands —
+# everything is orchestrated by the scripts/ layer, so CI and local can't drift.
 #
 # UV_PYTHON_PREFERENCE=only-managed pins the pipeline to a uv-managed CPython
 # (matching the committed .python-version, 3.12): the gen-offsets stage needs
@@ -38,3 +39,24 @@ jobs:
           python-version: "3.12"
       - name: CI pipeline (sync gen-offsets lint test smoke)
         run: scripts/ci.sh
+
+  # TODO §6-1: exercise the conftest TARGET_PYTHON mechanism across supported
+  # CPython versions. pyprobe runs on the pinned 3.12 interpreter; only the
+  # inspected target varies (scripts/ci_target.sh installs it and runs the
+  # integration suite).
+  cross-version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        target-python: ["3.11", "3.12", "3.13", "3.14"]
+    env:
+      UV_PYTHON_PREFERENCE: only-managed
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Cross-version integration (TARGET_PYTHON=${{ matrix.target-python }})
+        run: scripts/ci_target.sh ${{ matrix.target-python }}

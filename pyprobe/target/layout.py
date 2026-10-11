@@ -21,8 +21,7 @@ its content **replaces** the table wholesale (it is the complete generator
 output from the requested version's real headers — merging would leak keys
 whose struct field no longer exists in that version).
 
-契约（contracts.md 批 2 表 L1–L12）。当前为骨架：表数据/DEFAULT_VERSION/
-类型签名已锁定（权威数据即契约），方法返回哨兵，批次 2 实现填实。
+契约（contracts.md 批 2 表 L1–L12）。
 """
 
 import json
@@ -196,7 +195,10 @@ _VERIFIED_OFFSETS = {
         "pyinterpreters.head": 8,
         "InterpreterState.threads": 7336,
         "pythreads.head": 8,
-        "InterpreterState.sysdict": 7648,
+        # Generated from CPython 3.14.8 headers (x86-64): sysdict moved to
+        # 7672 vs earlier 3.14 builds — the cross-version CI matrix caught
+        # the stale 7648 (thread names failed to resolve on 3.14 targets).
+        "InterpreterState.sysdict": 7672,
         "ThreadState.next": 8,
         "ThreadState.current_frame": 72,
         "ThreadState.thread_id": 152,
