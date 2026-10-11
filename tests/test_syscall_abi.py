@@ -1,7 +1,7 @@
 """Contract tests for observe/syscall_abi.py (SY11 spec-oracle + 结构性守护).
 
 The authoritative source for the number table is the system header
-``asm/unistd_64.h`` itself (§10.2-1) — the old tree asserted a handful of
+``asm/unistd_64.h`` itself (contracts.md §10.2-1) — the old tree asserted a handful of
 hand-picked entries against the table (a copy checked against a copy);
 here the whole table is pinned against the header, and the flag tables
 against fcntl.h/mman.h samples.
@@ -57,7 +57,7 @@ class TestTableStructure:
 
 @pytest.mark.skipif(not _UNISTD.exists(), reason="unistd_64.h not installed")
 class TestSpecOracleUnistdHeader:
-    """SY11 (§10.2-1)：全量表 vs 系统头文件（权威来源）。"""
+    """SY11 (contracts.md §10.2-1)：全量表 vs 系统头文件（权威来源）。"""
 
     def _parse_header(self):
         """Extract ``#define __NR_<name> <num>`` pairs from unistd_64.h."""
@@ -79,7 +79,7 @@ class TestSpecOracleUnistdHeader:
 
 
 class TestSpecOracleFlagTables:
-    """SY11 (§10.2-1)：flags 表 vs fcntl.h/mman.h 抽样（glibc 权威值）。"""
+    """SY11 (contracts.md §10.2-1)：flags 表 vs fcntl.h/mman.h 抽样（glibc 权威值）。"""
 
     def _header_value(self, paths, name, _depth=0):
         """Resolve ``#define <name> <value>`` across candidate headers with

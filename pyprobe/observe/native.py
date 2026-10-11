@@ -4,7 +4,7 @@ engine (ADR A2).
 A2 迁移：线程停止经 PtraceEngine（SEIZE + INTERRUPT，options=0）而非旧树
 的 PTRACE_ATTACH——dwfl 以 assume_ptrace_stopped=True 消费已停线程，
 detach 经引擎幂等完成（与 design.md §14.2 相同的安全 detach 理由）。
-native 行为因此有变，§10.5-1 的 ``stack --native --json`` 旧新差异对比
+native 行为因此有变，contracts.md §10.5-1 的 ``stack --native --json`` 旧新差异对比
 为其强制验证项（批 7 出口）。
 
 契约（contracts.md 批 5 表 NA1–NA9）。当前为骨架：常量/签名已锁定，

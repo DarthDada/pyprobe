@@ -3,7 +3,7 @@
 Two tiers: hand-built linetables pin the PEP 626 decode rules (C1–C3) and
 the remote-read fallbacks (C4); the spec-oracle tier (C7) pins the pure
 decoder against CPython's own ``co_lines()`` ground truth on real code
-objects — the strongest available oracle for this algorithm (§10.2-1).
+objects — the strongest available oracle for this algorithm (contracts.md §10.2-1).
 """
 
 import pytest
@@ -171,7 +171,7 @@ def _expected_line(code_obj, lasti):
 
 class TestSpecOracleCoLines:
     def test_matches_co_lines_ground_truth(self):
-        """C7 (§10.2-1)：对真实 code object 的每一个指令偏移，
+        """C7 (contracts.md §10.2-1)：对真实 code object 的每一个指令偏移，
         line_for_offset 必须与 CPython 自己的 co_lines() 解码逐点一致——
         我们的 PEP 626 解码器与权威实现互证（2026-10 审查验证过的方法）。"""
         for func in _oracle_sample_funcs():

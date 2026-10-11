@@ -1,4 +1,4 @@
-"""Integration: the CLI end-to-end (contracts.md 批 6；§10.5-1
+"""Integration: the CLI end-to-end (contracts.md 批 6；contracts.md §10.5-1
 旧新差异对比的演练——CLI 子进程是唯一的对比通道）。
 
 yama ptrace_scope=1 约束：探测方必须是目标的祖先。CLI 以**包裹进程**

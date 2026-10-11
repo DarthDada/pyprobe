@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 #: Dev-time override path (module-level so tests/conftest can point it at a
-#: nonexistent path — 契约 L12, §10.2-7 override 隔离).
+#: nonexistent path — 契约 L12, contracts.md §10.2-7 override 隔离).
 _DEFAULT_OVERRIDES_PATH = os.path.join(os.path.dirname(__file__), os.pardir,
                                        "offsets.json")
 

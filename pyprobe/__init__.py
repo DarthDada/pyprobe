@@ -1,6 +1,6 @@
 """pyprobe: CPython out-of-process inspection toolset (stack, memory, CPU).
 
-Library API surface (§10.5-2, 契约 API1/API2): the ``__all__`` list
+Library API surface (contracts.md §10.5-2, 契约 API1/API2): the ``__all__`` list
 replicates the old tree's exactly — every name is bound to its new-
 architecture implementation (compat mappings documented per section) —
 plus the explicit ADR A1 addition :func:`resolve_layout`.
@@ -101,7 +101,7 @@ __all__ = [  # noqa: RUF022 — semantic section grouping, not alphabetical
     "read_thread_chain", "is_thread_idle_by_stat",
     # process session API (open_session/Session in observe/session.py)
     "ProcessSession", "resolve_process",
-    # layout constants + ADR A1 addition (§10.5-2 显式例外)
+    # layout constants + ADR A1 addition (contracts.md §10.5-2 显式例外)
     "DEFAULT_VERSION", "resolve_layout",
     # native stack API
     "collect_native", "format_native", "dump_native",

@@ -1,4 +1,4 @@
-"""Compatibility facade over ``target/layout.py`` (§10.5-2, 契约 API3).
+"""Compatibility facade over ``target/layout.py`` (contracts.md §10.5-2, 契约 API3).
 
 The old ``pyprobe.offsets`` module exposed ``get``/``get_or`` backed by a
 mutable global singleton — the exact thing ADR A1 removed. This facade

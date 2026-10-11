@@ -1,7 +1,7 @@
-"""Contract tests for the library API surface (API1–API3, §10.5-2 预落地).
+"""Contract tests for the library API surface (API1–API3, contracts.md §10.5-2 预落地).
 
 API1 pins the exact ``__all__`` list of the old tree plus the ADR A1
-exception ``resolve_layout`` — the batch-7 alignment gate (§10.5-2) diffs
+exception ``resolve_layout`` — the batch-7 alignment gate (contracts.md §10.5-2) diffs
 this list against the legacy tree, and this test is its unit-level twin.
 """
 
@@ -39,7 +39,7 @@ _EXPECTED_ALL = [
 class TestAllList:
     def test_all_matches_legacy_plus_resolve_layout(self):
         """API1：__all__ = 旧树名单（逐项、同序）+ A1 显式例外
-        resolve_layout（§10.5-2 的单元级孪生守护）。"""
+        resolve_layout（contracts.md §10.5-2 的单元级孪生守护）。"""
         assert set(pyprobe.__all__) == (
             set(_EXPECTED_ALL) | {"resolve_layout"})
         assert "resolve_layout" in pyprobe.__all__

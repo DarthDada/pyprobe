@@ -1,4 +1,4 @@
-"""Package layout guards (post-§10.6 swap).
+"""Package layout guards (post-swap, contracts.md §10.6).
 
 The dual-tree isolation guard retired with the legacy tree; what remains
 worth pinning mechanically:
@@ -8,7 +8,7 @@ worth pinning mechanically:
 * legacy module names never reappear — ADR A8 confines the new architecture
   to kernel/ target/ cpython/ observe/ present/.
 
-The ``pyprobe.offsets`` facade is the §10.5-2 (API3) sanctioned exception
+The ``pyprobe.offsets`` facade is the contracts.md §10.5-2 (API3) sanctioned exception
 (read-only, no ``configure`` global side effect, guarded by test_structure).
 """
 
@@ -37,7 +37,7 @@ def test_offsets_json_present_and_versioned():
 def test_legacy_modules_are_not_importable():
     """架构守护（ADR A8）：旧模块名永不可导入——其重现意味着未授权的旧
     代码搬运。新架构模块住 kernel/ target/ cpython/ observe/ present/。
-    例外：pyprobe.offsets 是 §10.5-2 API 契约批准的兼容门面
+    例外：pyprobe.offsets 是 contracts.md §10.5-2 API 契约批准的兼容门面
     （只读、无 configure 全局副作用，由 test_structure.py 守护）。"""
     for legacy in ("stack_dump", "sampler", "syscall_tracer", "native_dump"):
         assert importlib.util.find_spec(f"pyprobe.{legacy}") is None

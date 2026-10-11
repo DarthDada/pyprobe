@@ -1,6 +1,6 @@
 # pyprobe 模块与 ADR 契约
 
-> 本文件记录 §10 第一性原理重建（2026-10 原子替换完成）的**架构决策（ADR A1–A8）**、
+> 本文件记录第一性原理重建（原 TODO §10，2026-10 原子替换完成）的**架构决策（ADR A1–A8）**、
 > 分层与依赖规则、模块契约骨架、行为点清单与派发包模板。架构叙述 SSOT 见
 > [design.md](design.md)，本文是其 ADR / 模块契约明细；tests/ 的契约守护测试注释回链
 > 本文条目编号（如 T12、V8、SY9）。
@@ -87,7 +87,7 @@ collect/format/dump 三层语义、CLI 薄壳、errors 层级、clicolors 颜色
 `kernel/ target/ cpython/ observe/ present/` + 横切（errors/dto）；import 方向
 由结构契约测试机械强制（禁反向）。包名仍为 `pyprobe`，替换免改名。
 颜色策略属呈现层（`present/color.py`，仅 present/cli 可引用），非横切——
-A5 落地后 dto 不再依赖颜色（2026-10 批次 1 契约细化，修订 TODO §10.1 A8 原文
+A5 落地后 dto 不再依赖颜色（2026-10 批次 1 契约细化，修订 §10.1 A8 原文
 "横切含 color" 的表述）。
 
 ## 3. 复刻约束（非差异，禁止"顺手优化"）
@@ -630,3 +630,66 @@ AGENTS.md「TDD 工作流」节；契约守护测试另须在注释中回链本�
   - 文档同步：contracts.md 对应条目填实
 契约缺陷回报：发现契约/测试错误时停止实现，回报 <具体条目 + 复现路径>，等待主代理裁决
 ```
+
+## 7. 重构条款编号（原 TODO §10）
+
+> 第一性原理重构（`next/` 重建 + 原子替换）已于 2026-10 完成，计划条目从 TODO 迁出。
+> 本节保留原 §10 的条款编号定义，供本文及其它文档/测试/代码中的 `§10.x` 引用解析——
+> 除本文件外一律写作 `contracts.md §10.x`。ADR 正文见 §2，行为点清单机制见 §5，
+> 复刻约束见 §3。
+
+### §10.1 架构决策记录（ADR）
+
+A1–A8 全文见 §2。原决策范围：A1 Layout 值对象化；A2 统一 ptrace 引擎；A3 CPython 对象
+模型层；A4 内存视图分离；A5 DTO 去 format() 化；A6 保留决策（第一性原理验证后保留）；
+A7 行为修复；A8 子包化与依赖规则。
+
+### §10.2 测试架构重设计（按 oracle 类型组织，非按模块镜像）
+
+- **§10.2-1** spec-oracle 测试（最高价值）：解析/常量/渲染 vs 权威来源（`co_lines()`、
+  gen_offsets 真实头文件产物、系统头文件、strace 真实输出、gdb 样例）
+- **§10.2-2** 构造内存单测：FakeMemory 由 Layout 驱动（禁从被测常量照抄），版本 × 对象
+  变体矩阵参数化
+- **§10.2-3** 状态机单测：ptrace 引擎以 stubbed libc/waitpid 覆盖全状态路径
+- **§10.2-4** 存活集成测试：`target`/`spin`/`fast-syscall` 三 fixture + session→snapshot→
+  sampling→tracing 端到端（integration ≤15s 预算）
+- **§10.2-5** 差异对比测试：旧新 CLI 子进程（见 §10.5-1）
+- **§10.2-6** 结构契约测试：公共 API 面 + 子包 import 方向（A8）机械强制
+- **§10.2-7** conftest/fixture 重设计：override 隔离、就绪轮询替代固定 `sleep`、fast
+  syscall target、`run_tests.sh` mode 与透传 `-m` 合并为 and 表达式
+
+### §10.3 行为点清单机制（"参考旧代码"的落地）
+
+机制与模板见 §5。三原则：主代理逐模块产出行为点清单（缺项即契约缺口）；旧测试逐文件
+标注"已覆盖/已放弃（理由入 ADR）"，100% 过一遍；复刻约束（§3）禁止"顺手优化"。
+
+### §10.4 批次计划（按依赖方向，每批一个派发包）
+
+批次 0 脚手架 → 1 `kernel/` + 横切 → 2 `target/` → 3 `cpython/` → 4 `observe/`（session/
+snapshot/sampling/profile/topstats）→ 5 `observe/`（syscalls/native）→ 6 `present/` + cli +
+打包 → 7 对齐验收 + 替换。
+
+### §10.5 对齐验收门禁（批 7 出口；行为对齐是约束，全部量化）
+
+- **§10.5-1** CLI 差异对比：同一存活目标上旧新 CLI 对比 `stack --json` / `stack --native
+  --json` / `syscall --json`——归一化后逐字节一致，豁免仅 A7 涉及字段；`record` folded 比
+  键集合；文本输出对固定 fixture 快照一致
+- **§10.5-2** 库 API 面对齐：`__all__` 名单一致（A1 新增 `resolve_layout` 为显式例外）
+- **§10.5-3** 全套件 unit+integration 绿、lint 净、覆盖率 ≥80%（分树度量）、import 方向
+  契约测试绿
+- **§10.5-4** README 全部命令示例对新 CLI 重跑核对（示例必须来自真实输出）
+- **§10.5-5** 行为点清单 100% 标注；ADR 逐项有守护测试且注释回链契约条目
+
+### §10.6 替换 runbook（单提交原子化）
+
+- **§10.6-1** `git rm -r pyprobe tests`；`git mv next/pyprobe pyprobe`；`git mv next/tests tests`
+- **§10.6-2** 根 pyproject/scripts/CI 去掉 next 专属配置，lint 范围还原
+- **§10.6-3** `scripts/ci.sh full` 全绿（含 smoke wheel 验证 package-data）后单提交落盘
+- **§10.6-4** design.md 重写为新架构 SSOT；回滚 = `git revert` 该提交
+
+### §10.7 风险与控制
+
+第二系统效应 → ADR 纪律（架构变更仅限 §10.1，新想法先成 ADR）；行为点清单遗漏 → §10.3 +
+差异对比 + README 重跑三重兜底；双树漂移 → 冻结铁律 + 紧急修复单入口镜像；子包化过度
+拆分 → 每包须有七项不可约能力中至少一项的明确归属；差异对比 oracle 自身 bug → 归一化
+规则属主代理资产并接受 diff 审查；替换提交过大 → 批次逐个验收 + `git mv` 逐文件可追。

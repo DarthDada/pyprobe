@@ -2,7 +2,7 @@
 
 Spawns a main thread (sleeping) plus a background worker thread, then
 prints a READY line with its PID — the readiness handshake the fixture
-polls for (就绪轮询替代固定 sleep, §10.2-7): the line is emitted only
+polls for (就绪轮询替代固定 sleep, contracts.md §10.2-7): the line is emitted only
 *after* the bg-worker thread has been started, so by the time the fixture
 returns, the target's thread graph is fully up.
 

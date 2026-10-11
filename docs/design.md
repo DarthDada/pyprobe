@@ -1,11 +1,11 @@
 # pyprobe 架构设计
 
 > 本文是 pyprobe 架构与设计的**单一事实来源**（single source of truth）。
-> 模块级契约、ADR 与行为点清单（§10 重构产出）见 [contracts.md](contracts.md)；
+> 模块级契约、ADR 与行为点清单（contracts.md §10 重构产出）见 [contracts.md](contracts.md)；
 > AGENTS.md（构建/运行/测试操作指令）与 README.md（快速上手）仅引用本文与
 > contracts.md，不重复架构内容，避免散弹式修改。
 >
-> 本文描述的是 §10 第一性原理重构后的架构（旧树已由 `next/` 原子替换，2026-10；
+> 本文描述的是第一性原理重构（contracts.md §10）后的架构（旧树已由 `next/` 原子替换，2026-10；
 > 见 [contracts.md ADR A1–A8](contracts.md#2-架构决策记录adr重构允许的全部架构变更)）。
 
 ---
@@ -60,7 +60,7 @@ pyprobe/                     纯 Python 实现（入口 pyprobe.cli:main）
 ├── __init__.py              公共 API 面（__all__）+ resolve_layout 例外（§3.2）
 ├── __main__.py              python -m pyprobe 入口
 ├── cli.py                   argparse 薄壳（stack / syscall / record / top）
-├── offsets.py               §10.5-2 兼容门面（只读；无 configure 全局副作用）
+├── offsets.py               contracts.md §10.5-2 兼容门面（只读；无 configure 全局副作用）
 ├── colors.py                兼容门面（= present.color 的再出口）
 ├── errors.py                异常层级（横切；消息逐字复刻旧语义）
 ├── dto.py                   纯数据 DTO（横切；无 format()，不依赖颜色）
@@ -146,7 +146,7 @@ module 取 **basename**；`verbose=True`（`-v/--verbose`）保持完整路径�
 ### 3.2 公共 API 面与兼容映射
 
 `__init__.py` 的 `__all__` 与旧树**逐项一致**，唯一显式例外是 ADR A1 新增的
-`resolve_layout`（§10.5-2 门禁；名单 pin 在 `tests/test_api_exports.py`）。旧名在
+`resolve_layout`（contracts.md §10.5-2 门禁；名单 pin 在 `tests/test_api_exports.py`）。旧名在
 新实现上的绑定：
 
 - `ProcessSession` = `observe.session.Session`；`resolve_process` = `open_session`
@@ -286,7 +286,7 @@ resolve_interpreter(view, layout, runtime_addr)   # main → head 回退
   `line_for_offset` 为纯函数（PEP 626 解码，含 CPython signed varint 语义）。
   `lasti = prev_instr − (code + co_code_adaptive)`，负值钳 0。
 - 行号解析正确性以 **spec-oracle** 守护：`line_for_offset` vs 真实 CPython
-  `co_lines()` 地面真值（§10.2-1）。
+  `co_lines()` 地面真值（contracts.md §10.2-1）。
 
 ### 7.2 字典迭代器（dicts.py）
 
@@ -345,7 +345,7 @@ syscall 追踪与 native 回溯共享同一套 seize/interrupt/wait 状态机（
 - 线程结果按 tid 升序；`unwind_failed = (fr != 0 且 0 帧)`（复刻旧判定）。
 - ctypes 回调（`CFUNCTYPE`）经 `ctypes.py_object` 传递 Python list 收集结果。
 
-> A2 使 native 行为有变，§10.5-1 的 `stack --native --json` 旧新差异对比为其强制验证
+> A2 使 native 行为有变，contracts.md §10.5-1 的 `stack --native --json` 旧新差异对比为其强制验证
 > 项（批 7 出口）。
 
 ---
@@ -502,7 +502,7 @@ else:
 
 旧新 CLI 在同一存活目标上归一化（计时字段）后逐字节对比；`stack --json` /
 `stack --native --json` / `syscall --json` 为强制项，`record` folded 比键集合。该门禁
-在 §10.5 替换前执行（临时资产，替换后移除）。
+在 contracts.md §10.5 替换前执行（临时资产，替换后移除）。
 
 ### 13.7 手动探测约束
 

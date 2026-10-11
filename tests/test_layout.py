@@ -149,7 +149,7 @@ class TestDevOverride:
 
 class TestDefaultOverridePath:
     def test_conftest_isolates_default_path(self):
-        """L12 (§10.2-7): conftest 已把默认 override 路径指到不存在文件——
+        """L12 (contracts.md §10.2-7): conftest 已把默认 override 路径指到不存在文件——
         套件验证的是内置表而非 tracked offsets.json；此测试钉住该机制本身。"""
         assert not Path(layout_mod._DEFAULT_OVERRIDES_PATH).exists()
 
@@ -251,7 +251,7 @@ class TestOffsetsTable:
 
 
 class TestSpecOracle:
-    """L9 (§10.2-1): 内置表 vs gen_offsets 真实头文件产物（入库 offsets.json）。"""
+    """L9 (contracts.md §10.2-1): 内置表 vs gen_offsets 真实头文件产物（入库 offsets.json）。"""
 
     def test_builtin_table_matches_generated_json(self):
         """L9: json._version 对应的内置表必须与生成器输出逐键一致（生成器

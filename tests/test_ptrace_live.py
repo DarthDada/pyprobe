@@ -1,7 +1,7 @@
 """Integration: syscall tracing and native unwinding against live targets
-(contracts.md 批 5 表 SY12/SY13/NA9, §10.2-4).
+(contracts.md 批 5 表 SY12/SY13/NA9; contracts.md §10.2-4).
 
-fast_syscall_app 提供 0.2s 级 clock_nanosleep 循环（§10.2-7 fast target）；
+fast_syscall_app 提供 0.2s 级 clock_nanosleep 循环（contracts.md §10.2-7 fast target）；
 SY12 的 strace 对比在 strace 缺席时 skip（spec-oracle 的可用性降级）。
 """
 
@@ -54,7 +54,7 @@ class TestSyscallTracingLive:
 
 
 class TestStraceOracle:
-    """SY12 (§10.2-1)：渲染样例 vs strace 真实输出。
+    """SY12 (contracts.md §10.2-1)：渲染样例 vs strace 真实输出。
 
     ptrace_scope=1 下 strace 作为子进程无法 attach 我们的 fixture 目标
     （兄弟进程非祖先），故 strace 改为**包裹同一 target_app 的另一个
@@ -95,7 +95,7 @@ class TestStraceOracle:
 
         def canon(line):
             """归一化为 (name, args元组, ret)——抹平两方的**文档化**格式
-            差异（§10.3 复刻约束保留、非 bug）：pyprobe 全显 6 参数、
+            差异（contracts.md §10.3 复刻约束保留、非 bug）：pyprobe 全显 6 参数、
             timespec 无名花括号、clockid/flags 数值；strace 按真实元数
             显示、{tv_sec=…} 具名、常量名解码。差异项归一后语义等价。"""
             line = re.sub(r"0x[0-9a-f]+", "0xADDR", line)

@@ -1,4 +1,4 @@
-"""端到端里程碑（contracts.md 批 4 表 E2E2/E2E3，§10.2-4 首批）：
+"""端到端里程碑（contracts.md 批 4 表 E2E2/E2E3；contracts.md §10.2-4 首批）：
 
 open_session + collect_snapshot 对 live target 出栈。目标线程图由
 tests/targets/target_app.py 提供（main 睡眠 + bg-worker 睡眠线程），

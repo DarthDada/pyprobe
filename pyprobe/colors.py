@@ -1,4 +1,4 @@
-"""Compatibility facade: ``pyprobe.colors`` → ``present/color.py`` (§10.5-2).
+"""Compatibility facade: ``pyprobe.colors`` → ``present/color.py`` (contracts.md §10.5-2).
 
 The color helpers live in the present layer (ADR A8); this module only
 re-exports them under the old import path. Same rule as the offsets

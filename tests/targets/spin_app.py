@@ -1,4 +1,4 @@
-"""CPU-bound target for sampling integration tests (§10.2-4).
+"""CPU-bound target for sampling integration tests (contracts.md §10.2-4).
 
 Unlike ``target_app.py`` (both threads sleep → 全 idle，folded 必空),
 this one keeps a worker thread in a pure-Python busy loop — no syscalls,

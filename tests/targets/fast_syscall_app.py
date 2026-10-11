@@ -1,4 +1,4 @@
-"""Fast-syscall target for syscall-tracing integration tests (§10.2-7).
+"""Fast-syscall target for syscall-tracing integration tests (contracts.md §10.2-7).
 
 Loops ``time.sleep(0.2)`` — a 0.2s-scale ``clock_nanosleep`` per round, so
 tracing tests capture events quickly while keeping the elapsed≥0.1s

@@ -1,4 +1,4 @@
-"""FakeMemory + Layout-driven CPython object builders (契约 §10.2-2).
+"""FakeMemory + Layout-driven CPython object builders (契约 contracts.md §10.2-2).
 
 FakeMemory is a region-based view double for ``kernel/views`` consumers:
 ``{base_addr: bytes}``, ``read`` returns the slice of the region fully
