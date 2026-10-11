@@ -308,10 +308,8 @@ scripts/run_tests.sh -- -m 'not slow'  # 跳过慢测试（真实采样/sleep �
 
 > 完整权限模型（ptrace_scope、dumpable、process_vm_readv vs ptrace）见 [docs/design.md §9 权限模型](docs/design.md#9-权限模型)。
 
-- **Python 栈模式**（默认）：使用 `process_vm_readv(2)`，**不需要 ptrace attach**。`ptrace_scope=1`（默认）下仅可读取子进程；root 可读取任意进程。
-- **Native 模式**（`--native`）：使用 `ptrace(2)` attach 所有线程。`dumpable=0` 的进程（如 uvicorn/FastAPI）在非 root 下不可用。
-- **Syscall 追踪**（`syscall` 子命令）：使用 `ptrace(2)`（PTRACE_SEIZE + PTRACE_SYSCALL），权限要求同 native 模式。仅 x86-64；结束时自动 detach，不会挂死目标进程。
-- **采样**（`record` / `top` 子命令）：与 Python 栈模式相同——`process_vm_readv(2)`，**不需要 ptrace attach**，不受 `dumpable=0` 限制。
+- **Python 栈 / 采样**（`stack` 默认、`record`、`top`）：`process_vm_readv(2)`，**不需要 ptrace attach**，不受 `dumpable=0` 限制；`ptrace_scope=1`（默认）下仅能读取子进程，root 可读任意进程。
+- **Native / Syscall**（`--native`、`syscall`）：`ptrace(2)` attach 全部线程，权限同上但 `dumpable=0` 目标不可用（如 uvicorn/FastAPI 非 root）；仅 x86-64；结束时自动 detach，不会挂死目标进程。
 
 ```bash
 cat /proc/sys/kernel/yama/ptrace_scope   # 检查当前 ptrace_scope

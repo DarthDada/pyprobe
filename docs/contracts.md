@@ -218,12 +218,15 @@ pyprobe 在**呈现层**（`present/text.py`）施加同一截断：`_shorten_sy
 design.md §3 与本文 §4 的函数签名双写后各自漂移（`collect_syscalls` 默认值、
 `collect_profile` 的 `sampler_factory` 参数两处不一致）。决策：
 
-- **D1–D5 检查器**：新增 `scripts/check_docs.sh`（实现
+- **DOC1–DOC6 检查器**：新增 `scripts/check_docs.sh`（实现
   `scripts/check_docs.py`，零依赖），随 `scripts/lint.sh` 强制执行：
-  D1 md 相对链接（含 `#锚点`）必须可解析；D2 文档引用的 `scripts/*.sh`
-  必须存在；D3 禁止裸章节号引用 TODO（编号随条目增删漂移，历史指称须写作
-  "原 TODO §<n>"；扫描 md + py/sh/yml，docs/red 证据档案豁免）；D4 常驻文档预算棘轮（AGENTS.md / TODO.md 行数基线只降
-  不升）；D5 TODO 未勾条目必须带 `（YYYY-MM` 日期锚。
+  DOC1 md 相对链接（含 `#锚点`）必须可解析；DOC2 文档引用的 `scripts/*.sh`
+  必须存在；DOC3 禁止裸章节号引用 TODO（编号随条目增删漂移，历史指称须写作
+  "原 TODO §<n>"；扫描 md + py/sh/yml，docs/red 证据档案豁免）；DOC4 常驻文档
+  预算棘轮（AGENTS.md / TODO.md / design.md §2 地图行数基线只降不升）；DOC5
+  TODO 未勾条目必须带 `（YYYY-MM` 日期锚；DOC6 代码中回链的契约编号
+  （T12、NA11、WM1、ST-W1…）必须在本文档有定义行（检查器规则命名用 DOC 前缀，
+  与行为点编号 D1/D2 区分）。
 - **消灭同步而非承诺同步**：文档中的"同步"字样即技术债——同一事实只留
   一份，其余放指针；函数签名/字段名单以代码为准（agent grep 现场取，
   不再双写）。
@@ -552,6 +555,12 @@ SnapshotView（单次快照语义），长时追踪（批次 5 syscalls）用 Li
 | TS4 | 空帧 active：current[tid]=(None,name)，samples 计数 | 同 |
 | TS5 | TopStats 纯数据状态，无 render（A5；渲染与 A7 P1-8 "?" 归一归 present 批次 6） | test_structure.py 机械强制 |
 
+**kernel/procfs.py（增补）**（旧 `stack_dump` by_stat 内联 /proc stat 解析的归属）
+
+| # | 行为点 | 新测试 |
+|---|--------|--------|
+| P6 | read_stat_state：读 `/proc/<pid>/task/<tid>/stat`，取末 ")" 后首字段（进程状态字符）；OSError / 解析失败 → None（供 SN5 by_stat 空闲判定） | test_procfs.py |
+
 **端到端里程碑（§10.2-4 首批）**
 
 | # | 行为点 | 新测试 |
@@ -755,9 +764,11 @@ SnapshotView（单次快照语义），长时追踪（批次 5 syscalls）用 Li
 
 ### 5.1 行为点清单表（每批一张）
 
-| 旧模块 | 行为点 | 旧测试出处 | 新契约条目 | 新测试 | 状态 |
-|--------|--------|------------|------------|--------|------|
-| （例）syscall_render.py | `-e trace=file,!openat` 排除语义 | （旧 §9 P0-3，无旧测试） | syscalls 契约 §x | test_syscalls.py::test_mixed_filter | 已覆盖 |
+迁移期表含「旧模块 / 旧测试出处」列，已随台账归档（docs/migration-2026-10.md，ADR A14）；现行表形：
+
+| 行为点 | 新测试 | 状态 |
+|--------|--------|------|
+| （例）`-e trace=file,!openat` 排除语义 | test_syscalls.py::test_mixed_filter | 已覆盖 |
 
 ### 5.2 旧测试逐文件标注（替换前 100% 过一遍）
 

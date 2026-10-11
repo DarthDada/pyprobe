@@ -49,3 +49,13 @@ tests/test_structure.py:152: AssertionError
 =========================== short test summary info ============================
 FAILED tests/test_structure.py::test_architecture_map_matches_filesystem - As...
 ====================== 1 failed, 915 deselected in 0.25s =======================
+=== DOC6 Red（临时移除 P6 定义行）===
+tests/test_procfs.py:154: [DOC6] 契约编号 P6 未在 contracts.md 定义
+tests/test_procfs.py:157: [DOC6] 契约编号 P6 未在 contracts.md 定义
+tests/test_procfs.py:162: [DOC6] 契约编号 P6 未在 contracts.md 定义
+tests/test_procfs.py:166: [DOC6] 契约编号 P6 未在 contracts.md 定义
+pyprobe/kernel/procfs.py:85: [DOC6] 契约编号 P6 未在 contracts.md 定义
+pyprobe/kernel/procfs.py:93: [DOC6] 契约编号 P6 未在 contracts.md 定义
+pyprobe/observe/snapshot.py:70: [DOC6] 契约编号 P6 未在 contracts.md 定义
+
+[!] check_docs: 7 violation(s)

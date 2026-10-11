@@ -48,7 +48,7 @@ def test_ci_workflow_has_cross_version_matrix():
 def test_docs_contract_checker_passes():
     """A14 守护：文档契约检查器（scripts/check_docs.sh）必须全绿——文档规则
     不靠自觉，悬空引用/重复漂移的先例见 ADR A14（contracts.md）；与 import
-    方向契约（test_structure.py）同享机械强制（契约回链：A14 D1–D5）。"""
+    方向契约（test_structure.py）同享机械强制（契约回链：A14 DOC1–DOC6）。"""
     proc = subprocess.run(
         [str(REPO / "scripts" / "check_docs.sh")],
         capture_output=True, text=True, cwd=REPO)

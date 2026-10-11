@@ -59,9 +59,8 @@ kernel → target → cpython → observe → present → {cli, web}
 
 ## 2. 模块结构（架构地图）
 
-会话先读本表，按「入口」列定位文件；**禁止未读地图先全库 grep**。地图只写已落地结构
-（批 8 的 `web/`、`frontend/` 未落地，目标形态见 ADR A13）；改结构时更新对应行并刷新
-验证日期，函数级改动禁止回写（配套行为规则见 AGENTS.md「架构地图使用规则」）。
+会话先读本表按「入口」定位文件；**禁止未读地图先全库 grep**。地图只写已落地结构（批 8 的
+`web/`、`frontend/` 未落地，见 ADR A13）；改结构时更新对应行并刷新验证日期（规则见 AGENTS.md）。
 
 | 路径 | 职责 | 入口（文件:符号） | 禁令/依赖 |
 |------|------|------------------|-----------|
@@ -107,18 +106,10 @@ kernel → target → cpython → observe → present → {cli, web}
 
 ### 3.1 结构化数据类型（dto.py）
 
-```python
-FrameInfo(name, filename, line)              # 单个 Python 栈帧
-ThreadInfo(native_tid, thread_id, name, frames, idle)  # 线程 + 帧列表
-ProcessInfo(pid, cmdline, exe_path, python_version)    # 进程元数据
-NativeFrame(pc, symbol, module, filename, line)  # 单个 native 栈帧（filename/line 为 DWARF 源码位置，A12）
-NativeThreadInfo(tid, comm, frames, unwind_failed)     # native 线程 + 帧列表
-SyscallEvent(tid, nr, name, args, rendered, ret, error, elapsed)  # 单次系统调用观测
-ProfileData(proc_info, counts, samples, idle_samples, elapsed, version_warning)
-```
-
-DTO 字段名/顺序/默认值与旧树一致（`asdict` 键集即 JSON schema，复刻约束；D1）；名单以
-`pyprobe/dto.py` 为准。
+七类 dataclass（`FrameInfo` / `ThreadInfo` / `ProcessInfo` / `NativeFrame` /
+`NativeThreadInfo` / `SyscallEvent` / `ProfileData`）只存数据、不格式化（A5）。
+字段名/顺序/默认值以 `pyprobe/dto.py` 为准，`asdict` 键集即 JSON schema（复刻约束，
+D1 以测试 pin 住）。
 **路径缩短**（显示层约定）：数据字段始终保存完整路径，`present/text.py` 缺省
 （`verbose=False`）缩短显示——Python 帧取路径**末 2 级**（对齐 py-spy），native
 module 取 **basename**；`verbose=True`（`-v/--verbose`）保持完整路径。native 符号名
@@ -140,21 +131,10 @@ module 取 **basename**；`verbose=True`（`-v/--verbose`）保持完整路径�
 
 ### 3.3 异常层级（errors.py）
 
-```
-PyProbeError                      基类
-├── ProcessNotFound               进程不存在（/proc/<pid> 不可读）
-├── PermissionDenied              权限不足（procfs 权限路径）
-├── SymbolNotFound                ELF 符号未找到（如 _PyRuntime）
-├── NoInterpreterState            无法读取 interpreter state
-├── NoThreadState                 无法读取 thread state 链
-├── VersionNotSupported           CPython 版本未验证（带 fallback 版本信息）
-├── AttachFailed                  ptrace 操作失败
-├── ProcessExited                 采样循环中目标进程退出
-└── UnsupportedArchitecture       架构不支持（syscall/native 仅 x86-64）
-```
-
-消息逐字复刻旧语义（CLI `[!] {e}` 用户可见输出；E2）；层级以 `pyprobe/errors.py` 为准。
-`collect_*` 抛具体异常，`dump_*` 捕获后转 stderr + 退出码。
+`PyProbeError` 基类 + 9 个子类（进程缺失 / 权限 / 符号 / 解释器与线程状态 / 版本 /
+attach / 采样退出 / 架构不支持）；名称与触发条件以 `pyprobe/errors.py` 为准。
+消息逐字复刻旧语义（CLI `[!] {e}` 用户可见输出；E2）。`collect_*` 抛具体异常，
+`dump_*` 捕获后转 stderr + 退出码。
 
 ### 3.4 颜色基础设施（present/color.py）
 

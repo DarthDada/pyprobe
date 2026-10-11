@@ -17,3 +17,21 @@ tests/test_views.py .............................                        [100%]
     76 docs/migration-2026-10.md
     35 docs/tasks/2026-10-web-monitor.md
   2046 total
+=== A14 收尾（DOC6 + 文档精简）Green ===
+--- scripts/check_docs.sh ---
+check_docs: OK (7 docs, DOC1–DOC6)
+--- scripts/lint.sh ---
+All checks passed!
+check_docs: OK (7 docs, DOC1–DOC6)
+--- scripts/run_tests.sh --cov ---
+Required test coverage of 79% reached. Total coverage: 97.01%
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_ptrace_live.py:64: strace not installed
+======================== 915 passed, 1 skipped in 6.26s ========================
+--- 行数 ---
+   321 README.md
+    65 AGENTS.md
+    66 TODO.md
+   600 docs/design.md
+   871 docs/contracts.md
+  1923 total
