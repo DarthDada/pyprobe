@@ -49,7 +49,7 @@ PTRACE_OPTIONS = (PTRACE_O_TRACESYSGOOD | PTRACE_O_TRACECLONE
 
 #: Kinds rendered as an opaque pointer: hex address or NULL (SY9).
 _POINTER_KINDS = frozenset({
-    "buf_in", "buf_out", "sockaddr", "msghdr", "rem",
+    "buf_in", "buf_out", "sockaddr", "msghdr",
 })
 
 
@@ -168,14 +168,15 @@ def decode_flags(value: int, table: dict) -> str:
 
 def render_scalar(kind: str, value: int) -> str:
     """Scalar argument kinds: fd/dirfd (AT_FDCWD), mode (octal), signal,
-    prot/map_flags/open_flags tables, int-range str vs hex (SY9)."""
+    prot/map_flags/open_flags tables, int-range str vs hex (SY9).
+
+    fd/dirfd compare the raw (unsigned 64-bit) register value against the
+    AT_FDCWD magic — no 32-bit sign extension (SY9 复刻约束; 批 7 对齐门禁
+    回退了批 5 的符号扩展顺手优化).  ``addr``/``rem`` have no special case;
+    they fall through to the shared int-range rule.
+    """
     if kind == "fd" or kind == "dirfd":
-        # registers carry sign-extended ints; interpret as signed 32-bit so
-        # both 0xFFFFFFFF and 0xFFFFFFFFFFFFFFFF render as -1 (SY9)
-        s32 = value & 0xFFFFFFFF
-        if s32 >= 1 << 31:
-            s32 -= 1 << 32
-        return "AT_FDCWD" if s32 == -100 else str(s32)
+        return "AT_FDCWD" if value == _AT_FDCWD else str(value)
     if kind == "mode":
         return oct(value & 0o7777)
     if kind == "signal":
@@ -186,8 +187,6 @@ def render_scalar(kind: str, value: int) -> str:
         return decode_flags(value, MAP_FLAGS)
     if kind == "open_flags":
         return decode_flags(value, OPEN_FLAGS)
-    if kind == "addr":
-        return hex(value)
     # int-like kinds and unknown kinds
     if -(2 ** 31) <= value <= 2 ** 31 - 1:
         return str(value)

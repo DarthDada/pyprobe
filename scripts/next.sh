@@ -48,10 +48,33 @@ case "$cmd" in
             esac
         done
         case "$mode" in
-            all)         selector=() ;;
-            unit)        selector=(-m "not integration") ;;
-            integration) selector=(-m "integration" -v) ;;
+            all)         mode_expr="" ;;
+            unit)        mode_expr="not integration" ;;
+            integration) mode_expr="integration" ;;
         esac
+        # Merge mode marker with any -m passed after `--` into one AND
+        # expression (pytest's last -m wins → silent override; §10.2-7).
+        extra_expr=""
+        passthru=()
+        i=0
+        while [ "$i" -lt "${#extra[@]}" ]; do
+            a="${extra[$i]}"
+            case "$a" in
+                -m|--marker)   i=$((i + 1)); extra_expr="${extra[$i]:-}" ;;
+                -m=*|--marker=*) extra_expr="${a#*=}" ;;
+                *)             passthru+=("$a") ;;
+            esac
+            i=$((i + 1))
+        done
+        extra=("${passthru[@]}")
+        combined="$mode_expr"
+        if [ -n "$extra_expr" ]; then
+            if [ -n "$combined" ]; then combined="$combined and $extra_expr"
+            else combined="$extra_expr"; fi
+        fi
+        selector=()
+        [ -n "$combined" ] && selector=(-m "$combined")
+        [ "$mode" = "integration" ] && selector+=(-v)
         # Coverage ratchet for the next tree: batch 0 started at 0, batch 1
         # reached 96% — ratchet straight to the §10.5-3 exit-gate value.
         # Never lower it without an explicit decision.

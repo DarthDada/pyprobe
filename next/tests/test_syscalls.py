@@ -475,8 +475,22 @@ class TestDecodeFlags:
 
 class TestRenderScalar:
     def test_at_fdcwd(self):
-        """SY9：dirfd 的 AT_FDCWD 魔数识别（-100 的无符号形态）。"""
+        """SY9：dirfd 的 AT_FDCWD 魔数识别（-100 的无符号形态 0xFFFFFFFFFFFFFF9C）。"""
         assert render_scalar("dirfd", 0xFFFFFFFFFFFFFF9C) == "AT_FDCWD"
+
+    def test_fd_no_sign_extension(self):
+        """SY9 复刻守护（批 7）：fd/dirfd 按寄存器无符号值直比魔数后 str——
+        不得做 32 位符号扩展（批 5 曾把 0xFFFFFFFFFFFFFFFF 渲染成 -1）。
+        遮罩后的真实事件参数即无符号 64 位，故此处以无符号值钉死。"""
+        assert render_scalar("fd", 0xFFFFFFFFFFFFFFFF) == "18446744073709551615"
+        assert render_scalar("dirfd", 0x7F0000000000) == "139637976727552"
+
+    def test_addr_scalar_not_pointer(self):
+        """SY9 复刻守护（批 7）：addr 无特殊指针渲染，走 int 范围 →
+        str（0 → "0" 而非 "0x0"；大值为 hex）。旧树同规则。"""
+        assert render_scalar("addr", 0) == "0"
+        assert render_scalar("addr", 5) == "5"
+        assert render_scalar("addr", 0x7F0000000000) == "0x7f0000000000"
 
     def test_mode_octal(self):
         """SY9：mode 八进制渲染。"""
@@ -507,18 +521,21 @@ class TestDecodeArgs:
         assert out == "3, 0x7f00, 64, 0x0, 0x0, 0x0"
 
     def test_mmap_flags(self):
-        """SY9：mmap prot/map_flags 双表解码。"""
+        """SY9 复刻守护（批 7）：mmap addr=0 → 标量 "0"（非 "0x0"）；fd=-1 →
+        -1（fd 直比 AT_FDCWD 魔数后 str，无 32 位符号扩展）。旧树
+        test_mmap_flags 逐字同形，防批 5 顺手优化回潮。"""
         out = decode_args(FakeMemory(), "mmap",
-                          [0, 4096, 3, 0x22, 0xFFFFFFFF, 0])
-        assert out == ("0x0, 4096, PROT_READ|PROT_WRITE, "
+                          [0, 4096, 3, 0x22, -1, 0])
+        assert out == ("0, 4096, PROT_READ|PROT_WRITE, "
                        "MAP_PRIVATE|MAP_ANONYMOUS, -1, 0")
 
     def test_clock_nanosleep_timespec(self):
-        """SY9：timespec 参数 entry 即读（输入参数非输出）。"""
+        """SY9：timespec 参数 entry 即读（输入参数非输出）；rem 走标量
+        （复刻守护：不得渲染为 NULL/hex——旧树 test_clock_nanosleep 为 "0"）。"""
         mem = FakeMemory({0x1000: struct.pack("<qq", 0, 200000000)})
         out = decode_args(mem, "clock_nanosleep",
                           [1, 0, 0x1000, 0, 0, 0])
-        assert out == "1, 0, {0, 200000000}, NULL, 0x0, 0x0"
+        assert out == "1, 0, {0, 200000000}, 0, 0x0, 0x0"
 
     def test_unknown_syscall_raw_hex(self):
         """SY9：无 DECODE 元数据的 syscall 六参数全 hex（复刻约束）。"""

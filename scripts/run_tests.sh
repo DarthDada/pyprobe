@@ -33,11 +33,44 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# Merge the mode marker with any `-m`/`--marker` passed after `--` into a single
+# AND expression. pytest's last `-m` wins, so e.g. `run_tests.sh unit -- -m 'not
+# slow'` would silently drop the unit selector; combining avoids the trap
+# (TODO §10.2-7).
 case "$mode" in
-    all)         selector=() ;;
-    unit)        selector=(-m "not integration") ;;
-    integration) selector=(-m "integration" -v) ;;
+    all)         mode_expr="" ;;
+    unit)        mode_expr="not integration" ;;
+    integration) mode_expr="integration" ;;
 esac
+read_extra_expr=""
+passthru=()
+i=0
+while [ "$i" -lt "${#extra[@]}" ]; do
+    a="${extra[$i]}"
+    case "$a" in
+        -m|--marker)
+            i=$((i + 1))
+            read_extra_expr="${extra[$i]:-}" ;;
+        -m=*|--marker=*)
+            read_extra_expr="${a#*=}" ;;
+        *)
+            passthru+=("$a") ;;
+    esac
+    i=$((i + 1))
+done
+extra=("${passthru[@]}")
+
+combined="$mode_expr"
+if [ -n "$read_extra_expr" ]; then
+    if [ -n "$combined" ]; then
+        combined="$combined and $read_extra_expr"
+    else
+        combined="$read_extra_expr"
+    fi
+fi
+selector=()
+[ -n "$combined" ] && selector=(-m "$combined")
+[ "$mode" = "integration" ] && selector+=(-v)
 
 # Coverage baseline (TODO §7.1): guard against coverage regressions. Raise it
 # as coverage improves; never lower it without an explicit decision.
