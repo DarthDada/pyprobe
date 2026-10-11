@@ -1,11 +1,16 @@
-# next/ 重建契约（TODO §10）
+# pyprobe 模块与 ADR 契约
 
-> 本文件是 next/ 重建的**契约单一事实来源**：ADR 全文、分层与依赖规则、模块契约骨架、
-> 行为点清单机制、派发包模板。旧树架构 SSOT 仍是根 `docs/design.md`（冻结期内不改）；
-> 替换完成后（§10.6-4）design.md 以本文件为准重写。
+> 本文件记录 §10 第一性原理重建（2026-10 原子替换完成）的**架构决策（ADR A1–A8）**、
+> 分层与依赖规则、模块契约骨架、行为点清单与派发包模板。架构叙述 SSOT 见
+> [design.md](design.md)，本文是其 ADR / 模块契约明细；tests/ 的契约守护测试注释回链
+> 本文条目编号（如 T12、V8、SY9）。
 >
-> 铁律复述：**冻结旧树**（`pyprobe/`、`tests/` 不接受新功能）、**无新功能**（§2 等替换后再做）、
-> **ADR 纪律**（架构变更仅限本文件 ADR 清单，新想法必须先成 ADR 经主代理批准）。
+> 替换状态：`next/` 已原子替换旧树（`git rm -r pyprobe tests` +
+> `git mv next/{pyprobe,tests} …`，§10.6）。下文"旧树"指替换前实现，作为行为对齐的
+> 运行时 oracle 与知识来源。
+>
+> 铁律（延续）：**ADR 纪律**（架构或行为变更必须先成 ADR 记入本文件再实施）、
+> **复刻约束**（怪但文档化的行为一律保留，禁止"顺手优化"——批 7 对齐门禁实证过其必要性）。
 
 ## 1. 第一性原理与分层
 
@@ -432,7 +437,7 @@ SnapshotView（单次快照语义），长时追踪（批次 5 syscalls）用 Li
 
 | # | 行为点 | 旧测试出处 | 新测试 |
 |---|--------|------------|--------|
-| E2E1 | target fixture：子进程经 stdout 就绪行握手（**就绪轮询替代固定 sleep，§10.2-7 子项落地**），finally terminate+wait(5)；TARGET_PYTHON 跨版本机制保留 | （旧 conftest target_pid） | next/tests/conftest.py + targets/target_app.py |
+| E2E1 | target fixture：子进程经 stdout 就绪行握手（**就绪轮询替代固定 sleep，§10.2-7 子项落地**），finally terminate+wait(5)；TARGET_PYTHON 跨版本机制保留 | （旧 conftest target_pid） | tests/conftest.py + targets/target_app.py |
 | E2E2 | open_session 对 live target：版本已验证、warning 为 None、interp 非 0 | TestCollectPython::test_returns_process_info | test_session_snapshot.py（integration） |
 | E2E3 | collect_snapshot 对 live target：≥2 线程、bg-worker 名解析、目标函数名/文件名出现在帧、native_tid 升序、主线程 idle | TestCollectPython 九条 | 同（integration，≤15s 预算） |
 
@@ -615,9 +620,9 @@ AGENTS.md「TDD 工作流」节；契约守护测试另须在注释中回链本�
 
 ```
 批次：<N — 名称>
-契约引文：next/docs/contracts.md §<锚点>（逐条引用，含 ADR 编号）
-只读测试清单：next/tests/test_<x>.py（逐文件列出，含 Red 验证输出存档路径）
-可写范围：next/pyprobe/<允许新建/修改的文件白名单>
+契约引文：docs/contracts.md §<锚点>（逐条引用，含 ADR 编号）
+只读测试清单：tests/test_<x>.py（逐文件列出，含 Red 验证输出存档路径）
+可写范围：pyprobe/<允许新建/修改的文件白名单>
 验收标准：
   - diff 严格落在可写范围内
   - scripts/next.sh test 全绿、scripts/lint.sh 净、覆盖率棘轮不降

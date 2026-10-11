@@ -1,8 +1,12 @@
-"""Exception hierarchy for pyprobe.
+"""Exception hierarchy for pyprobe (cross-cutting layer, ADR A6 保留).
 
 Library callers can catch ``PyProbeError`` to handle any pyprobe failure, or
 catch a specific subclass to distinguish failure modes (process missing,
 permission denied, symbol not found, version mismatch, etc.).
+
+契约（contracts.md 批 1 表 E1/E2）：类名、属性、继承关系与旧树一致；
+消息逐字复刻（CLI ``[!] {e}`` 用户可见，属复刻约束 §3）。
+当前为骨架：属性与签名已锁定，消息文案为哨兵，批次 1 实现填实。
 """
 
 
@@ -67,7 +71,7 @@ class VersionNotSupported(PyProbeError):
 
 
 class AttachFailed(PyProbeError):
-    """ptrace attach failed during native stack dump."""
+    """ptrace attach failed."""
 
     def __init__(self, pid: int, detail: str = ""):
         msg = f"ptrace attach failed for process {pid}"

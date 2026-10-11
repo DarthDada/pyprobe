@@ -1,4 +1,4 @@
-"""Integration: the next/ CLI end-to-end (contracts.md 批 6；§10.5-1
+"""Integration: the CLI end-to-end (contracts.md 批 6；§10.5-1
 旧新差异对比的演练——CLI 子进程是唯一的对比通道）。
 
 yama ptrace_scope=1 约束：探测方必须是目标的祖先。CLI 以**包裹进程**
@@ -18,7 +18,7 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
-NEXT_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: Wrapper: spawn the target as a child (ancestor rule), relay its READY
 #: handshake, then run the CLI in-process with the target's pid patched
@@ -59,9 +59,9 @@ def run_cli_with_target(script_name, *argv, timeout=25):
     其余为 CLI 输出。
     """
     env = dict(os.environ)
-    env["PYTHONPATH"] = str(NEXT_ROOT)
+    env["PYTHONPATH"] = str(REPO_ROOT)
     env.pop("CLICOLOR_FORCE", None)
-    script = NEXT_ROOT / "tests" / "targets" / script_name
+    script = REPO_ROOT / "tests" / "targets" / script_name
     proc = subprocess.run(
         [sys.executable, "-c", _WRAPPER, str(script), *argv],
         capture_output=True, text=True, timeout=timeout, env=env)
@@ -74,7 +74,7 @@ def run_cli_with_target(script_name, *argv, timeout=25):
 def run_cli(*argv, timeout=20):
     """Run the CLI standalone (no target needed); return CompletedProcess."""
     env = dict(os.environ)
-    env["PYTHONPATH"] = str(NEXT_ROOT)
+    env["PYTHONPATH"] = str(REPO_ROOT)
     env.pop("CLICOLOR_FORCE", None)
     return subprocess.run(
         [sys.executable, "-m", "pyprobe", *argv],

@@ -28,8 +28,7 @@ run_stage() {
         lint)        echo "==> [lint]";          scripts/lint.sh ;;
         test)        echo "==> [test]";          scripts/run_tests.sh --cov ;;
         smoke)       echo "==> [smoke]";         scripts/smoke.sh ;;
-        next)        echo "==> [next]";          scripts/next.sh test --cov ;;
-        *) echo "unknown stage: $1 (valid: sync gen-offsets build-c lint test smoke next all full)" >&2; exit 2 ;;
+        *) echo "unknown stage: $1 (valid: sync gen-offsets build-c lint test smoke all full)" >&2; exit 2 ;;
     esac
 }
 

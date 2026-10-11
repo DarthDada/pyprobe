@@ -13,7 +13,6 @@ cd "$(dirname "$0")/.."
 source "$(dirname "$0")/_common.sh"
 
 targets=(pyprobe/ tests/)
-[ -d next ] && targets+=(next/)
 
 if [ "$1" = "format" ]; then
     py_run -m ruff format "${targets[@]}"

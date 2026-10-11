@@ -1,53 +1,12 @@
-"""pyprobe: CPython out-of-process inspection tool (pure Python port).
+"""pyprobe: CPython out-of-process inspection toolset (stack, memory, CPU).
 
-Public API
-----------
-Everything exported here is the stable surface (mirrored by ``__all__``);
-the full function reference lives in :doc:`docs/design.md` §3.
+Library API surface (§10.5-2, 契约 API1/API2): the ``__all__`` list
+replicates the old tree's exactly — every name is bound to its new-
+architecture implementation (compat mappings documented per section) —
+plus the explicit ADR A1 addition :func:`resolve_layout`.
 
-Data collection (returns structured data, raises ``PyProbeError`` on failure):
-
-* :func:`collect_python`  → ``(ProcessInfo, list[ThreadInfo])``
-* :func:`collect_native`  → ``list[NativeThreadInfo]``
-* :func:`collect_syscalls` → ``list[SyscallEvent]``
-* :func:`collect_profile` → ``ProfileData`` (record)
-* :func:`Sampler` — reusable sampling engine behind record/top
-
-Formatting (turns structured data into the CLI-style string; pass
-``color=True`` for ANSI-colored output; ``*_json`` variants emit
-machine-readable JSON):
-
-* :func:`format_process`  — Python stacks
-* :func:`format_native`   — native stacks
-* :func:`format_summary` / :func:`format_syscalls_json` — syscall stats / events
-* :func:`format_folded`   — folded stacks (flamegraph input)
-
-CLI wrappers (collect + format + print, return an exit code):
-
-* :func:`dump_python` / :func:`dump_native` / :func:`dump_syscalls`
-* :func:`dump_record` / :func:`dump_top`
-
-Process/session helpers: :func:`resolve_process` / :class:`ProcessSession`,
-:func:`read_thread_chain`, :func:`collect_frames`, :func:`collect_thread`,
-:func:`is_thread_idle_by_stat`, ``DEFAULT_VERSION``.
-
-Structured data types live in :mod:`pyprobe.types`; exceptions in
-:mod:`pyprobe.errors`; :mod:`pyprobe.offsets` and :mod:`pyprobe.colors`
-are exported as submodules.
-
-Example
--------
-
-::
-
-    from pyprobe import collect_python, format_process, PyProbeError
-
-    try:
-        proc_info, threads = collect_python(pid)
-    except PyProbeError as exc:
-        ...
-    else:
-        print(format_process(proc_info, threads))
+Internal architecture (kernel → target → cpython → observe → present →
+cli, ADR A8) is documented in docs/contracts.md.
 """
 
 from importlib.metadata import version as _pkg_version
@@ -60,6 +19,17 @@ except Exception:
     __version__ = "0.0.0+unknown"
 
 from . import colors, offsets
+from .cpython.frames import walk_frames as collect_frames
+from .cpython.runtime import read_thread_chain
+from .dto import (
+    FrameInfo,
+    NativeFrame,
+    NativeThreadInfo,
+    ProcessInfo,
+    ProfileData,
+    SyscallEvent,
+    ThreadInfo,
+)
 from .errors import (
     AttachFailed,
     NoInterpreterState,
@@ -72,53 +42,56 @@ from .errors import (
     UnsupportedArchitecture,
     VersionNotSupported,
 )
-from .native_dump import (
-    collect_native,
+from .observe.native import collect_native
+from .observe.profile import collect_profile
+from .observe.sampling import Sampler
+from .observe.session import Session as ProcessSession
+from .observe.session import open_session
+from .observe.session import open_session as resolve_process
+from .observe.snapshot import build_thread as collect_thread
+from .observe.snapshot import collect_snapshot, is_thread_idle_by_stat
+from .observe.syscalls import TraceFilter, collect_syscalls
+from .observe.topstats import TopStats
+from .present.dumps import (
     dump_native,
-    format_native,
-    format_native_json,
-)
-from .offsets import DEFAULT_VERSION
-from .process import ProcessSession, resolve_process
-from .record import collect_profile, dump_record, format_folded
-from .sampler import Sampler
-from .stack_dump import (
-    collect_frames,
-    collect_python,
-    collect_thread,
     dump_python,
-    format_process,
-    format_process_json,
-    is_thread_idle_by_stat,
-    read_thread_chain,
+    dump_record,
+    dump_syscalls,
+    dump_top,
 )
-from .syscall_render import (
-    SyscallStat,
-    TraceFilter,
-    format_summary,
+from .present.jsonout import (
+    format_native_json,
+    format_process_json,
     format_syscalls_json,
 )
-from .syscall_tracer import (
-    collect_syscalls,
-    dump_syscalls,
+from .present.text import (
+    SyscallStat,
+    format_folded,
+    format_native,
+    format_process,
+    format_summary,
 )
-from .top import TopStats, dump_top
-from .types import (
-    FrameInfo,
-    NativeFrame,
-    NativeThreadInfo,
-    ProcessInfo,
-    ProfileData,
-    SyscallEvent,
-    ThreadInfo,
-)
+from .target.layout import DEFAULT_VERSION, resolve_layout
+
+
+def collect_python(pid):
+    """Collect Python stack data from a running process (API2 组合).
+
+    Returns ``(ProcessInfo, list[ThreadInfo])``; raises a ``PyProbeError``
+    subclass on failure. Composition of :func:`open_session` +
+    :func:`collect_snapshot` — callers needing the session (e.g. its
+    ``version_warning``) use :func:`open_session` directly.
+    """
+    session = open_session(pid)
+    return session.proc_info, collect_snapshot(session)
+
 
 __all__ = [  # noqa: RUF022 — semantic section grouping, not alphabetical
-    # data types
+    # data types (dto.py, ADR A5)
     "FrameInfo", "ThreadInfo", "ProcessInfo",
     "NativeFrame", "NativeThreadInfo",
     "SyscallEvent", "ProfileData",
-    # exceptions
+    # exceptions (errors.py)
     "PyProbeError", "ProcessNotFound", "PermissionDenied", "SymbolNotFound",
     "NoInterpreterState", "NoThreadState", "VersionNotSupported", "AttachFailed",
     "UnsupportedArchitecture", "ProcessExited",
@@ -126,10 +99,10 @@ __all__ = [  # noqa: RUF022 — semantic section grouping, not alphabetical
     "collect_python", "format_process", "dump_python",
     "collect_frames", "collect_thread", "format_process_json",
     "read_thread_chain", "is_thread_idle_by_stat",
-    # process session API (shared resolution; TODO §8.1)
+    # process session API (open_session/Session in observe/session.py)
     "ProcessSession", "resolve_process",
-    # offsets constants
-    "DEFAULT_VERSION",
+    # layout constants + ADR A1 addition (§10.5-2 显式例外)
+    "DEFAULT_VERSION", "resolve_layout",
     # native stack API
     "collect_native", "format_native", "dump_native",
     "format_native_json",

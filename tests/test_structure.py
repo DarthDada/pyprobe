@@ -2,7 +2,7 @@
 
 Mechanically enforce the dependency rule
 ``kernel → target → cpython → observe → present → cli`` by scanning imports
-in next/pyprobe with ast (no imports of the modules under test, so the
+in pyprobe with ast (no imports of the modules under test, so the
 guard also works when a layer is broken mid-development).
 
 Rules:

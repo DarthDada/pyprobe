@@ -1,377 +1,207 @@
-"""Unit tests for the pyprobe CLI argument parsing and dispatch.
+"""Contract tests for cli.py (CLI1–CLI4, argparse 薄壳复刻).
 
-These tests exercise ``pyprobe.cli.main`` without spawning a real target
-process: ``dump_python`` / ``dump_native`` are monkeypatched to record the
-PID they receive and return a sentinel exit code.
+Dispatch targets are monkeypatched at the cli module's import seams;
+tests pin argument shapes (复刻约束) and exit-code passthrough.
 """
 
 import pytest
 
-from pyprobe import cli
+import pyprobe.cli as cli
+from pyprobe.cli import main
 
 
 @pytest.fixture
-def stub_dumps(monkeypatch):
-    calls = {"python": [], "native": []}
+def dumps(monkeypatch):
+    """Record dump_* invocations; each returns a marker rc."""
+    calls = {}
 
-    def fake_dump_python(pid, color=None, verbose=False, json_output=False):
-        calls["python"].append((pid, color, verbose, json_output))
-        return 0
+    def make(name):
+        def fake(*args, **kwargs):
+            calls[name] = (args, kwargs)
+            return {"dump_python": 0, "dump_native": 0, "dump_syscalls": 0,
+                    "dump_record": 0, "dump_top": 0}[name]
+        return fake
 
-    def fake_dump_native(pid, color=None, verbose=False, json_output=False):
-        calls["native"].append((pid, color, verbose, json_output))
-        return 0
-
-    monkeypatch.setattr(cli, "dump_python", fake_dump_python)
-    monkeypatch.setattr(cli, "dump_native", fake_dump_native)
-    return calls
-
-
-@pytest.fixture
-def stub_syscall(monkeypatch):
-    calls = []
-
-    def fake_dump_syscalls(pid, color=None, verbose=False, trace="",
-                           max_events=None, summary=False, json_output=False):
-        calls.append({
-            "pid": pid, "color": color, "verbose": verbose,
-            "trace": trace, "max_events": max_events,
-            "summary": summary, "json_output": json_output,
-        })
-        return 0
-
-    monkeypatch.setattr(cli, "dump_syscalls", fake_dump_syscalls)
+    for name in ("dump_python", "dump_native", "dump_syscalls",
+                 "dump_record", "dump_top"):
+        monkeypatch.setattr(cli, name, make(name))
     return calls
 
 
 class TestStackDispatch:
-    def test_python_stack_default(self, stub_dumps):
-        rc = cli.main(["stack", "-p", "1234"])
-        assert rc == 0
-        assert stub_dumps["python"] == [(1234, None, False, False)]
-        assert stub_dumps["native"] == []
+    def test_python_stack_default(self, dumps):
+        """CLI1：stack -p 默认走 dump_python（非 native、非 verbose、
+        非 json、color auto→None）。"""
+        assert main(["stack", "-p", "123"]) == 0
+        assert dumps["dump_python"] == ((123,), {
+            "color": None, "verbose": False, "json_output": False})
 
-    def test_pid_long_option(self, stub_dumps):
-        cli.main(["stack", "--pid", "42"])
-        assert stub_dumps["python"] == [(42, None, False, False)]
+    def test_native_stack(self, dumps):
+        """CLI1：--native 走 dump_native。"""
+        assert main(["stack", "-p", "123", "--native"]) == 0
+        assert dumps["dump_native"] == ((123,), {
+            "color": None, "verbose": False, "json_output": False})
 
-    def test_native_stack(self, stub_dumps):
-        rc = cli.main(["stack", "-p", "7", "--native"])
-        assert rc == 0
-        assert stub_dumps["native"] == [(7, None, False, False)]
-        assert stub_dumps["python"] == []
+    def test_pid_long_and_equals_forms(self, dumps):
+        """CLI1：--pid 长选项与 -p=/--pid= 等号形态。"""
+        main(["stack", "--pid", "42"])
+        assert dumps["dump_python"][0] == (42,)
+        main(["stack", "--pid=43"])
+        assert dumps["dump_python"][0] == (43,)
+        main(["stack", "-p44"])
+        assert dumps["dump_python"][0] == (44,)
 
-    def test_native_flag_before_pid(self, stub_dumps):
-        cli.main(["stack", "--native", "-p", "7"])
-        assert stub_dumps["native"] == [(7, None, False, False)]
+    def test_verbose_and_json(self, dumps):
+        """CLI1：-v/--json 透传（位置在 pid 前后均可）。"""
+        main(["stack", "--native", "-v", "-p", "7", "--json"])
+        assert dumps["dump_native"] == ((7,), {
+            "color": None, "verbose": True, "json_output": True})
 
-    def test_pid_equals_form(self, stub_dumps):
-        cli.main(["stack", "--pid=99"])
-        assert stub_dumps["python"] == [(99, None, False, False)]
+    def test_color_mapping(self, dumps):
+        """CLI1：--color auto/always/never → None/True/False。"""
+        main(["stack", "-p", "1", "--color", "always"])
+        assert dumps["dump_python"][1]["color"] is True
+        main(["stack", "-p", "1", "--color", "never"])
+        assert dumps["dump_python"][1]["color"] is False
+        main(["stack", "-p", "1", "--color", "auto"])
+        assert dumps["dump_python"][1]["color"] is None
 
-    def test_short_pid_attached(self, stub_dumps):
-        cli.main(["stack", "-p1234"])
-        assert stub_dumps["python"] == [(1234, None, False, False)]
-
-
-class TestVerboseOption:
-    def test_verbose_short_flag(self, stub_dumps):
-        rc = cli.main(["stack", "-p", "1", "-v"])
-        assert rc == 0
-        assert stub_dumps["python"] == [(1, None, True, False)]
-
-    def test_verbose_long_flag(self, stub_dumps):
-        cli.main(["stack", "-p", "1", "--verbose"])
-        assert stub_dumps["python"] == [(1, None, True, False)]
-
-    def test_verbose_native(self, stub_dumps):
-        cli.main(["stack", "-p", "1", "--native", "--verbose"])
-        assert stub_dumps["native"] == [(1, None, True, False)]
-
-    def test_default_not_verbose(self, stub_dumps):
-        cli.main(["stack", "-p", "1"])
-        assert stub_dumps["python"] == [(1, None, False, False)]
+    def test_color_invalid_value(self):
+        """CLI2：--color 非法值 → SystemExit 2。"""
+        with pytest.raises(SystemExit) as ei:
+            main(["stack", "-p", "1", "--color", "sometimes"])
+        assert ei.value.code == 2
 
 
-class TestColorOption:
-    def test_default_is_auto(self, stub_dumps):
-        cli.main(["stack", "-p", "1"])
-        assert stub_dumps["python"] == [(1, None, False, False)]
+class TestSyscallDispatch:
+    def test_basic_dispatch(self, dumps):
+        """CLI1：syscall 基本分发（默认 trace=""、max_events=None、
+        summary/json 关闭）。"""
+        assert main(["syscall", "-p", "55"]) == 0
+        assert dumps["dump_syscalls"] == ((55,), {
+            "color": None, "verbose": False, "trace": "",
+            "max_events": None, "summary": False, "json_output": False})
 
-    def test_color_always(self, stub_dumps):
-        cli.main(["stack", "-p", "1", "--color", "always"])
-        assert stub_dumps["python"] == [(1, True, False, False)]
+    def test_trace_filter(self, dumps):
+        """CLI1：-e 表达式透传。"""
+        main(["syscall", "-p", "55", "-e", "file"])
+        assert dumps["dump_syscalls"][1]["trace"] == "file"
 
-    def test_color_never(self, stub_dumps):
-        cli.main(["stack", "-p", "1", "--color=never"])
-        assert stub_dumps["python"] == [(1, False, False, False)]
+    def test_trace_prefix_stripped(self, dumps):
+        """CLI1：-e trace=file 的 trace= 前缀剥离（strace 兼容）。"""
+        main(["syscall", "-p", "55", "-e", "trace=file"])
+        assert dumps["dump_syscalls"][1]["trace"] == "file"
 
-    def test_color_native_always(self, stub_dumps):
-        cli.main(["stack", "-p", "1", "--native", "--color=always"])
-        assert stub_dumps["native"] == [(1, True, False, False)]
+    def test_max_events(self, dumps):
+        """CLI1：--max-events 透传 int。"""
+        main(["syscall", "-p", "55", "--max-events", "10"])
+        assert dumps["dump_syscalls"][1]["max_events"] == 10
 
-    def test_color_invalid_value(self, capsys):
+    def test_summary(self, dumps):
+        """CLI1：--summary 透传。"""
+        main(["syscall", "-p", "55", "--summary"])
+        assert dumps["dump_syscalls"][1]["summary"] is True
+
+    def test_json(self, dumps):
+        """CLI1：--json 透传。"""
+        main(["syscall", "-p", "55", "--json"])
+        assert dumps["dump_syscalls"][1]["json_output"] is True
+
+    def test_summary_and_json_mutually_exclusive(self):
+        """CLI2：--summary 与 --json 互斥（两序皆拒）。"""
         with pytest.raises(SystemExit):
-            cli.main(["stack", "-p", "1", "--color", "bogus"])
-        err = capsys.readouterr().err
-        assert "color" in err.lower() or "usage" in err.lower()
+            main(["syscall", "-p", "55", "--summary", "--json"])
+        with pytest.raises(SystemExit):
+            main(["syscall", "-p", "55", "--json", "--summary"])
 
 
-class TestJsonOption:
-    def test_json_flag(self, stub_dumps):
-        rc = cli.main(["stack", "-p", "1", "--json"])
-        assert rc == 0
-        assert stub_dumps["python"] == [(1, None, False, True)]
+class TestRecordDispatch:
+    def test_basic_dispatch(self, dumps):
+        """CLI1：record 默认值（rate=50、duration=None、output=None）。"""
+        assert main(["record", "-p", "9"]) == 0
+        assert dumps["dump_record"] == ((9,), {
+            "rate": 50, "duration": None, "output": None, "color": None})
 
-    def test_json_with_verbose(self, stub_dumps):
-        cli.main(["stack", "-p", "1", "--json", "-v"])
-        assert stub_dumps["python"] == [(1, None, True, True)]
+    def test_rate_duration_output(self, dumps):
+        """CLI1：-r/-d/-o 透传（浮点解析）。"""
+        main(["record", "-p", "9", "-r", "100", "-d", "2.5",
+              "-o", "out.folded"])
+        assert dumps["dump_record"] == ((9,), {
+            "rate": 100.0, "duration": 2.5, "output": "out.folded",
+            "color": None})
 
-    def test_json_native(self, stub_dumps):
-        rc = cli.main(["stack", "-p", "1", "--native", "--json"])
-        assert rc == 0
-        assert stub_dumps["native"] == [(1, None, False, True)]
-        assert stub_dumps["python"] == []
+    def test_rate_out_of_range(self):
+        """CLI2：rate 越界（0 或 >1000）→ SystemExit 2。"""
+        with pytest.raises(SystemExit) as ei:
+            main(["record", "-p", "9", "-r", "0"])
+        assert ei.value.code == 2
+        with pytest.raises(SystemExit):
+            main(["record", "-p", "9", "-r", "1001"])
+
+    def test_duration_out_of_range(self):
+        """CLI2：duration 越界 → SystemExit 2。"""
+        with pytest.raises(SystemExit):
+            main(["record", "-p", "9", "-d", "-1"])
+
+    def test_rate_not_a_number(self):
+        """CLI2：rate 非数字 → SystemExit 2（消息含原值）。"""
+        with pytest.raises(SystemExit):
+            main(["record", "-p", "9", "-r", "fast"])
+
+
+class TestTopDispatch:
+    def test_basic_dispatch(self, dumps):
+        """CLI1：top 默认值（rate=50、interval=1.0）。"""
+        assert main(["top", "-p", "9"]) == 0
+        assert dumps["dump_top"] == ((9,), {
+            "rate": 50, "interval": 1.0, "color": None})
+
+    def test_interval_and_rate(self, dumps):
+        """CLI1：-i/-r 透传。"""
+        main(["top", "-p", "9", "-i", "0.5", "-r", "20"])
+        assert dumps["dump_top"] == ((9,), {
+            "rate": 20.0, "interval": 0.5, "color": None})
+
+    def test_interval_out_of_range(self):
+        """CLI2：interval 越界（>60）→ SystemExit 2。"""
+        with pytest.raises(SystemExit):
+            main(["top", "-p", "9", "-i", "61"])
 
 
 class TestArgumentErrors:
-    def test_missing_subcommand(self, capsys):
-        with pytest.raises(SystemExit):
-            cli.main([])
-        err = capsys.readouterr().err
-        assert "command" in err.lower() or "usage" in err.lower()
+    def test_missing_subcommand(self):
+        """CLI2：缺子命令 → SystemExit 2。"""
+        with pytest.raises(SystemExit) as ei:
+            main([])
+        assert ei.value.code == 2
 
-    def test_unknown_subcommand(self, capsys):
+    def test_unknown_subcommand(self):
+        """CLI2：未知子命令 → SystemExit 2。"""
         with pytest.raises(SystemExit):
-            cli.main(["bogus", "-p", "1"])
-        err = capsys.readouterr().err
-        assert "invalid" in err.lower() or "usage" in err.lower()
+            main(["frobnicate", "-p", "1"])
 
-    def test_stack_missing_pid(self, capsys):
+    def test_stack_missing_pid(self):
+        """CLI2：stack 缺 -p → SystemExit 2。"""
         with pytest.raises(SystemExit):
-            cli.main(["stack"])
-        err = capsys.readouterr().err
-        assert "pid" in err.lower()
+            main(["stack"])
 
-    def test_pid_not_integer(self, capsys):
+    def test_pid_not_integer(self):
+        """CLI2：pid 非整数 → SystemExit 2。"""
         with pytest.raises(SystemExit):
-            cli.main(["stack", "-p", "abc"])
-        err = capsys.readouterr().err
-        assert "invalid" in err.lower() or "pid" in err.lower()
+            main(["stack", "-p", "abc"])
 
 
 class TestVersion:
     def test_version_prints_and_exits(self, capsys):
-        with pytest.raises(SystemExit) as exc:
-            cli.main(["--version"])
-        assert exc.value.code == 0
-        out = capsys.readouterr().out
-        assert "pyprobe" in out
+        """CLI3：--version 输出 `pyprobe <版本>` 并 SystemExit 0。"""
+        with pytest.raises(SystemExit) as ei:
+            main(["--version"])
+        assert ei.value.code == 0
+        assert capsys.readouterr().out.startswith("pyprobe ")
 
 
-class TestSyscallDispatch:
-    def test_basic_dispatch(self, stub_syscall):
-        rc = cli.main(["syscall", "-p", "1234"])
-        assert rc == 0
-        assert len(stub_syscall) == 1
-        call = stub_syscall[0]
-        assert call["pid"] == 1234
-        assert call["color"] is None
-        assert call["verbose"] is False
-        assert call["trace"] == ""
-        assert call["max_events"] is None
-        assert call["summary"] is False
-
-    def test_trace_filter(self, stub_syscall):
-        cli.main(["syscall", "-p", "1", "-e", "trace=file"])
-        assert stub_syscall[0]["trace"] == "file"
-
-    def test_trace_filter_short_form(self, stub_syscall):
-        cli.main(["syscall", "-p", "1", "-e", "network"])
-        assert stub_syscall[0]["trace"] == "network"
-
-    def test_trace_filter_names(self, stub_syscall):
-        cli.main(["syscall", "-p", "1", "--trace", "read,write"])
-        assert stub_syscall[0]["trace"] == "read,write"
-
-    def test_max_events(self, stub_syscall):
-        cli.main(["syscall", "-p", "1", "--max-events", "30"])
-        assert stub_syscall[0]["max_events"] == 30
-
-    def test_summary(self, stub_syscall):
-        cli.main(["syscall", "-p", "1", "--summary"])
-        assert stub_syscall[0]["summary"] is True
-
-    def test_json_flag(self, stub_syscall):
-        rc = cli.main(["syscall", "-p", "1", "--json"])
-        assert rc == 0
-        call = stub_syscall[0]
-        assert call["json_output"] is True
-        assert call["summary"] is False
-
-    def test_json_with_max_events(self, stub_syscall):
-        cli.main(["syscall", "-p", "1", "--json", "--max-events", "5"])
-        call = stub_syscall[0]
-        assert call["json_output"] is True
-        assert call["max_events"] == 5
-
-    def test_json_and_summary_mutually_exclusive(self, capsys):
-        with pytest.raises(SystemExit):
-            cli.main(["syscall", "-p", "1", "--json", "--summary"])
-        err = capsys.readouterr().err
-        assert "not allowed with" in err
-
-    def test_summary_and_json_in_reverse_order_also_rejected(self, capsys):
-        with pytest.raises(SystemExit):
-            cli.main(["syscall", "-p", "1", "--summary", "--json"])
-        err = capsys.readouterr().err
-        assert "not allowed with" in err
-
-    def test_verbose(self, stub_syscall):
-        cli.main(["syscall", "-p", "1", "-v"])
-        assert stub_syscall[0]["verbose"] is True
-
-    def test_color_always(self, stub_syscall):
-        cli.main(["syscall", "-p", "1", "--color", "always"])
-        assert stub_syscall[0]["color"] is True
-
-    def test_summary_with_max_events(self, stub_syscall):
-        cli.main(["syscall", "-p", "1", "--summary", "--max-events", "200"])
-        call = stub_syscall[0]
-        assert call["summary"] is True
-        assert call["max_events"] == 200
-
-    def test_missing_pid(self, capsys):
-        with pytest.raises(SystemExit):
-            cli.main(["syscall"])
-        err = capsys.readouterr().err
-        assert "pid" in err.lower()
-
-    def test_pid_not_integer(self, capsys):
-        with pytest.raises(SystemExit):
-            cli.main(["syscall", "-p", "abc"])
-        err = capsys.readouterr().err
-        assert "invalid" in err.lower() or "pid" in err.lower()
-
-
-@pytest.fixture
-def stub_record(monkeypatch):
-    calls = []
-
-    def fake_dump_record(pid, *, rate=50, duration=None, output=None,
-                         color=None):
-        calls.append({
-            "pid": pid, "rate": rate, "duration": duration,
-            "output": output, "color": color,
-        })
-        return 0
-
-    monkeypatch.setattr(cli, "dump_record", fake_dump_record)
-    return calls
-
-
-class TestRecordDispatch:
-    def test_basic_dispatch(self, stub_record):
-        rc = cli.main(["record", "-p", "1234"])
-        assert rc == 0
-        assert stub_record == [{
-            "pid": 1234, "rate": 50, "duration": None,
-            "output": None, "color": None,
-        }]
-
-    def test_rate_duration_output(self, stub_record):
-        rc = cli.main(["record", "-p", "1", "-r", "100", "-d", "5",
-                       "-o", "/tmp/p.folded"])
-        assert rc == 0
-        assert stub_record == [{
-            "pid": 1, "rate": 100, "duration": 5,
-            "output": "/tmp/p.folded", "color": None,
-        }]
-
-    def test_long_options(self, stub_record):
-        cli.main(["record", "-p", "1", "--rate=20", "--duration=0.5",
-                  "--output=out.folded"])
-        call = stub_record[0]
-        assert call["rate"] == 20
-        assert call["duration"] == 0.5
-        assert call["output"] == "out.folded"
-
-    def test_color_always(self, stub_record):
-        cli.main(["record", "-p", "1", "--color", "always"])
-        assert stub_record[0]["color"] is True
-
-    def test_missing_pid(self, capsys):
-        with pytest.raises(SystemExit):
-            cli.main(["record"])
-        err = capsys.readouterr().err
-        assert "pid" in err.lower()
-
-    @pytest.mark.parametrize("bad", ["0", "-5", "1001", "abc"])
-    def test_rate_out_of_range(self, capsys, bad):
-        with pytest.raises(SystemExit):
-            cli.main(["record", "-p", "1", "-r", bad])
-        err = capsys.readouterr().err
-        assert "rate" in err.lower() or "invalid" in err.lower()
-
-    @pytest.mark.parametrize("bad", ["0", "-1", "abc"])
-    def test_duration_out_of_range(self, capsys, bad):
-        with pytest.raises(SystemExit):
-            cli.main(["record", "-p", "1", "-d", bad])
-        err = capsys.readouterr().err
-        assert "duration" in err.lower() or "invalid" in err.lower()
-
-
-@pytest.fixture
-def stub_top(monkeypatch):
-    calls = []
-
-    def fake_dump_top(pid, *, rate=50, interval=1.0, color=None):
-        calls.append({
-            "pid": pid, "rate": rate, "interval": interval, "color": color,
-        })
-        return 0
-
-    monkeypatch.setattr(cli, "dump_top", fake_dump_top)
-    return calls
-
-
-class TestTopDispatch:
-    def test_basic_dispatch(self, stub_top):
-        rc = cli.main(["top", "-p", "1234"])
-        assert rc == 0
-        assert stub_top == [{
-            "pid": 1234, "rate": 50, "interval": 1.0, "color": None,
-        }]
-
-    def test_interval_and_rate(self, stub_top):
-        rc = cli.main(["top", "-p", "1", "-i", "0.5", "-r", "20"])
-        assert rc == 0
-        assert stub_top == [{
-            "pid": 1, "rate": 20, "interval": 0.5, "color": None,
-        }]
-
-    def test_long_options(self, stub_top):
-        cli.main(["top", "-p", "1", "--interval=2", "--rate=100"])
-        call = stub_top[0]
-        assert call["interval"] == 2
-        assert call["rate"] == 100
-
-    def test_color_never(self, stub_top):
-        cli.main(["top", "-p", "1", "--color=never"])
-        assert stub_top[0]["color"] is False
-
-    def test_missing_pid(self, capsys):
-        with pytest.raises(SystemExit):
-            cli.main(["top"])
-        err = capsys.readouterr().err
-        assert "pid" in err.lower()
-
-    @pytest.mark.parametrize("bad", ["0", "-1", "1001"])
-    def test_rate_out_of_range(self, capsys, bad):
-        with pytest.raises(SystemExit):
-            cli.main(["top", "-p", "1", "-r", bad])
-
-    @pytest.mark.parametrize("bad", ["0", "-0.1", "abc"])
-    def test_interval_out_of_range(self, capsys, bad):
-        with pytest.raises(SystemExit):
-            cli.main(["top", "-p", "1", "-i", bad])
+class TestExitCodePassthrough:
+    def test_dump_rc_passthrough(self, monkeypatch):
+        """CLI4：dump_* 返回码原样成为 main 返回值（如 dump_top 的 2）。"""
+        monkeypatch.setattr(cli, "dump_top", lambda *a, **kw: 2)
+        assert main(["top", "-p", "1"]) == 2

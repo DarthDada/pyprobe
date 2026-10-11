@@ -1,4 +1,4 @@
-"""pyprobe CLI entry point.
+"""pyprobe CLI entry point (A6 薄壳: argparse + dispatch, nothing else).
 
 Usage:
   python -m pyprobe stack -p <pid>            Python stack dump
@@ -7,29 +7,28 @@ Usage:
   python -m pyprobe record -p <pid>            Sample & write folded stacks
   python -m pyprobe top -p <pid>               Live sampling top view
 
-The top-level command dispatches to subcommands. The ``stack`` subcommand
-analyses the thread call stacks of a target CPython process; the
-``syscall`` subcommand traces system calls of all its threads;
-``record`` / ``top`` periodically sample its Python stacks.
+契约（contracts.md 批 6 表 CLI1–CLI4; 结构与旧 cli.py 逐字——子命令、
+选项形态、错误消息均为复刻约束).
 """
 
 import argparse
 import sys
 from importlib.metadata import version as _pkg_version
 
-from .native_dump import dump_native
-from .record import dump_record
-from .stack_dump import dump_python
-from .syscall_tracer import dump_syscalls
-from .top import dump_top
+from .present.dumps import (
+    dump_native,
+    dump_python,
+    dump_record,
+    dump_syscalls,
+    dump_top,
+)
 
 
 def _version() -> str:
     """Return the installed package version (single source: pyproject.toml).
 
-    Resolved lazily via ``importlib.metadata`` so ``pyprobe.cli`` no longer
-    depends on ``pyprobe.__init__`` for the version string — importing the
-    CLI module does not force the package-root ``__version__`` attribute.
+    Resolved lazily via ``importlib.metadata`` so importing the CLI module
+    does not force package metadata at import time (CLI3).
     """
     try:
         return _pkg_version("pyprobe")
@@ -38,7 +37,7 @@ def _version() -> str:
 
 
 def _positive_float(lo, hi, what):
-    """argparse type: float in (lo, hi] with a clear error message."""
+    """argparse type: float in (lo, hi] with a clear error message (CLI2)."""
     def check(value):
         try:
             f = float(value)
@@ -198,13 +197,13 @@ def main(argv=None):
         color = _COLOR_MAP[args.color]
         if args.native:
             return dump_native(args.pid, color=color, verbose=args.verbose,
-                              json_output=args.json)
+                               json_output=args.json)
         return dump_python(args.pid, color=color, verbose=args.verbose,
                            json_output=args.json)
 
     if args.command == "syscall":
         color = _COLOR_MAP[args.color]
-        # accept both "-e file" and "-e trace=file" (strace compat)
+        # accept both "-e file" and "-e trace=file" (strace compat, CLI1)
         trace = args.trace
         if trace.startswith("trace="):
             trace = trace[len("trace="):]

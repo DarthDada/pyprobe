@@ -1,289 +1,358 @@
 # pyprobe 架构设计
 
 > 本文是 pyprobe 架构与设计的**单一事实来源**（single source of truth）。
-> AGENTS.md（构建/运行/测试操作指令）与 README.md（快速上手）仅引用本文，不重复架构内容，避免散弹式修改。
+> 模块级契约、ADR 与行为点清单（§10 重构产出）见 [contracts.md](contracts.md)；
+> AGENTS.md（构建/运行/测试操作指令）与 README.md（快速上手）仅引用本文与
+> contracts.md，不重复架构内容，避免散弹式修改。
+>
+> 本文描述的是 §10 第一性原理重构后的架构（旧树已由 `next/` 原子替换，2026-10；
+> 见 [contracts.md ADR A1–A8](contracts.md#2-架构决策记录adr重构允许的全部架构变更)）。
 
 ---
 
 ## 1. 概述
 
-pyprobe 是 CPython 进程外检查工具，无需 ptrace attach 即可获取运行中 Python 进程的调用栈。提供四种工作模式：
+pyprobe 的本质是一个**外部观测者问题**：仅凭目标 PID 与内核接口，重建运行中的
+CPython 运行时状态并呈现。它提供四种工作模式：
 
-- **Python 栈转储**（默认）— 遍历 `_PyRuntime → interpreter → threads → frames`，输出 py-spy 风格的 Python 调用栈（函数名、文件、行号、qualname）。使用 `process_vm_readv(2)` 读取目标进程内存，**不需要 ptrace attach**。
-- **Native 栈转储**（`--native`）— 通过 elfutils libdwfl 对所有线程进行 DWARF 回溯展开，输出 gdb `thread apply all bt` 风格的原生调用栈。使用 `ptrace(2)` attach 所有线程。
-- **Syscall 追踪**（`syscall` 子命令）— ptrace SEIZE + SYSCALL 实时追踪所有线程的系统调用，输出 strace 风格事件流 / `strace -c` 风格统计（详见 §14）。
-- **采样与性能分析**（`record` / `top` 子命令）— 周期性采样 Python 调用栈：`record` 聚合为 folded stacks（flamegraph.pl / inferno-flamegraph 输入格式），`top` 终端实时刷新各线程当前帧与热点函数排行。共享 `Sampler` 采样引擎（详见 §15），使用 `process_vm_readv(2)`，**不需要 ptrace attach**。
+- **Python 栈转储**（默认）— 遍历 `_PyRuntime → interpreter → threads → frames`，
+  输出 py-spy 风格的 Python 调用栈（函数名、文件、行号）。使用 `process_vm_readv(2)`
+  读取目标内存，**不需要 ptrace attach**。
+- **Native 栈转储**（`--native`）— 经 elfutils libdwfl 对全部线程做 DWARF 回溯，
+  输出 gdb `thread apply all bt` 风格的原生调用栈。使用 ptrace（统一引擎，§8）。
+- **Syscall 追踪**（`syscall` 子命令）— ptrace SEIZE + SYSCALL 实时追踪所有线程的
+  系统调用，输出 strace 风格事件流 / `strace -c` 风格统计（§14）。
+- **采样与性能分析**（`record` / `top` 子命令）— 周期性采样 Python 调用栈：
+  `record` 聚合为 folded stacks，`top` 终端实时刷新各线程当前帧与热点函数排行
+  （§15）。使用 `process_vm_readv(2)`，**不需要 ptrace attach**。
 
-主交付物为**纯 Python 实现**（`pyprobe/` 包，仅依赖标准库 ctypes/struct），另附 C 参考实现用于开发期交叉校验（不对外交付）。
+主交付物为**纯 Python 实现**（仅标准库 ctypes/struct），另附 C 参考实现用于开发期
+交叉校验（不对外交付）。
+
+### 1.1 七项不可约能力与分层
+
+pyprobe 的能力被分解为七项不可约能力，各归唯一的包；包间依赖方向**唯一合法**：
+
+```
+kernel → target → cpython → observe → present → cli
+```
+
+| 能力 | 归属包 |
+|------|--------|
+| 字节传输（process_vm_readv / procfs 读内存） | `kernel/` |
+| 动态控制（ptrace seize/interrupt/wait/detach） | `kernel/` |
+| 符号定位（ELF 符号、运行时结构地址） | `target/` |
+| 布局知识（CPython 版本结构偏移） | `target/` |
+| 图遍历（解释器→线程→帧→对象） | `cpython/` |
+| 时间维度（快照 / 采样 / 事件流） | `observe/` |
+| 呈现（文本 / JSON / 颜色） | `present/` |
+
+横切模块 `errors.py` / `dto.py` 可被任意层引用且自身不依赖任何层；颜色策略属呈现层
+（`present/color.py`，仅 present/cli 可引用）。import 方向由结构契约测试机械强制
+（ADR A8，`tests/test_structure.py`）。
 
 ---
 
 ## 2. 模块结构
 
 ```
-pyprobe/                  纯 Python 实现（入口 pyprobe.cli:main）
-├── __init__.py           公共 API 导出（__all__）+ __version__（importlib.metadata 派生）
-├── __main__.py           python -m pyprobe 入口
-├── cli.py                argparse CLI（stack / syscall / record / top 子命令）
-├── memory.py             process_vm_readv 远程内存读取 (ctypes) + 页级 LRU 缓存
-├── elf.py                ELF64 符号查找 (struct, 零依赖) + PIE load base（仅 ELF 解析）
-├── procmeta.py           /proc 元数据读取：read_cmdline(pid) + decode_py_version(hex)（从 elf.py 拆出，TODO §8.6）
-├── process.py            ProcessSession / resolve_process(pid)：collect_python 与 Sampler 共享的进程初始化（TODO §8.1）
-├── pyobject.py           PyLong / PyUnicode / PyBytes 远程读取
-├── dict_iter.py          CPython 3.11–3.14 Dict 迭代器（combined/unicode/split/managed）
-├── linetable.py          PEP 626 行号表解析（addr2line）
-├── thread_names.py       threading._active 线程名查找
-├── stack_dump.py         Python 栈转储主逻辑（collect/format/dump 三层 + JSON 格式化）
-├── native_dump.py        Native 栈转储 (ctypes + libdwfl，惰性加载 + JSON 格式化)
-├── sampler.py            采样引擎（Sampler：一次性解析 + sample() 热路径，§15）
-├── record.py             record 子命令（collect_profile → format_folded → dump_record，§15）
-├── top.py                 top 子命令（TopStats 聚合 + 终端刷新，§15）
-├── syscall_render.py     syscall 字符串渲染 + 参数解码 + TraceFilter + format_summary（纯函数，reader 注入；从 syscall_trace.py 拆出，TODO §8.3）
-├── syscall_tracer.py     SyscallTracer ptrace 引擎 + collect_syscalls / dump_syscalls（公共 API；从 syscall_trace.py 拆出，TODO §8.3）
-├── syscall_table.py      x86-64 syscall 号→名表 + 参数解码元数据 + flag 常量
-├── types.py              结构化数据类型（FrameInfo/ThreadInfo/ProcessInfo/.../ProfileData/SyscallEvent）
-├── errors.py             异常层级（PyProbeError 基类 + 子类；VersionNotSupported 在 offsets.configure 抛出，TODO §8.5）
-├── colors.py             ANSI 颜色帮助 + clicolors 检测（零依赖）
-├── offsets.py            CPython 结构体偏移量（多版本验证表，单一数据源；configure 未验证版本 raise VersionNotSupported）
-└── offsets.json          开发期偏移量覆盖（生成于 tools/gen_offsets.c）
+pyprobe/                     纯 Python 实现（入口 pyprobe.cli:main）
+├── __init__.py              公共 API 面（__all__）+ resolve_layout 例外（§3.2）
+├── __main__.py              python -m pyprobe 入口
+├── cli.py                   argparse 薄壳（stack / syscall / record / top）
+├── offsets.py               §10.5-2 兼容门面（只读；无 configure 全局副作用）
+├── colors.py                兼容门面（= present.color 的再出口）
+├── errors.py                异常层级（横切；消息逐字复刻旧语义）
+├── dto.py                   纯数据 DTO（横切；无 format()，不依赖颜色）
+├── kernel/                  内核接口层
+│   ├── mem.py               Transport：process_vm_readv 原语
+│   ├── views.py             SnapshotView（页级 LRU）/ LiveView（不缓存）
+│   ├── procfs.py            /proc 元信息（cmdline / task 枚举 / comm / stat / maps）
+│   └── ptrace.py            统一 ptrace 状态机（ADR A2）
+├── target/                  目标进程知识层
+│   ├── identity.py          进程识别与版本判定（exe / Py_Version）
+│   ├── layout.py            Layout 值对象 + resolve_layout（ADR A1）
+│   └── symbols.py           ELF64 符号查找 + 常量读取
+├── cpython/                 CPython 对象模型层（ADR A3）
+│   ├── objects.py           PyLong / Unicode / Bytes typed reader
+│   ├── dicts.py             字典遍历（combined/unicode/split/managed）
+│   ├── code.py              Code 对象头 + PEP 626 行号表
+│   ├── frames.py            InterpreterFrame 链遍历
+│   ├── runtime.py           解释器/线程图遍历
+│   └── names.py             threading._active 线程名查找
+├── observe/                 时间维度层
+│   ├── session.py           Session：存活期不变量一次性解析 + view 工厂
+│   ├── snapshot.py          单次快照栈采集 + 空闲双启发式
+│   ├── sampling.py          Sampler 采样引擎（热路径）
+│   ├── profile.py           record 折叠栈聚合
+│   ├── topstats.py          top 增量聚合（纯数据）
+│   ├── syscalls.py          syscall 追踪 + 参数解码 + TraceFilter
+│   ├── syscall_abi.py       x86-64 syscall 号表 / 解码元数据 / flags
+│   └── native.py            native 回溯（libdw/libdwfl）
+└── present/                 呈现层
+    ├── color.py             ANSI 颜色 + clicolors 检测
+    ├── text.py              全部文本格式化（ADR A5）
+    ├── jsonout.py           JSON 输出（schema 复刻）
+    └── dumps.py             dump_* 编排（collect + 颜色决策 + 打印 + 退出码）
 
-tools/                    构建期工具
-└── gen_offsets.c         生成 pyprobe/offsets.json
-
-reference/c/              C 参考实现（py_stack_dump.c, Makefile；非交付，仅供交叉校验）
-examples/                 示例目标进程（fastapi_app.py）
-scripts/                  辅助脚本（build.sh, build_wheels.sh, gen_offsets.sh, run_tests.sh）
-
-tests/                    测试
-├── conftest.py           target_pid / spin_pid session fixture（派生子进程作为探测目标）
-├── helpers.py            FakeReader + CPython 对象内存构造器
-├── targets/target_app.py 集成测试目标进程（主线程 + bg-worker 线程）
-├── targets/spin_app.py   集成测试目标进程（主线程 sleep + spin-worker 纯 Python 忙循环）
-└── test_*.py             单元测试 + test_integration.py（端到端）
+tools/gen_offsets.c          生成 pyprobe/offsets.json
+scripts/                     构建/测试/CI 脚本（单一入口，见 README）
+tests/                       测试（§13）
 ```
 
 ---
 
 ## 3. 分层 API 设计
 
-库 API 与 CLI 显式分离为三层（对应 `stack_dump.py` / `native_dump.py` 的 `collect_*` / `format_*` / `dump_*`）：
+库 API 与 CLI 分离为三层（`collect_*` / `format_*` / `dump_*`），与包分层对应：
 
 | 层 | 函数 | 职责 | 返回/行为 |
 |----|------|------|-----------|
-| 采集 | `collect_python(pid)` | 纯数据采集 | `(ProcessInfo, list[ThreadInfo])`，抛 `PyProbeError` 子类 |
-| 采集 | `collect_native(pid)` | ptrace attach + DWARF unwind | `list[NativeThreadInfo]`，抛 `AttachFailed` |
-| 采集 | `collect_syscalls(pid, *, trace, max_events, verbose)` | ptrace SEIZE + SYSCALL 全线程追踪 | `list[SyscallEvent]`，抛 `AttachFailed` / `ProcessNotFound` / `UnsupportedArchitecture` |
-| 采集 | `collect_profile(pid, *, rate=50, duration=None)` | 采样循环聚合 folded counts | `ProfileData`，KeyboardInterrupt / `ProcessExited` 返回部分数据（§15） |
-| 引擎 | `Sampler(pid)` | 一次性解析 + 周期采样（§15） | `sample() → list[ThreadInfo]`，`refresh_names()` 刷新线程名 |
-| 格式化 | `format_process(proc_info, threads, *, color=False, verbose=False)` | 结构化数据 → CLI 风格字符串 | `str`（`color=True` 时含 ANSI 码） |
-| 格式化 | `format_native(cmdline, threads, *, color=False, verbose=False)` | 同上（native） | `str` |
-| 格式化 | `format_summary(events, *, color=False)` | 事件列表 → strace -c 风格统计表 | `str` |
-| 格式化 | `format_folded(profile)` | ProfileData → folded stacks 纯文本 | `str`（count 降序 + 字典序） |
-| 格式化 | `format_process_json(proc_info, threads)` | Python 栈 → JSON（§15.5） | `str`（可 `json.loads`） |
-| 格式化 | `format_native_json(pid, cmdline, threads)` | native 栈 → JSON（§15.5） | `str`（可 `json.loads`） |
-| 格式化 | `format_syscalls_json(events)` | 事件列表 → JSON（§15.5） | `str`（可 `json.loads`） |
-| CLI 封装 | `dump_python(pid, color=None, verbose=False, json_output=False)` | collect + format + print | 退出码 `int`，异常转 stderr |
-| CLI 封装 | `dump_native(pid, color=None, verbose=False, json_output=False)` | 同上（native） | 退出码 `int` |
-| CLI 封装 | `dump_syscalls(pid, *, color, verbose, trace, max_events, summary, json_output)` | collect + 流式打印或 summary 或 JSON | 退出码 `int`，KeyboardInterrupt 优雅 detach |
-| CLI 封装 | `dump_record(pid, *, rate=50, duration=None, output=None, color=None)` | collect_profile + format_folded 输出 | 退出码 `int`；folded → stdout/`-o` 文件，进度/摘要 → stderr |
-| CLI 封装 | `dump_top(pid, *, rate=50, interval=1.0, color=None)` | 持续采样 + 终端刷新 | 退出码 `int`（非 tty → 2）；Ctrl-C/目标退出 → 0 |
+| 采集 | `collect_python(pid)` | Python 栈采集（`open_session` + `collect_snapshot` 组合） | `(ProcessInfo, list[ThreadInfo])` |
+| 采集 | `collect_native(pid)` | ptrace seize + DWARF unwind | `list[NativeThreadInfo]` |
+| 采集 | `collect_syscalls(pid, *, trace, max_events, verbose, on_event)` | 统一 ptrace 引擎全线程追踪 | `list[SyscallEvent]` |
+| 采集 | `collect_profile(pid, *, rate=50, duration=None)` | 采样循环聚合 folded counts | `ProfileData`（中断/退出返回部分数据） |
+| 引擎 | `open_session(pid, *, view_factory=None)` → `Session` | 存活期不变量一次性解析（A1/A4 落点） | `Session` |
+| 引擎 | `collect_snapshot(session)` | 单次快照栈采集（每次新建 SnapshotView） | `list[ThreadInfo]` |
+| 引擎 | `Sampler(pid, *, view_factory=None)` | 长时采样（`.sample()` / `.refresh_names()`） | `list[ThreadInfo]` |
+| 格式化 | `format_process` / `format_native` / `format_summary` / `format_folded` | 数据 → CLI 风格字符串（`present/text.py`） | `str` |
+| 格式化 | `format_process_json` / `format_native_json` / `format_syscalls_json` | 数据 → JSON（`present/jsonout.py`） | `str` |
+| CLI 封装 | `dump_python` / `dump_native` / `dump_syscalls` / `dump_record` / `dump_top` | collect + format + print + 退出码（`present/dumps.py`） | `int` |
 
 设计要点：
-- `collect_*` **不打印**，返回结构化 dataclass，调用方可程序化使用（序列化、后处理）。
-- `format_*` 是纯函数，输入数据输出字符串。
-- `dump_*` 是薄封装：捕获异常 → stderr 提示 + 退出码。
-- `collect_frames` / `collect_thread` 额外导出，便于单元测试注入 mock reader。
+- `collect_*` **不打印**，返回结构化 dataclass，调用方可程序化使用。
+- `format_*` 是纯函数，输入数据输出字符串（ADR A5：格式化全部住 `present/text.py`，
+  dto 只存数据）。
+- `dump_*` 薄封装：颜色决策（按流独立）、异常 → stderr + 退出码、版本告警 surfacing。
+- `cli.py` 是纯 argparse 薄壳，只做参数解析与分发（A6 保留决策）。
 
-`__init__.py` 通过 `__all__` 导出完整公共 API（数据类型、异常、采集/格式化/CLI 函数、`offsets` 子模块）。
-
-### 3.1 结构化数据类型（types.py）
+### 3.1 结构化数据类型（dto.py）
 
 ```python
 FrameInfo(name, filename, line)              # 单个 Python 栈帧
 ThreadInfo(native_tid, thread_id, name, frames, idle)  # 线程 + 帧列表
 ProcessInfo(pid, cmdline, exe_path, python_version)    # 进程元数据
 NativeFrame(pc, symbol, module)              # 单个 native 栈帧
-NativeThreadInfo(tid, comm, frames, unwind_failed)    # native 线程 + 帧列表
+NativeThreadInfo(tid, comm, frames, unwind_failed)     # native 线程 + 帧列表
 SyscallEvent(tid, nr, name, args, rendered, ret, error, elapsed)  # 单次系统调用观测
-ProfileData(proc_info, counts, samples, idle_samples, elapsed, version_warning)    # record 聚合结果（§15.4）
+ProfileData(proc_info, counts, samples, idle_samples, elapsed, version_warning)
 ```
 
-每个 dataclass 自带 `format()` / `format_header()` 方法，`format_*` 函数组合调用它们生成输出。
+DTO 字段名/顺序/默认值与旧树一致（`asdict` 键集即 JSON schema，复刻约束；D1）。
+**路径缩短**（显示层约定）：数据字段始终保存完整路径，`present/text.py` 缺省
+（`verbose=False`）缩短显示——Python 帧取路径**末 2 级**（对齐 py-spy），native
+module 取 **basename**；`verbose=True`（`-v/--verbose`）保持完整路径。
 
-**路径缩短**（显示层约定）：`FrameInfo.filename` / `NativeFrame.module` 数据字段始终保存完整路径（`collect_*` 层契约不变）；format 层缺省（`verbose=False`）缩短显示——Python 帧取路径**末 2 级**（`uvicorn/server.py`，对齐 py-spy），native module 取 **basename**（`python3.12`，对齐 `perf report`；实测单线程 17 帧中 13 帧重复完整 python3.12 路径）。`verbose=True`（CLI `-v/--verbose`）保持完整路径。缩短仅发生在 format 显示层，空闲检测等消费原始字段的逻辑不受影响。
+### 3.2 公共 API 面与兼容映射
 
-### 3.2 异常层级（errors.py）
+`__init__.py` 的 `__all__` 与旧树**逐项一致**，唯一显式例外是 ADR A1 新增的
+`resolve_layout`（§10.5-2 门禁；名单 pin 在 `tests/test_api_exports.py`）。旧名在
+新实现上的绑定：
+
+- `ProcessSession` = `observe.session.Session`；`resolve_process` = `open_session`
+- `collect_frames` = `cpython.frames.walk_frames`；`collect_thread` = `build_thread`；
+  `read_thread_chain` = `cpython.runtime.read_thread_chain`
+- `SyscallStat` / `TraceFilter` / `Sampler` / `TopStats` 绑定 observe 实现
+- `format_*` / `dump_*` 绑定 present 实现
+- `offsets` 为只读兼容门面（API3；新代码必须经 `target.layout.resolve_layout` 取
+  `Layout`，由 `tests/test_structure.py` 机械禁止层模块 import 该门面）
+
+### 3.3 异常层级（errors.py）
 
 ```
-PyProbeError                      基类（库调用方可统一 catch）
-├── ProcessNotFound               /proc/<pid> 不可读（进程不存在）
-├── PermissionDenied              权限不足（保留未用：权限失败实际以 OSError 或 AttachFailed 呈现，见下方注记）
+PyProbeError                      基类
+├── ProcessNotFound               进程不存在（/proc/<pid> 不可读）
+├── PermissionDenied              权限不足（procfs 权限路径）
 ├── SymbolNotFound                ELF 符号未找到（如 _PyRuntime）
 ├── NoInterpreterState            无法读取 interpreter state
 ├── NoThreadState                 无法读取 thread state 链
 ├── VersionNotSupported           CPython 版本未验证（带 fallback 版本信息）
-├── AttachFailed                  ptrace attach 失败（native 模式）
-├── ProcessExited                 采样循环中目标进程退出（§15）
-└── UnsupportedArchitecture       架构不支持（syscall 追踪仅 x86-64）
+├── AttachFailed                  ptrace 操作失败
+├── ProcessExited                 采样循环中目标进程退出
+└── UnsupportedArchitecture       架构不支持（syscall/native 仅 x86-64）
 ```
 
-`collect_*` 抛出具体异常；`dump_*` 捕获后转 stderr + 退出码。库调用方可 catch `PyProbeError` 统一处理或 catch 子类区分失败模式。
+消息逐字复刻旧语义（CLI `[!] {e}` 用户可见输出；E2）。`collect_*` 抛具体异常，
+`dump_*` 捕获后转 stderr + 退出码。
 
-> **注记**：`PermissionDenied` 在异常层级中定义并导出，但当前全代码库无 raise 点（保留未用）：权限不足实际表现为 `OSError`（如 `process_vm_readv` EACCES/EPERM，由 `dump_*` 捕获）或 `AttachFailed`（ptrace attach 失败），两者均已携带 pid 上下文。若未来需要区分"进程不存在"与"权限不足"的专用错误语义，再补 raise 点。
+### 3.4 颜色基础设施（present/color.py）
 
-### 3.3 颜色基础设施（colors.py）
-
-CLI 输出对齐 py-spy 的颜色语义，零依赖自实现（不引 rich/colorama）：
+CLI 输出对齐 py-spy 的颜色语义，零依赖自实现：
 
 | 输出元素 | 颜色 |
 |----------|------|
-| pid / tid / LWP tid | bold + yellow（`\x1b[1m\x1b[33m`） |
+| pid / tid / LWP tid | bold + yellow |
 | 函数名 / native symbol | green |
 | 文件名 / native module | cyan |
 | 行号 / pc / (idle) 标记 | dim |
 | `[!]` 错误行 / Backtrace stopped | red |
-| cmdline / 版本行 / 线程名 / 帧号 | 不着色 |
 
-检测逻辑 `should_color(stream)` 遵循 [clicolors spec](https://bixense.com/clicolors/)（与 py-spy 依赖的 console crate 一致），优先级短路：`CLICOLOR_FORCE != "0"` 无条件强制（胜过 NO_COLOR）→ `NO_COLOR` 非空禁用 → 非 tty 禁用 → `TERM=dumb` 禁用 → `CLICOLOR == "0"` 禁用 → 否则启用。stdout/stderr 独立检测。
-
-无回归不变式（由测试守护）：
-- **I1**：`colors.py` 所有帮助函数在 `color=False` 时恒等返回原文。
-- **I2**：所有 format 方法缺省调用输出与引入颜色前逐字节一致。
-- **I3**：`dump_*` 缺省（`color=None`）在非 tty（管道/重定向/capsys）下等价于 `color=False`。
-
-决策记录：**不提供全局开关**（如 `set_colors_enabled`）。颜色经显式 `color` 参数传递——format 层 keyword-only 缺省 `False`（保持纯函数，库用户默认拿到纯文本），dump 层 `Optional[bool] = None`（None = 按流自动检测），CLI `--color {auto,always,never}` 映射为 `None/True/False`。理由：全局可变状态会破坏 `format_*` 纯函数契约、需要 conftest 重置 fixture，且嵌入宿主程序时存在"宿主 tty 泄漏 ANSI 码进日志"的风险。
+`should_color(stream)` 遵循 [clicolors spec](https://bixense.com/clicolors/)，
+优先级短路：`CLICOLOR_FORCE != "0"` 无条件强制 → `NO_COLOR` 非空禁用 → 非 tty 禁用
+→ `TERM=dumb` 禁用 → `CLICOLOR == "0"` 禁用 → 否则启用。stdout/stderr 独立检测。
+颜色经显式 `color` 参数传递，**无全局开关**（保持 format 纯函数）。
 
 ---
 
-## 4. 内存读取架构（memory.py）
+## 4. 内存读取与视图分离（ADR A4）
 
-### 4.1 远程读取
+`kernel/mem.py:Transport(pid, syscall=None)` 封装 `process_vm_readv(2)`（ctypes 绑定
+libc）。读取循环处理 `EINTR`（重试）与短读（partial read）；任何错误返回 `None`，
+不抛异常。
 
-`RemoteReader` 封装 `process_vm_readv(2)`（ctypes 绑定 `libc.so.6`）。读取循环处理 `EINTR`（errno 4 自动重试）和短读（partial read）。返回 `None` 表示不可读。
+`kernel/views.py` 提供两种**内存视图**，各自声明一致性需求：
 
-辅助方法：`read_ptr` / `read_u32` / `read_u64` / `read_int` — 基于 `read()` 的薄封装。
+| 视图 | 语义 | 用于 |
+|------|------|------|
+| `SnapshotView(transport, *, max_pages=256)` | 页级 LRU，单次快照 | 单次栈转储（`collect_snapshot`，每次新建） |
+| `LiveView(transport)` | 不缓存，每次读走传输层 | 长时观测（syscall 追踪、采样热路径） |
 
-### 4.2 页级 LRU 缓存
+两种视图共有 `read` / `read_ptr` / `read_u32` / `read_u64` / `read_int`。常量
+`PAGE_SIZE=4096` / `CACHE_MAX_PAGES=256` / `BYPASS_CACHE_THRESHOLD=4096`。
 
-栈遍历具有高空间局部性（帧链、相邻 CodeObject 字段、连续 dict 条目、per-key unicode body）。缓存整页可将多次 4-8 字节小读合并为每页一次 syscall。
-
-| 参数 | 值 | 说明 |
-|------|----|------|
-| `PAGE_SIZE` | 4096 | 页大小 |
-| `CACHE_MAX_PAGES` | 256（1 MB） | LRU 最大页数 |
-| `BYPASS_CACHE_THRESHOLD` | 4096 | ≥1 页的读取绕过缓存，避免驱逐热数据 |
-
-缓存语义：**快照** — 在 `RemoteReader` 实例生命周期内有效，适用于单次 dump 调用。远程进程可能并发修改内存；缓存读取反映足够一致的快照（与 gdb / py-spy attach 模式相同）。
-
-部分页读取（罕见，映射末尾）不缓存，直接透传，调用方通过长度检查感知短读。
+栈遍历具有高空间局部性（帧链、Code 字段、dict 条目），缓存整页把多次小读合并为每页
+一次 syscall；≥1 页的读绕过缓存避免驱逐热数据；部分页读取（映射末尾）不缓存，调用方
+按长度检查感知短读。长时观测不得复用快照缓存——目标内存持续变化会读到过期数据。
 
 ---
 
-## 5. ELF 符号查找（elf.py）
+## 5. ELF 符号与加载基址（target/symbols.py + kernel/procfs.py）
 
-手动解析 ELF64（`struct` 模块，零依赖），支持 `.symtab` 和 `.dynsym` 两种符号表。`find_symbol(exe_path, symname, pid)` 查找符号地址；`read_const(exe_path, symname, length)` 读取符号对应的常量数据（如 `Py_Version`）。
+`target/symbols.py` 手动解析 ELF64（`struct`，零依赖），支持 `.symtab` 与 `.dynsym`：
 
-关键设计：
-- **ELF 解析缓存**：`_get_elf_info()` 按 `(path, mtime)` 缓存 section header table，避免重复解析。`find_symbol` 和 `read_const` 共享缓存。
-- **PIE load base**：对 `e_type == ET_DYN`（PIE 可执行文件），从 `/proc/<pid>/maps` 读取加载基址，加到符号 value 上。
-- `read_cmdline(pid)` 读取 `/proc/<pid>/cmdline`；`decode_py_version(hexval)` 解码 CPython 版本号（`major.minor.micro`）。
+- `ElfImage.open(path)` → `.lookup` / `.read_at_symbol` / `.e_type`；解析缓存按
+  `(path, mtime)` 键控。
+- `find_symbol(exe_path, name, pid)`：类型过滤仅 `STT_NOTYPE`/`STT_OBJECT`；符号搜索
+  序 `.symtab` 先于 `.dynsym`；`ET_DYN`（PIE）加 `load_base`，`ET_EXEC` 不加；找不到
+  返回 0。
+- `read_const(exe_path, name, length)`：`file_off = st_value − sh_addr + sh_offset`，
+  **以节剩余字节（`sh_size`）为界**，越界/短读/缺符号 → `None`。
 
----
-
-## 6. CPython 偏移量架构（offsets.py）
-
-### 6.1 单一数据源
-
-`_VERIFIED_OFFSETS` 字典是偏移量的**单一数据源**，按 CPython `major.minor` 版本键控。对于 64 位 LP64 架构（x86-64、aarch64），同一 CPython 版本的偏移量相同，无需架构键。
-
-### 6.2 运行时配置
-
-`configure(version_str)` 在 `resolve_process`（`process.py`，由 `collect_python` 与 `Sampler.__init__` 共享）中被调用（传入目标进程的 CPython 版本）：
-- 已验证版本 → 加载对应偏移量表。
-- 未验证版本 → 先把 `_active` 填好默认版本（`DEFAULT_VERSION` = "3.12"）的偏移量表，**再 raise `VersionNotSupported`**（捕获后可直接 `get`/`get_or`）；`offsets` 层**不打印**——`resolve_process` 捕获该异常并把告警串存到 `ProcessSession.version_warning`，由 dump 层（`dump_python` / `dump_record` / `dump_top`）统一输出（违反 collect 层"不打印"契约的旧 print 已移除，TODO §8.5）。
-- 开发期覆盖：若 `offsets.json` 存在，仅当其 `_version` 键与目标进程 major.minor 一致时，以其内容**整表替换** `_active`（json 为 gen_offsets 从目标版本真实头文件生成的完整输出；叠在回退表上合并会泄漏该版本已不存在的 3.12 陈旧 key，如 `InterpreterState.imports` 会把 `get_thread_names` 引向错误版本分支——2026-10 修复）。未验证版本也走同一条覆盖路径——dev-only `offsets.json` 即可作为本地验证证据。
-
-`get(name)` 惰性初始化（未 configure 时用 `DEFAULT_VERSION`——已验证版本，不 raise），返回偏移量值。`get_or(name, default)` 对该版本不存在的键返回 `default`——字段在版本间缺失（如 3.11 无 `InterpreterState.imports`、3.13 无 `ThreadState.cframe`）时消费者据此分支。`DEFAULT_VERSION` 为公开常量（TODO §8.2 转正，跨模块读不再走 `_` 前缀）。
-
-### 6.3 生成工具
-
-`tools/gen_offsets.c`（通过 `scripts/gen_offsets.sh`，可用 `PYTHON=<解释器>` 指定目标版本）编译并运行一个小程序，读取 CPython 头文件中的结构体偏移量，生成 `pyprobe/offsets.json`。新版本验证流程（TDD，入口在 `tests/test_offsets.py` 的 `_VERSION_EXTRA_KEYS` oracle——共享 key + 版本特有 key 的独立期望集合，版本 × key 双维参数化）：gen_offsets 生成 → 在 oracle 写下新版本期望 key（测试变红，`_VERIFIED_OFFSETS` 尚无该版本）→ 验证 `offsets.json` 值后编入 `_VERIFIED_OFFSETS`（测试转绿）。
+加载基址解析属 `kernel/procfs.py` 的 /proc 知识：`parse_load_base(maps_text, exe_path)`
+取**首个** path 匹配行（含 `" (deleted)"` 后缀）起始地址；`load_base(pid, exe_path)`
+包装读取，OSError → 0。字面匹配，路径解析策略不入 kernel 层（调用方经
+`/proc/<pid>/exe` readlink 提供已解析路径）。
 
 ---
 
-## 7. CPython 数据结构遍历
+## 6. 布局知识：Layout 值对象（ADR A1）
 
-### 7.1 Python 栈转储（stack_dump.py）
+`target/layout.py` 把 CPython 版本结构偏移建模为**不可变值对象**，
+消灭旧树 `offsets._active` 全局单例与 `get()` 读路径副作用（旧 §8.1）：
 
-遍历链路：
+- `resolve_layout(version_str, *, overrides_path=None) -> Layout`：显式解析；
+  `Layout(version, key, verified, table)`（`table` 为 `MappingProxy`，不可变），
+  `.get(name)`（缺键 `KeyError`）/`.get_or(name, default)`。
+- 已验证版本（3.11–3.14）→ `verified=True`，`table` 为该版本表；未验证版本 →
+  `DEFAULT_VERSION`（"3.12"）表 + `verified=False`，**不抛异常**（旧 `configure` 的
+  "先填 fallback 后 raise"契约变更为 `verified` 标记；警告串由 `observe/session.py`
+  用 `VersionNotSupported` 消息组装）。
+- `Layout.key` 恒为 backing 表的版本，`requested` 版本另行保留（防误导诊断）。
+- **dev override**：`overrides.json`（`offsets_path`）的 `_version` 与目标版本匹配时
+  整表替换 base；`overrides_path` 为显式参数（`None` 用默认；测试 autouse 指向不存在
+  路径，契约 L12）。
+- 版本差异只住 Layout：`get` 命中则用该版本值，缺键经 `get_or` 分支探针（如 3.11 无
+  `InterpreterState.imports`、3.13 无 `ThreadState.cframe`）。
+- `supported_versions()` 升序；`DEFAULT_VERSION` 公开常量。
+
+`tools/gen_offsets.c`（经 `scripts/gen_offsets.sh`）从真实头文件生成
+`pyprobe/offsets.json`。新版本接入以 spec-oracle 测试为入口：内置表 vs 生成产物
+（`tests/test_layout.py`，契约 L8/L9）。
+
+---
+
+## 7. CPython 数据结构遍历（cpython/，ADR A3）
+
+每个 typed reader 绑定 `Layout`，**遍历代码零裸偏移运算**——所有偏移经
+`layout.get` / `get_or` 在 reader 内部消费；跨度装配（Code 头、ThreadState 字段簇的
+单次合并读）归对应模块内部实现，对外只暴露类型化字段。
+
+### 7.1 帧链与运行时图（frames.py / runtime.py）
+
 ```
-find_symbol(_PyRuntime)
-  → RuntimeState.interpreters + pyinterpreters.main  [fallback: pyinterpreters.head]
-    → InterpreterState.threads + pythreads.head      (PyThreadState 链表)
-      → ThreadState.cframe → CFrame.current_frame     (_PyInterpreterFrame 链 via ->previous)
-        （3.13 省略 cframe 间接层，直接 ThreadState.current_frame）
-        → InterpreterFrame.f_code                     (PyCodeObject)
-          → CodeObject.co_name / co_filename / co_firstlineno / co_linetable / co_code_adaptive
+resolve_interpreter(view, layout, runtime_addr)   # main → head 回退
+  → read_thread_chain(view, layout, interp_addr)  # ThreadState 链，MAX_THREADS=256
+    → current_frame_of(view, layout, tstate_addr)
+        （layout 探针 ThreadState.current_frame 直达 3.13+；
+         否则 cframe → CFrame.current_frame 间接 3.11/3.12）
+      → walk_frames(view, layout, frame_addr, trampoline_addr)  # MAX_FRAMES=100
 ```
 
-关键逻辑：
-- **InterpreterFrame 遍历**（`collect_frames`）：沿 `previous` 链走，最多 `MAX_FRAMES=100` 帧。跳过 `f_code == 0` 的帧和 `interpreter_trampoline` 帧（仅 3.12 存在该键）；`co_name` 与 `co_filename` 均为 NULL 的尾部陈旧帧（3.13 datastack 残留）终止遍历。
-- **行号计算**：`lasti = prev_instr - (f_code + co_code_adaptive)`，传入 `addr2line` 解析行号表。
-- **线程链遍历**（`read_thread_chain`，原 `_read_thread_chain`——TODO §8.2 去下划线转正）：沿 `ThreadState.next` 链走，最多 `MAX_THREADS=256`。批量读取每条 tstate 的 `next`/`thread_id`/`native_tid` 字段（单次读取覆盖最小跨度区间）。
-- **线程名查找**（`thread_names.py`）：定位 `sys.modules`（3.12 经 `InterpreterState.imports → modules` 直达；3.11/3.13 遍历 `sysdict` 字典找 `"modules"` 键），找到 `threading` 模块，读其 `_active` 字典，匹配 `thread_id → _name`。
-- **空闲线程检测**（`_is_thread_idle`）：两种启发式——读 `/proc/<pid>/task/<tid>/stat` 状态非 `R`（`is_thread_idle_by_stat`，原 `_is_thread_idle_by_stat`——TODO §8.2 转正，sampler 热路径跨模块 import），或顶层帧匹配已知空闲惯用语（`threading.wait`、`selectors.select` 等）。
-- **进程初始化共享**（`process.py`，TODO §8.1）：`resolve_process(pid) → ProcessSession` 把 `collect_python` 与 `Sampler.__init__` 原本逐字复制的 ~40 行（exe readlink / find_symbol / read_const / offsets.configure / interp_addr main→head 回退 / trampoline / get_thread_names）合并到一处；`ProcessSession.version_warning` 携带未验证版本告警，由 dump 层统一输出。`collect_python` 内部走 `resolve_process + _collect_threads_from_session`；`Sampler.__init__` 走 `resolve_process` 并暴露 `interp_addr` / `trampoline_addr` / `proc_info` / `_names` 为 backward-compat 属性。
-- `reader` 参数为鸭子类型（任何提供 `read`/`read_ptr` 的对象），便于单元测试注入 `FakeReader`。
+- `walk_frames` 沿 `previous` 链走：跳过 `f_code == 0` 的帧与 trampoline 帧；
+  `co_name` 与 `co_filename` 均 NULL 的尾部陈旧帧（3.13 datastack 残留）终止遍历；
+  返回 `list[dto.FrameInfo]`（内层在前）。
+- `code.py`：`read_code_header` 合并读 `co_firstlineno`/`co_filename`/`co_name`；
+  `addr2line(view, layout, code_addr, lasti, firstlineno)` 包装行号解析；
+  `line_for_offset` 为纯函数（PEP 626 解码，含 CPython signed varint 语义）。
+  `lasti = prev_instr − (code + co_code_adaptive)`，负值钳 0。
+- 行号解析正确性以 **spec-oracle** 守护：`line_for_offset` vs 真实 CPython
+  `co_lines()` 地面真值（§10.2-1）。
 
-### 7.2 字典迭代器（dict_iter.py）
+### 7.2 字典迭代器（dicts.py）
 
-`DictIter` 支持 CPython 3.11–3.14 字典的所有变体（各版本 `_dictkeysobject`/entries 布局一致）：
-- **combined**（`kind=0`）：`PyDictKeyEntry`（key + hash + value），key 偏移为 8。
-- **unicode**（`kind=1`）：`PyDictUnicodeEntry`（key + value），key 偏移为 0。
-- **split**：values 数组独立存储，从 `DictObject.ma_values` 读取。
-- **managed dict**：通过 `Py_TPFLAGS_MANAGED_DICT` 标志检测。实例 pre-header 槽位（`obj - 3*PTR_SIZE`）各版本约定不同：3.11 为独立两槽——dict 指针（未物化为 NULL）+ `obj-4` 的 untagged `PyDictValues*`（`PyObject.pre_values` 键，仅 3.11 表存在）；3.12 合并为单槽 tagged 指针（bit0=1 时为 `ptr-1` 的 values 数组）；3.13 单槽 untagged，NULL 表示 values 内嵌在对象内（`PyObject_size + dictvalues_header` 起始）；3.14 同 3.13。
+`DictReader(view, layout)` 支持 3.11–3.14 的全部变体：combined（`kind=0`，
+`PyDictKeyEntry`，key 偏移 8）、unicode（`kind=1`，`PyDictUnicodeEntry`，key 偏移 0）、
+split（values 数组独立）、managed dict（`Py_TPFLAGS_MANAGED_DICT`，各版本 pre-header
+槽位约定不同——3.11 双槽 / 3.12 tagged 单槽 / 3.13+ untagged 可内嵌）。
+`from_dict` / `from_managed_values` / `.next`。
 
-`from_dict(dict_addr)` 从 `DictObject.ma_keys` / `ma_values` 初始化；`from_managed_values(values_addr, type_addr)` 从 `HeapTypeObject.ht_cached_keys` 初始化。
+### 7.3 对象读取（objects.py）
 
-### 7.3 Python 对象读取（pyobject.py）
+- **PyLong**：3.12+ 读 `lv_tag`（`size = tag >> 3`）；3.11 读 `ob_size`（`get_or` 回退
+  链）；支持 0/1/2 位 digit（每位 30 位），>2 位 → `None`。
+- **PyBytes**：`ob_size` 上界 `MAX_STR_LEN`（`1<<20`，对象层尺寸上界）；数据读失败 →
+  `None`。
+- **PyUnicode**：解析 `PyASCIIObject` state byte（compact=bit5 / is_ascii=bit6 /
+  kind=bits2-4）；compact+ascii 读内联数据；compact 非 ascii 按 kind
+  （latin-1 / utf-16-le / utf-32-le）；非 compact 从 `data_any` 指针读。
 
-- **PyLong**（`read_pylong`）：3.12+ 读 `lv_tag`，`size = tag >> 3`；3.11 读 `ob_size`（有符号位数计数，负整数以超大无符号值读出后落到 None，即仅解析非负小整数）。支持 0/1/2 位 digit（每位 30 位），>2 位返回 None。
-- **PyBytes**（`read_pybytes`）：读 `ob_size`，从 `ob_sval` 读数据；超 `MAX_STR_LEN` 返回 None。
-- **PyUnicode**（`read_pyunicode`）：读 `PyASCIIObject` 头，解析 state byte（compact/is_ascii/kind）；compact+ascii 直接读内联数据；compact 非 ascii 从 `PyCompactUnicodeObject_size` 读；非 compact 从 `data_any` 指针读。支持 latin-1/utf-16-le/utf-32-le 三种编码。
+### 7.4 线程名（names.py）
 
-### 7.4 行号表解析（linetable.py）
-
-实现 PEP 626 行号表（`co_linetable`）解析。`addr2line(reader, code_addr, lasti, firstlineno)` 从 `lasti`（字节码偏移）解析对应行号。处理 code 10/11/12/13/14/15 各种 entry 类型及变长整数编码。无法解析时回退到 `firstlineno`。
-
-### 7.5 线程名查找（thread_names.py）
-
-`get_thread_names(reader, interp_addr)` 返回 `{thread_id: name}` 字典。链路：`sys.modules → "threading" 模块 → _active dict → {tid: Thread 实例} → 实例 dict → "_name"`。实例字典读取需处理 managed dict（`Py_TPFLAGS_MANAGED_DICT`，各版本 pre-header 槽位约定见 §7.2）与普通 dict 两种情况（`_get_instance_dict_iter`）。
+`get_thread_names(view, layout, interp_addr) -> {thread_id: name}`。定位
+`sys.modules`（3.12 走 `InterpreterState.imports + _import_state.modules` 直针；其余
+版本遍历 `sysdict` 找 `"modules"`），找 `threading` 模块，读其 `_active` 字典，实例
+字典解析处理 managed/non-managed 两种（§7.2 槽位约定）；任何失败 → 部分/空 dict，不抛。
 
 ---
 
-## 8. Native 栈转储架构（native_dump.py）
+## 8. Native 栈转储（observe/native.py + kernel/ptrace.py，ADR A2）
 
-### 8.1 惰性加载
+### 8.1 统一 ptrace 引擎（kernel/ptrace.py）
 
-`libdw` / `libc` 初始化为 `None`，CDLL 加载与原型设置移入 `_init_libs()`，仅在 `dump_native` / `collect_native` 首次调用时触发。**Python 栈模式不依赖 libdw**，`import pyprobe` 无模块级副作用（除 `memory.py` 的 `libc.so.6`，Linux 必有）。
+syscall 追踪与 native 回溯共享同一套 seize/interrupt/wait 状态机（消灭旧树两套 attach
+逻辑）。`PtraceEngine(pid, *, feature="ptrace", restart_op=PTRACE_SYSCALL)`：
 
-### 8.2 流程
+- `seize(options=0)`：扫 `/proc/<pid>/task` 逐线程 `PTRACE_SEIZE` + 循环 re-scan
+  （捕获扫描间隙新建的线程）；任意异常**全量回滚**（已 seize 线程 DETACH，A7 修复）；
+  非主线程序列中死亡跳过。
+- `stop_all()` / `restart_all()` / `resume(tid, sig=0)` / `wait_event()`（返回
+  `SyscallStop` / `ExecEvent` / `Exited` 事件）/ `getregs(tid)` / `detach()`（幂等）。
+- **arch 检查下沉 `__init__`**：非 x86-64 → `UnsupportedArchitecture`（feature 名由
+  消费方传入以保消息语义；A7 修复——旧树 CLI 路径绕过该检查）。
+- `UserRegs` x86-64 布局 + `ARG_REGS=(rdi, rsi, rdx, r10, r8, r9)`。
+- 事件语义（分组停止吞掉、真实信号转发、TRACECLONE 注册新线程、TRACEEXEC 补发）见
+  契约 T 系（`tests/test_ptrace.py` 全状态路径 stub 覆盖）。
 
-1. `_attach_all_threads(pid)` — 枚举 `/proc/<pid>/task`，对每个 tid `ptrace(PTRACE_ATTACH)` + `waitpid`。
-2. `_collect_frames(pid)` — `dwfl_begin` → `dwfl_linux_proc_report` → `dwfl_linux_proc_attach` → `dwfl_getthreads`（遍历线程）→ `dwfl_thread_getframes`（遍历帧）。每帧通过 `dwfl_addrmodule` + `dwfl_module_addrname` 解析符号，`dwfl_module_info` 获取模块路径。
-3. `_detach_all(tids)` — `ptrace(PTRACE_DETACH)` 所有线程。
+### 8.2 流程（native）
 
-结果按 tid 升序排列（主线程 tid 最小，编号 Thread 1 起——对齐 gdb 线程编号；2026-09 修复线程排序时残留的"降序"描述已于 2026-10 更正）。`unwind_failed` 标记无法展开的线程。
+`collect_native(pid)`：`PtraceEngine(feature="native stack dump").seize(options=0)` →
+`stop_all()` → libdwfl（`assume_ptrace_stopped=True`）遍历线程/帧 → `finally detach()`。
+**ATTACH→SEIZE**（安全 detach 理由同 §14.2）。libdw/libdwfl 惰性加载（非 native 模式
+导入无副作用）。
 
-### 8.3 ctypes 回调
+- 帧解析：`dwfl_frame_pc`（非激活帧 `lookup=pc−1`）、`dwfl_module_addrname`（缺 →
+  `??`）、`dwfl_module_info` 取模块路径；单线程帧上限 `_MAX_FRAMES=256`。
+- 线程结果按 tid 升序；`unwind_failed = (fr != 0 且 0 帧)`（复刻旧判定）。
+- ctypes 回调（`CFUNCTYPE`）经 `ctypes.py_object` 传递 Python list 收集结果。
 
-使用 `CFUNCTYPE` 定义 dwfl 回调签名（`_find_elf_t` / `_find_debuginfo_t` / `_section_address_t` / `_thread_cb_t` / `_frame_cb_t`）。帧/线程回调通过 `ctypes.py_object` 传递 Python list 引用收集结果。
+> A2 使 native 行为有变，§10.5-1 的 `stack --native --json` 旧新差异对比为其强制验证
+> 项（批 7 出口）。
 
 ---
 
 ## 9. 权限模型
 
-### 9.1 Python 栈模式（默认）
+### 9.1 Python 栈 / 采样模式（默认）
 
 使用 `process_vm_readv(2)`，**不需要 ptrace attach**。
 
@@ -294,36 +363,26 @@ find_symbol(_PyRuntime)
 | 同用户 + `ptrace_scope=1`（默认） | 仅子进程 |
 | 目标进程 `dumpable=0` | **仍可读取** |
 
-### 9.2 Native 模式（`--native`）
+### 9.2 Native / Syscall 模式
 
-使用 `ptrace(2)` attach 所有线程 + libdwfl DWARF 回溯展开。
-
-| 条件 | 是否可用 |
-|------|----------|
-| root（CAP_SYS_PTRACE） | 任意进程 |
-| 同用户 + `ptrace_scope=0` | 任意进程 |
-| 同用户 + `ptrace_scope=1`（默认） | 仅子进程 |
-| 目标进程 `dumpable=0` | **不可用** |
-
-> uvicorn / FastAPI 运行时会将 `dumpable` 设为 0，导致 native 模式在非 root 下无法 attach。Python 栈模式不受此限制。
-
-### 9.3 Syscall 追踪模式（`syscall` 子命令）
-
-使用 `ptrace(2)`（PTRACE_SEIZE + PTRACE_SYSCALL），权限要求同 native 模式（§9.2 表格），另有两条：
+使用 ptrace（native：SEIZE + DWARF unwind；syscall：SEIZE + SYSCALL），权限要求同表
+（但 `dumpable=0` 目标**不可用**），另有约束：
 
 | 条件 | 是否可用 |
 |------|----------|
 | 非 x86-64 架构 | **不可用**（`UnsupportedArchitecture`） |
 | 目标含分离后的线程 | 仅追踪 attach 时刻已存在 + TRACECLONE 捕获的线程 |
 
-结束时自动 PTRACE_INTERRUPT + PTRACE_DETACH 全部线程，目标进程恢复运行（不会挂死）。
+> uvicorn / FastAPI 运行时会将 `dumpable` 设为 0，导致 native/syscall 模式在非 root
+> 下无法 attach；Python 栈与采样模式不受此限制。
+
+`process_vm_readv` / `ptrace` 要求目标进程是当前进程的后代（`ptrace_scope=1`）。集成
+测试通过 `subprocess.Popen` 派生子进程作为探测目标，天然满足此条件。
 
 ```bash
 cat /proc/sys/kernel/yama/ptrace_scope   # 检查当前 ptrace_scope
 sudo python -m pyprobe stack -p <pid> --native   # root 可绕过所有限制
 ```
-
-`process_vm_readv` / `ptrace` 要求目标进程是当前进程的后代（`ptrace_scope=1` 默认下）。集成测试通过 `subprocess.Popen` 派生子进程作为探测目标，天然满足此条件。
 
 ---
 
@@ -332,22 +391,20 @@ sudo python -m pyprobe stack -p <pid> --native   # root 可绕过所有限制
 | CPython 版本 | 架构 | 状态 |
 |-------------|------|------|
 | 3.11.x | x86-64 | 已验证 |
-| 3.11.x | aarch64 | 未验证（偏移量理论上与 x86-64 相同，待实际验证） |
 | 3.12.x | x86-64 | 已验证 |
-| 3.12.x | aarch64 | 未验证（偏移量理论上与 x86-64 相同，待实际验证） |
 | 3.13.x | x86-64 | 已验证 |
-| 3.13.x | aarch64 | 未验证（偏移量理论上与 x86-64 相同，待实际验证） |
-| 3.14.x | x86-64 | 已验证（2026-10 于 3.14.4） |
-| 3.14.x | aarch64 | 未验证（偏移量理论上与 x86-64 相同，待实际验证） |
+| 3.14.x | x86-64 | 已验证 |
+| 3.11–3.14 | aarch64 | 未验证（偏移量理论上与 x86-64 相同，待实际验证） |
 
-对未验证版本，pyprobe 会在 stderr 输出告警并使用 3.12 偏移量作为默认回退。可通过 `scripts/gen_offsets.sh` 为目标 CPython 生成偏移量，验证后编入 `pyprobe/offsets.py` 的 `_VERIFIED_OFFSETS`。
+对未验证版本，`resolve_layout` 以 `DEFAULT_VERSION`（"3.12"）表 + `verified=False`
+返回；`observe/session.py` 在 stderr 输出告警。可用 `scripts/gen_offsets.sh` 为目标
+CPython 生成偏移量，验证后经 dev override 或编入内置表（§6）。
 
 ### 限制
 
-- 已验证 3.11.x / 3.12.x / 3.13.x / 3.14.x（x86-64）；其他版本回退 3.12 偏移量并告警。
 - 仅支持 **Linux**（依赖 `/proc`、`process_vm_readv`、`ptrace`）。
-- 已验证 **x86-64**；aarch64 偏移量理论上相同（均为 64 位 LP64）但未实际验证。
-- Native 模式在非 root 下受 `ptrace_scope` 和 `dumpable` 限制。
+- 偏移量已验证 x86-64；syscall/native 追踪仅 x86-64（aarch64 需 syscall 号表 + 寄存器
+  ABI 适配）。
 
 ---
 
@@ -360,35 +417,29 @@ C 版本为开发辅助参考实现，**不对外交付**，仅用于与 Python 
 | Python 栈转储 | `build/pyprobe <pid>` | `python -m pyprobe stack -p <pid>` |
 | Native 栈转储 | `build/pyprobe <pid> --native` | `python -m pyprobe stack -p <pid> --native` |
 | 运行时依赖 | libdw.so、libelf.so、libz | libdw.so.1（仅 native 模式） |
-| 编译需求 | 需要 C 编译器 + CPython 头文件 | 仅生成偏移量时需要 |
-| 外部 Python 包 | 无 | 无（全部使用标准库 ctypes/struct） |
-| 架构支持 | x86-64、aarch64 | x86-64（aarch64 需重新生成偏移量） |
-| CPython 版本 | 编译时绑定 | 运行时按版本自动选择偏移量 |
+| 编译需求 | C 编译器 + CPython 头文件 | 仅生成偏移量时需要 |
+| 外部 Python 包 | 无 | 无（仅标准库 ctypes/struct） |
 
 ---
 
 ## 12. 集成模式
 
-pyprobe 支持三种集成方式：
-
 ### 12.1 Wheel 包安装
 
-Wheel 标签为 `py3-none-linux_{x86_64,aarch64}`（纯 Python，支持 Python 3.8+ 宿主，仅 Linux）。
+Wheel 标签 `py3-none-linux_{x86_64,aarch64}`（纯 Python，Linux）。设计保障：
 
-设计保障：
-- `offsets.json` 通过 `[tool.setuptools.package-data]` 打入 wheel；即使无 `offsets.json`，`_VERIFIED_OFFSETS` 编入代码也能正常工作。
-- `setup.cfg` 使用 `python_tag = py3`，`pyproject.toml` 声明 `requires-python = ">=3.8"`——pyprobe 为纯 Python，宿主版本不受限。
-- `offsets.py` 在读取目标 `Py_Version` 后调用 `configure(version_str)` 按目标版本选择已验证偏移量表，未验证版本输出 stderr 告警并回退。
-- `native_dump.py` 惰性加载 libdw——非 native 模式导入无副作用。
-- `offsets.py` 无模块级 I/O，`configure()` 按需调用。
+- `offsets.json` 经 `[tool.setuptools.package-data]` 打入 wheel；即使缺失，内置表也
+  能工作。
+- 子包（kernel/target/cpython/observe/present）经 `[tool.setuptools.packages.find]`
+  打包。
+- libdw 惰性加载——非 native 模式导入无副作用。
 
 ### 12.2 源码集成 + 命令行工具
 
-`pyprobe stack -p <pid>` 子命令（argparse，支持 `--help`/`--version`）。`gen_offsets.sh` 依赖 C 编译器 + CPython 开发头文件（源码集成必要步骤）。
+`pyprobe <subcommand> -p <pid>`（argparse，支持 `--help`/`--version`）。
+`gen_offsets.sh` 依赖 C 编译器 + CPython 开发头文件。
 
 ### 12.3 源码集成 + 接口
-
-通过 `__all__` 导出的公共 API 编程使用：
 
 ```python
 from pyprobe import collect_python, format_process, PyProbeError
@@ -401,160 +452,178 @@ else:
     print(format_process(proc_info, threads))
 ```
 
-`collect_*` 返回结构化 dataclass，`format_*` 转字符串，`dump_*` 是 CLI 封装。
+`resolve_layout(version)` 可用于在无目标进程时直接取版本布局（A1 新增 API）。
 
 ---
 
 ## 13. 测试架构
 
-### 13.1 单元测试（无子进程依赖）
+测试按 **oracle 类型**组织（非按模块镜像），权威来源优先于自指断言：
 
-通过 `FakeReader`（内存字典模拟 `RemoteReader`）和 CPython 对象内存构造器实现**零进程依赖**测试：
+### 13.1 spec-oracle 测试（最高价值）
 
-- `FakeReader`（`tests/helpers.py`）：`{base_addr: bytes}` 区域模型，`read(addr, length)` 查找完全包含的区域返回切片。
-- 对象构造器：`build_pyunicode` / `build_pybytes` / `build_pylong` / `build_code_object` / `build_frame` — 按配置偏移量写入字节。
-- `FakeRemoteReader`：子类化真实 `RemoteReader`，stub `_read_syscall` 提供罐头页数据，测试真实页缓存逻辑（LRU 淘汰、跨页、旁路）。
+被测实现对照**独立权威来源**：
 
-覆盖模块：offsets（版本键/configure/get/fallback；`TestOffsetsTable` 版本 × key 双维参数化——`_SHARED_KEYS` + `_VERSION_EXTRA_KEYS` 独立 oracle 覆盖全部已验证版本与版本间布局差异 key，并断言 oracle 版本集合与 `_VERIFIED_OFFSETS` 双向一致，是新版本接入的 TDD 入口（§6.3）；`TestDevOverride` 开发期覆盖整表替换语义（匹配 `_version` 替换、不匹配忽略，杜绝 3.12 陈旧 key 泄漏）；未验证版本改 raise `VersionNotSupported`——TODO §8.5）、types（格式化 + `color=True` 精确 ANSI 断言；docstring 收窄接受 `format()` 与 `colors` 耦合——TODO §8.9）、errors（异常层级；`VersionNotSupported` 现有真实 raise 点）、colors（帮助函数恒等性/包裹 + `should_color` 环境矩阵）、linetable（PEP 626 全 code 类型）、pyobject（PyLong/PyBytes/PyUnicode 各变体）、dict_iter（combined/unicode/split/managed）、memory（页缓存）、elf（仅 find_symbol/read_const 真实 ELF——`read_cmdline`/`decode_py_version` 迁出，TODO §8.6）、procmeta（`read_cmdline`/`decode_py_version`，从 elf.py 拆出）、process（`ProcessSession`/`resolve_process`：Sampler init 路径/错误路径/未验证版本告警恰好捕获到 session、不打 stderr——TODO §8.1/§8.5）、stack_dump（collect_frames/`_is_thread_idle`/`is_thread_idle_by_stat`/`read_thread_chain`（去下划线转正——TODO §8.2）/collect_thread idle_hint/format_process/错误路径/dump CLI 颜色/JSON 输出）、cli（参数解析/分发/`--color` 传递/record/top/`--json` 分发；`__version__` 走 `importlib.metadata`——TODO §8.7）、syscall_table（号↔名表抽查/flag 解码）、syscall_render（字符串转义截断/`_read_cstr`/`_read_timespec`/`_decode_args`/`_fill_out_args`/`TraceFilter`/`format_summary`/`format_syscalls_json` 纯函数 FakeReader 注入——从 syscall_trace.py 拆出，TODO §8.3）、syscall_tracer（attach/detach/主循环 monkeypatch stub——从 syscall_trace.py 拆出，TODO §8.3）、test_json_output（stack/native/syscall 三命令的 `format_*_json` 结构 + `dump_*` json_output 模式：流式抑制、错误路径文本 stderr、json 优先于 summary）、sampler（FakeReader + monkeypatch 注入：init 解析/错误路径/未验证版本告警恰好捕获到 session/sample 返回 ThreadInfo 列表/idle 剪枝/每 sample 新建 reader/ProcessExited/sample 不刷新 names/refresh_names 生效/sample 不再触碰 offsets.configure）、record（fold_key root-first 守护/线程前缀/排序/stub Sampler 的 collect_profile 计数与部分数据/绝对调度/dump stdout-stderr 分流；`version_warning` 经由 ProfileData 透传到 dump 层）、top（own/total 语义/idle 排除/当前帧跟踪/render 布局与 color=False 无 ANSI/非 tty rc 2；`version_warning` 在 dump 层输出）、api_exports（`__all__` 每个名字可从 `pyprobe` 命名空间解析 + `import *` 冒烟）。
+- `line_for_offset` vs CPython `co_lines()`（真实函数集全指令偏移逐点一致）。
+- 内置 layout 表 vs `gen_offsets` 真实头文件产物（去 `_version` 比对）。
+- `SYSCALL_NAMES` 全量 vs `/usr/include/.../unistd_64.h` 解析；flags 抽样 vs
+  fcntl.h/mman.h。
+- syscall 渲染样例 vs strace 真实输出（strace 缺席时 skip）。
+- native 线程头/符号样例——批 7 以 `stack --native --json` 旧新差异对比为强制验证项。
 
-### 13.2 集成测试（`@pytest.mark.integration`）
+### 13.2 构造内存单测（无子进程）
 
-端到端验证 `collect_python` / `format_process` / `dump_python` / `collect_native` / `collect_syscalls` / `Sampler` / `collect_profile` / `dump_record` / JSON 输出。
+`tests/fakemem.py` 的构造器由 `Layout` 驱动（**禁止从被测常量照抄**），版本布局 ×
+对象变体矩阵参数化（3.11–3.14）。视图层用 stub 传输覆盖全缓存路径（LRU 淘汰、跨页、
+旁路、LiveView 不缓存）。
 
-- `target_pid` session fixture（`conftest.py`）：`subprocess.Popen` 派生 `tests/targets/target_app.py`（主线程 + bg-worker 线程），通过 stdout 获取真实 PID。子进程是 pytest 后代，`process_vm_readv` 在 `ptrace_scope=1` 默认下可用。目标解释器默认为 `sys.executable`，可经 `TARGET_PYTHON` 环境变量指定其他版本（如 3.11/3.13）做跨版本端到端验证。
-- `spin_pid` session fixture：同模式派生 `tests/targets/spin_app.py`（主线程 sleep + `spin-worker` 纯 Python 忙循环）——采样测试必须命中已知 `burn` 帧，sleep 目标会被 idle 剪枝排除。
-- `@pytest.mark.slow`（叠加在 integration 上）：真实等待的测试——`TestRecord` 全部（`collect_profile`/`dump_record` 按真实 duration 采样，0.5–1.0s/测试）与 `TestSampler.test_process_exited`（真实 `sleep(0.3)` + 自派生子进程）。`scripts/run_tests.sh -- -m 'not slow'` 可跳过；单元测试一律 FakeClock，无真实等待。
-- 非 Linux 自动 skip；Native dump 与 syscall 追踪在 ptrace 权限不足时自动 skip（`AttachFailed`）。
-- Syscall（`TestSyscall`）：collect 断言 `clock_nanosleep` 事件 + 多 tid + elapsed > 0；dump 输出流式断言；`--summary` 表头断言；`--json` 可 `json.loads` 且事件字段完整；trace 后目标进程仍存活（干净 detach 验证）。
-- 采样引擎（`TestSampler`）：spin_pid 上 `sample()` 返回 ≥2 线程、连续采样稳定、`burn` 帧命中；临时 Popen + terminate 后 `sample()` 抛 `ProcessExited`。
-- record（`TestRecord`）：`collect_profile` 计数 > 0、folded 行格式正则、`"spin-worker"` 前缀键、`dump_record` 写文件 rc 0、stdout/stderr 分流；target_pid（sleep 目标）上活跃样本远小于总数（idle 排除宽松断言）。
-- TopStats 实测：spin_pid 采样 5 次 render 含 `spin-worker` / `burn`。
-- JSON 输出（`TestJsonOutputLive`）：`dump_python(spin_pid, json_output=True)` 可 `json.loads`、线程 ≥2、与 `collect_python` 交叉验证帧数。
+### 13.3 状态机单测
 
-### 13.3 手动探测约束
+统一 ptrace 引擎以 stubbed libc/waitpid 覆盖全状态路径（CLONE/EXEC/信号转发/detach
+幂等；契约 T 系）。
 
-手动端到端验证 `pyprobe stack` 时：
-- **必须**用 `subprocess.Popen` 派生子进程并通过 stdout 获取真实 PID（复用 `conftest.py:target_pid` 模式）；`try/finally` 中 `terminate()` + `wait(timeout=5)` 确保回收。
-- **禁止**用 shell `&` 后台启动 + `$!`/`pgrep` 获取 PID：`uv run` 包装器导致 `$!` 指向 `uv`/`bash` 而非 Python 解释器；`pgrep -f` 会匹配 `/bin/bash -c ...` 命令行。对非 Python 进程探测 `_PyRuntime` 必然失败。
-- **禁止**在持久 shell 里裸用 `&` 跑长驻进程：后台子进程继承管道，不退出时管道不关闭，会导致整个 shell 会话卡死。
+### 13.4 存活集成测试（`@pytest.mark.integration`）
+
+- `target_pid` / `fast_syscall_pid` session fixture（`tests/conftest.py`）经子进程
+  stdout 的 **READY 行握手**（就绪轮询替代固定 sleep）；`try/finally` 中
+  `terminate()` + `wait(5)`。`TARGET_PYTHON` 指定目标解释器做跨版本端到端。
+- session→snapshot→sampling→tracing 端到端（`test_session_snapshot.py` /
+  `test_cli_live.py` / `test_ptrace_live.py`）。
+- `slow` marker：真实等待的测试，`scripts/run_tests.sh -- -m 'not slow'` 跳过。
+- 非 Linux / ptrace 权限不足自动 skip。integration 预算 ≤15s。
+
+### 13.5 结构契约测试
+
+`tests/test_structure.py` 以 ast 扫描机械强制 import 方向（kernel→…→present→cli 单向，
+横切层不自咬）与 offsets facade 禁用；`tests/test_package.py` 守护包解析根、offsets.json
+与"旧模块名不可导入"；`tests/test_api_exports.py` pin `__all__` 名单。
+
+### 13.6 差异对比（批 7 门禁）
+
+旧新 CLI 在同一存活目标上归一化（计时字段）后逐字节对比；`stack --json` /
+`stack --native --json` / `syscall --json` 为强制项，`record` folded 比键集合。该门禁
+在 §10.5 替换前执行（临时资产，替换后移除）。
+
+### 13.7 手动探测约束
+
+手动端到端验证时：
+
+- **必须** `subprocess.Popen` 派生子进程并经 stdout 获取真实 PID（复用
+  `tests/conftest.py:target_pid` 模式），`try/finally` 中 `terminate()` + `wait(5)`。
+- **禁止** shell `&` + `$!`/`pgrep` 取 PID（`uv run` 包装器导致 PID 错位）。
+- **禁止**在持久 shell 里裸用 `&` 跑长驻进程（管道继承致 shell 卡死）。
 
 ---
 
-## 14. Syscall 追踪架构（syscall_render.py / syscall_tracer.py / syscall_table.py）
+## 14. Syscall 追踪（observe/syscalls.py / observe/syscall_abi.py）
 
-`pyprobe syscall -p <pid>` 实时追踪目标进程**所有线程**的系统调用（strace 风格），含 `--summary` 统计（strace -c 等价）与 `--json` 机器可读输出（与 `--summary` 互斥）。纯 Python + ctypes 调 `libc.ptrace`，零第三方依赖；仅 x86-64。
+`pyprobe syscall -p <pid>` 实时追踪目标**所有线程**的系统调用（strace 风格），含
+`--summary`（strace -c 等价）与 `--json`（与 `--summary` 互斥）。仅 x86-64。
 
-> 2026-09 模块拆分（TODO §8.3）：原 `syscall_trace.py`（682 行三合一）拆为 `syscall_render.py`（纯函数 + `TraceFilter` + `SyscallStat` + `format_summary`）与 `syscall_tracer.py`（`SyscallTracer` 引擎 + `collect_syscalls` / `dump_syscalls`），文件中部 import 上移至头部。`__init__.py` 与 `cli.py` 改 import 新模块。
+### 14.1 静态数据（syscall_abi.py）
 
-### 14.1 syscall_table.py（静态数据，无逻辑）
+`SYSCALL_NAMES`（号→名）+ `SYSCALL_NRS`、`DECODE`（98 常用 syscall 的逐参数类别）、
+`TRACE_GROUPS`（file/network/process/memory/signal/desc 类组）、
+`OPEN_FLAGS`/`MAP_FLAGS`/`PROT_FLAGS`。权威来源为系统头文件（spec-oracle 守护）。
 
-- `SYSCALL_NAMES`：x86-64 syscall 号→名（375 条，一次性从 `asm/unistd_64.h` 提取编入）+ 逆表 `SYSCALL_NRS`。
-- `DECODE`：98 常用 syscall 的逐参数类别元数据（`path`/`buf_in`/`buf_out`/`open_flags`/`mode`/`fd`/`timespec`/`signal`/`prot`/`map_flags` 等）；无条目的 syscall 参数显示裸 hex。
-- `TRACE_GROUPS`：`-e trace=` 类组（file/network/process/memory/signal/desc）→ syscall 名集合。
-- `OPEN_FLAGS` / `MAP_FLAGS` / `PROT_FLAGS`：flags 位→名表，OR 解码（`O_RDONLY|O_CLOEXEC` 风格）。
+### 14.2 引擎（消费统一 ptrace 引擎）
 
-### 14.2 ptrace 引擎（SyscallTracer）
+`collect_syscalls(pid, *, trace, max_events, verbose, on_event=None)`：
+`PtraceEngine(feature="syscall tracing").seize(TRACESYSGOOD|TRACECLONE|TRACEEXEC)` →
+`stop_all()` → `restart_all()` → `wait_event` 循环 → `finally detach()`。
 
-**SEIZE 而非 ATTACH**：options 随 SEIZE 传入（`TRACESYSGOOD | TRACECLONE | TRACEEXEC`）且新线程自动继承；中断的 tracee 总能干净 DETACH（ATTACH 无法 DETACH 处于运行态的 tracee，提前结束会把目标挂死）。
+- entry/exit 按相位配对（phase 隐含在 stash 有无）：entry 暂存 `(nr, 6 args, 时间戳)`；
+  exit 弹出并发射事件。**6 参数全显**（复刻约束）。
+- 参数读取经 **LiveView**（长时追踪不缓存）。
+- `ret > 0xFFFFFFFF00000000` → 减 `1<<64`；`-4096 < ret < 0` → `error = -ret`、
+  `ret = -1`。
+- `ExecEvent`：`execve` 无常规 exit stop，补发 exit 事件（**走用户 TraceFilter**，A7
+  修复——旧树用全匹配过滤器）；处理后 resume。
+- `max_events` 到量即停；`Exited` / ECHILD 结束循环。`on_event` 发射即回调（dump 层
+  流式输出与 KeyboardInterrupt 部分结果的通道）。
 
-- **attach**：`_list_tids` 扫 `/proc/<pid>/task` 逐线程 SEIZE + 循环 re-scan（捕获扫描间隙新建的线程）→ 全部 INTERRUPT → `waitpid` 收 stop → 逐线程进入 `PTRACE_SYSCALL`。任一 SEIZE 失败回滚已 seize 线程并抛 `AttachFailed`。
-- **run 主循环**：`waitpid(-1, __WALL)` 单点收 stop，按状态分派（状态机）：
-  - `SIGTRAP|0x80`（TRACESYSGOOD syscall stop）：GETREGS，entry 暂存 `(nr, 6 args, 时间戳)` 到 `stash[tid]`，exit 弹出暂存并 emit 事件（相位隐含在 stash 有无）；
-  - `PTRACE_EVENT_STOP`：group-stop，吞掉继续；
-  - `PTRACE_EVENT_CLONE`：父线程继续，新线程随后的 SIGSTOP delivery-stop 吞掉并纳入追踪（TRACECLONE 跟随新线程）;
-  - `PTRACE_EVENT_EXEC`：execve 无常规 exit stop，补 emit（ret=0）+ 相位重置（寄存器 ABI 可能已变）；
-  - 其余信号 delivery-stop：原样转发（保证目标行为不变）。
-- **参数读取时机**：entry 时读 path/timespec（寄存器存活）；`buf_in`/`buf_out` exit 时读内容（read(2) 缓冲区由内核在 exit 前填充），args 来自 entry 暂存（exit 时寄存器已破坏）。`ret ∈ (-4096, 0)` 解码为 `-1 errno`。
-- **内存读取**：`_UncachedReader` 包装 `RemoteReader.read_uncached` 绕过页缓存——追踪是长时运行且目标内存持续变化（如 timespec 结构复用），快照缓存会读到过期数据。
-- **detach（幂等）**：逐线程 INTERRUPT → `waitpid(WNOHANG)` 收 stop（有界重试）→ DETACH，目标恢复运行。
+### 14.3 参数渲染与过滤（复刻约束）
 
-### 14.3 解码与输出（`syscall_render.py`，纯函数，reader 注入）
-
-- `escape_bytes` / `truncate_escaped` / `render_str_arg`：strace 风格字符串（非可见 ASCII 转 `\NNN` 八进制，非 verbose 截断 32 字符 + `...`）。
-- `_read_cstr`：NUL 终止字符串读取，完全不可读时回退裸地址（对齐 strace）；`_read_available` 二分探测短映射可读长度。
-- `_decode_args`（entry 渲染）+ `_fill_out_args`（exit 后拼接缓冲区内容 `0xaddr/"..."`）。
-- `TraceFilter`：`-e trace=` 表达式编译（类组名/逗号分隔 syscall 名/`!` 排除）。
-- `format_summary` + `SyscallStat`：strace -c 风格统计表（calls/errors/total/total/s/per-call，按总耗时降序）。
-- `format_syscalls_json`：事件列表 → `{"events": [...]}` JSON 文档（`asdict` 序列化，§15.5）。
-- `SyscallEvent.format()`：单事件行 `tid  name(args) = ret <elapsed>`，项目颜色语义（tid 黄、syscall 名绿、错误红）。
+- `escape_bytes` / `truncate_escaped` / `render_str_arg`：strace 风格字符串（非可见
+  ASCII 转 `\NNN`；非 verbose 截断 32 字符 + `...`）。
+- `read_cstr`（NUL 终止，完全不可读回退裸地址，`read_available` 二分探测短映射）；
+  `read_timespec`（`{sec, nsec}`）。
+- `decode_args`（entry）+ `fill_out_args`（exit 后拼接缓冲区 `0xaddr/"..."`；
+  A7：`ret==0` 且 `buf_in` → 空串 `""`；`timespec_out` 于 exit 重读）。
+- 标量规则：`fd`/`dirfd` 以寄存器**无符号**值与 `AT_FDCWD` 魔数直比（无符号扩展），
+  其余 `str(value)`；`addr`/`rem` 无特殊指针渲染，走「int 范围 str 否则 hex」；`mode`
+  八进制；`signal` → `SIG<n>`；flags OR 解码 + 残余 hex；未识别 syscall 全 hex。
+- `TraceFilter`：空 → 全追踪；纯 `!` 排除 → 除排除外全；**混合 → include − exclude**
+  （A7 修复：旧树并入 include 致语义反转）。
+- `format_summary` + `SyscallStat`：strace -c 风格统计表（total/s 列等复刻约束）。
 
 ### 14.4 已知坑位
 
 - `orig_rax` 可能符号扩展为 `-1`，取低 32 位恢复 nr。
 - x86-64 返回值错误判定用无符号比较（`ret > 0xFFFFFFFF00000000`）后再转有符号。
-- clone 事件里新线程 tid 需从 `waitid`/事件数据取，此处依赖随后 SIGSTOP delivery-stop 的 wpid（`tid not in self.tids` 分支）。
-- `waitpid` 可能被信号打断（`InterruptedError`），循环内 continue 重试；`KeyboardInterrupt` 时 `dump_syscalls` 仍 detach 并打印已收集 summary / JSON 文档。
+- clone 事件里新线程 tid 由随后 SIGSTOP delivery-stop 的 wpid 提供（`tid not in tids`
+  分支注册）。
+- `waitpid` 可能被信号打断（`InterruptedError`），循环 continue 重试；`KeyboardInterrupt`
+  时 `dump_syscalls` 仍 detach 并打印已收集 summary / JSON。
+- attach 时线程若已在 syscall 内，首个 stop 可能是 exit-stop 而无对应 entry（相位由 stash
+  有无隐含）——可能产生一条伪事件；已知 ptrace 类问题，保留为行为观察点。
 
 ---
 
-## 15. 采样引擎架构（sampler.py / record.py / top.py）
+## 15. 采样引擎（observe/sampling.py / profile.py / topstats.py）
 
-`pyprobe record -p <pid>` 周期采样聚合为 folded stacks；`pyprobe top -p <pid>` 持续采样 + 终端实时刷新。两者共享 `Sampler` 引擎，使用 `process_vm_readv(2)`，**不需要 ptrace attach**（权限同 §9.1 Python 栈模式）。
+`record` 周期采样聚合 folded stacks；`top` 持续采样 + 终端刷新。共享 `Sampler`，
+`process_vm_readv(2)`，**不需要 ptrace attach**（权限同 §9.1）。
 
-### 15.1 Sampler（sampler.py）
+### 15.1 Sampler
 
-`stack_dump.collect_python` 每次调用重复做进程生命周期内不变的工作：ELF 符号扫描 ×2（`_PyRuntime` + `Py_Version`）、`offsets.configure`、`RemoteReader` 重建。`Sampler` 把这些移入 `__init__` 一次性完成（TODO §8.1 落地：实际解析逻辑提取到 `pyprobe/process.py:resolve_process(pid, *, reader_factory)`，`collect_python` 与 `Sampler.__init__` 共享同一 `ProcessSession`）：
+`open_session` 一次性解析进程存活期不变量（exe / `_PyRuntime` / 版本 + `resolve_layout`
+/ interp / trampoline / `ProcessInfo` / 线程名），`Sampler` 在其上做热路径：
 
-- `__init__(pid, *, reader_factory=RemoteReader)` 调用 `resolve_process(pid, reader_factory=...)` 解析（进程存活期内不变）：exe 路径、`_PyRuntime` 地址、CPython 版本 + `offsets.configure`（**仅此一次**，未验证版本告警存到 `ProcessSession.version_warning`、不打印）、main interpreter 地址（main → head 回退）、trampoline 地址（仅 3.12，`get_or` 缺省 0）、`ProcessInfo`（cmdline）、线程名 map（`get_thread_names`）。错误路径对齐 `collect_python`：`ProcessNotFound` / `SymbolNotFound` / `NoInterpreterState`。`Sampler` 还为 backward-compat 暴露 `proc_info` / `interp_addr` / `trampoline_addr` / `_names` 属性（实际数据在 `self.session` 上）。
-- `sample() → list[ThreadInfo]` 热路径：
-  1. **每样本新建 reader**（`reader_factory`）：页缓存是单次调用快照语义（§4.2），跨样本复用会读到陈旧内存；
-  2. `read_thread_chain`（原 `_read_thread_chain`——TODO §8.2 转正）读线程链（`NoThreadState` → 转换抛 `ProcessExited`：采样循环中目标死亡）；
-  3. 逐线程 `/proc/<pid>/task/<tid>/stat` 状态非 `R` → `collect_thread(idle_hint=True)` 剪枝（跳过帧遍历，返回空帧 `ThreadInfo(idle=True)`），否则完整 `collect_thread`；
-  4. 按 `native_tid` 排序（输出确定性）。
-- `refresh_names()`：重读线程名 map。**线程名策略分叉**：`record` 全程不调（名字是 folded 聚合键的一部分，录制期间必须稳定）；`top` 每显示周期调一次（新线程的名字尽快上屏，采样热路径不付此成本）。
-- `reader_factory` 是测试注入点（FakeReader / 计数 stub），生产用 `RemoteReader`。
-- `version_warning` 由 `dump_record` / `dump_top` 在 dump 层输出（TODO §8.5）。
+- `sample() → list[ThreadInfo]`：**每样本新建 SnapshotView**（跨样本复用会读陈旧内存）；
+  读线程链（`NoThreadState` → `ProcessExited`）；`/proc stat` 非 `R` → `idle_hint=True`
+  剪枝（跳过帧遍历）；按 `native_tid` 升序。
+- `refresh_names()`：重读线程名。`record` 全程不调（名字是聚合键，需稳定）；`top` 每
+  周期调一次。
+- `view_factory` 为测试注入点。
 
-### 15.2 调度（collect_profile，record.py）
+### 15.2 调度（profile.py）
 
-**绝对时间调度防漂移**：`next_t += interval` 而非 `next_t = now + interval`——后者每次采样耗时都会累积成频率下偏。单次采样超时落后过多时**重置基线**（`next_t = now`）防追赶风暴（不会连发补帧）。
+**绝对时间调度防漂移**：`next_t += interval`；单次采样落后过多时重置基线（不追赶）。
+`KeyboardInterrupt` / `ProcessExited` 捕获后返回**部分数据**；目标 init 错误仍抛
+`PyProbeError` 子类。
 
-`KeyboardInterrupt` / `ProcessExited` 捕获后返回**部分数据**（Ctrl-C 或目标退出时已采集的样本不丢）；目标 init 错误仍抛 `PyProbeError` 子类。
+### 15.3 top 聚合（topstats.py）与渲染（present/text.py）
 
-### 15.3 top 渲染（top.py）
+`TopStats` 为纯数据状态（A5：render 归 present）：`update(threads)` 计 own（叶子帧名，
+`None → "?"` 归一）/ total（栈内去重）/ samples / idle_samples / current。
 
-**单线程交织循环**：采样按 `rate` 累积进 `TopStats`，显示按 `interval` 渲染（首屏立即渲染）。不用采样线程——GIL 与"KeyboardInterrupt 只达主线程"的复杂度大于收益，渲染几毫秒的开销由绝对时间调度吸收。
+A7 修复：idle 守卫查 `idle_threads` 去重（旧树误查 `current` 致同一 idle 线程每周期
+重复 append 无限膨胀），且 idle 线程同时从 `current` 移除。
 
-- `TopStats.update(threads)`：活跃线程 `own[顶帧名] += 1`（叶子帧即该函数自身消耗）、栈内每帧 `total += 1`（含被调用开销）、记录每线程最近活跃顶帧（CURRENT 列）；idle 线程不计入统计仅记录 tid。
-- `render(proc_info, *, elapsed, color=False, top_n=15)`：进程头 + Elapsed/样本数 + Active threads 表（TID / OWN% / CURRENT）+ Idle threads 行 + Top functions 表（OWN% / TOTAL% / TIME / FUNCTION）。颜色沿用 §3.3 语义（tid 黄、函数名绿、文件名青、百分比/时间 dim）；`color=False` 无 ANSI（不变式 I1）。
-- **终端处理**：进入时 `\x1b[?25l` 隐藏光标，每次渲染 `\x1b[H\x1b[2J` 清屏整屏重写，`finally` 恢复 `\x1b[?25h`（异常退出不留坏终端）。
-- **非 tty → rc 2 报错**（stderr 提示改用 `record`）：实时视图没有有意义的非交互降级，不静默降级。
-- Ctrl-C / `ProcessExited`：干净退出 + stderr 摘要，rc 0。
+`render_top(stats, proc_info, *, elapsed, color, top_n)`：进程头 rstrip + Elapsed/样本数
++ Active threads 表 + Idle threads 行 + Top functions 表。终端进入隐藏光标、整屏重写、
+`finally` 恢复；**非 tty → rc 2**（无静默降级）；Ctrl-C/目标退出 → 干净退出 + stderr
+摘要，rc 0。
 
-### 15.4 folded stacks 格式（record.py）
+### 15.4 folded stacks（profile.py）
 
-```
-"spin-worker";burn 87
-MainThread;main;loop 42
-```
+每行 `"<帧0>";<帧1>;... <count>`，帧序 **root → leaf**；线程前缀 `"<name>"` /
+`tid-<native_tid>`；帧名纯函数名；排序 count 降序 + 字典序；空 → 空输出。`dump_record`
+stdout 纯 folded、进度/摘要走 stderr（管道安全），`-o` 写文件。
 
-- 每行 `<帧0>;<帧1>;... <count>`，帧序 **root → leaf**（`frames` 是 leaf → root，需 reverse）。
-- 线程前缀帧：`"<name>"`（record 生命周期内固定初始快照）或 `tid-<native_tid>`（无名线程）。
-- 帧名 = `FrameInfo.name` 纯函数名（`None → ?`），不含文件/行号。
-- 排序 count 降序 + 字典序（确定性）；无活跃样本 → 空输出（合法）。
-- 输出可直接管道给 flamegraph.pl / inferno-flamegraph；`dump_record` 的 stdout 纯 folded，进度/摘要走 stderr（管道安全），`-o` 写文件。
+### 15.5 JSON 输出（present/jsonout.py）
 
-`ProfileData(proc_info, counts, samples, idle_samples, elapsed)` 携带聚合结果（`counts`: folded key → 样本数；`samples`/`idle_samples`: 活跃/被剪枝样本数）。
-
-### 15.5 JSON 输出（--json）
-
-`stack` 与 `syscall` 子命令支持 `--json` flag（`--native --json` 组合支持）。`format_process_json(proc_info, threads)` / `format_native_json(pid, cmdline, threads)` / `format_syscalls_json(events)`：`dataclasses.asdict` + `json.dumps(indent=2, ensure_ascii=False)`。
-
-决策：
-- JSON **无色**（颜色只在 format 文本层；`json_output=True` 忽略 `color`）。
-- 数据字段始终完整路径（§3.1 契约），JSON 天然全路径——`-v` 与 JSON 无关。
-- `None` 字段 → JSON `null`（`asdict` 自然保留；syscall 的 `error` 即 errno 或 `null`）。
-- 错误路径不变：异常走 stderr 文本 + rc 1（对齐现有 `dump_*` 模式）。
-- syscall `--json` 抑制文本流，追踪结束（`--max-events` / Ctrl-C / 目标退出）后输出单个 `{"events": [...]}` 文档；CLI 上与 `--summary` argparse 互斥，库 API 层 `json_output` 优先于 `summary`。
+`format_process_json` / `format_native_json` / `format_syscalls_json`：
+`dataclasses.asdict` + `json.dumps(indent=2, ensure_ascii=False)`。JSON **无色**、字段
+完整路径、`None → null`；错误路径仍走 stderr 文本 + rc 1；syscall `--json` 抑制文本流，
+追踪结束后输出单个 `{"events": [...]}`。
 
 ### 15.6 守护测试（防退化）
 
-- 未验证版本告警**恰好一条**且**不打在 collect 层**：`offsets.configure` 改为 raise `VersionNotSupported`（无 stderr 打印，TODO §8.5），`resolve_process` 捕获并把告警串存到 `ProcessSession.version_warning`；`Sampler.__init__` 走同一 `resolve_process`，所以告警在 init 时一次性捕获；`sample()` 不再触碰 `offsets.configure`，也不会再 emit 告警。`dump_python` / `dump_record` / `dump_top` 在 dump 层把 `version_warning` 输出到 stderr（仅一次）。
-- 每 `sample()` 新建 reader（factory 计数）。
-- `sample()` 不触碰 `offsets.configure`（计数）。
-- `sample()` 不刷新线程名（计数）；`refresh_names()` 生效。
-- fold_key root-first（reverse 守护）。
-- 绝对调度：`next_t += interval` 而非相对 now（monkeypatch time 守护）。
-- `color=False` 渲染无 ANSI（不变式 I1）。
-- JSON 可 `json.loads` + 与 `collect_python` 交叉验证。
-
+- 版本告警恰好一条且不打在 collect 层（`resolve_layout` 不打印；session 组装，dump 层
+  输出）。
+- 每 `sample()` 新建 view（factory 计数）；`sample()` 不刷新线程名，`refresh_names()`
+  生效。
+- `fold_key` root-first（reverse 守护）；绝对调度 `next_t += interval`。
+- `color=False` 渲染无 ANSI；JSON 可 `json.loads` 并与 `collect_python` 交叉验证。

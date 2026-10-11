@@ -12,8 +12,10 @@ requires-python = ">=3.11"
 [project.scripts]
 pyprobe = "pyprobe.cli:main"
 
-[tool.setuptools]
-packages = ["pyprobe"]
+# Subpackages: kernel/ target/ cpython/ observe/ present/ (ADR A8); the find
+# directive picks them up without per-package edits.
+[tool.setuptools.packages.find]
+include = ["pyprobe*"]
 
 [tool.setuptools.package-data]
 pyprobe = ["offsets.json"]

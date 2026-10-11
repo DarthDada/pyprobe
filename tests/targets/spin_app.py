@@ -1,11 +1,12 @@
-"""CPU-bound target process for sampling integration tests.
+"""CPU-bound target for sampling integration tests (§10.2-4).
 
-Unlike ``target_app.py`` (both threads sleep), this one keeps a worker
-thread in a pure-Python busy loop — no syscalls, no GIL release — so
-sampling-based tests (``record`` / ``top``) are guaranteed to observe the
-``burn`` frame in 'R' state.  The main thread sleeps like target_app's.
+Unlike ``target_app.py`` (both threads sleep → 全 idle，folded 必空),
+this one keeps a worker thread in a pure-Python busy loop — no syscalls,
+no GIL release — so sampling-based tests (``record`` / ``top``) are
+guaranteed to observe the ``burn`` frame in 'R' state. The main thread
+sleeps like target_app's.
 
-Also runnable standalone for manual testing:
+Also runnable standalone:
 
     python -m tests.targets.spin_app
 """
@@ -23,7 +24,7 @@ def burn():
 def main():
     t = threading.Thread(target=burn, name="spin-worker", daemon=True)
     t.start()
-    print(f"target PID: {os.getpid()}", flush=True)
+    print(f"READY {os.getpid()}", flush=True)
     while True:
         time.sleep(2)
 

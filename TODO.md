@@ -12,7 +12,7 @@
 9. [代码审查遗留（2026-10）](#9-代码审查遗留2026-10)
 10. [第一性原理重构（next/ 重建 + 原子替换）](#10-第一性原理重构next-重建--原子替换)
 
-> **全局优先级**：**当前主轨 = §10 第一性原理重构**（批次 0→7 顺序推进；旧树冻结，§2/§4/§5/§6 新功能暂停至替换完成）。§9 剩余 bug 随 §10 ADR A7 落地，旧树不单独修；§8.1 并入 §10 ADR A1；§7 剩余项中 git hooks 与 CI 版本矩阵可随 §10 批次顺带落地；aarch64（§3）待实际环境。
+> **全局优先级**：§10 第一性原理重构（`next/` 重建 + 原子替换）**已完成**（批次 0→7，2026-10）。§9 P0/P1 随 ADR A7 落地、§8.1 并入 ADR A1，旧树问题不再单独修。§2/§3/§4/§5/§6 新功能解禁，待逐项推进；§7 剩余工程项（git hooks、CI 版本矩阵、变异/类型/属性测试）与 aarch64（§3）为后续项。
 
 ## 2. CLI 易用性与集成
 
@@ -67,17 +67,17 @@
 
 ## 7. 工程基础设施
 
-> 现状：653 个测试（含参数化展开）+ FakeReader/对象构造器 + `target_pid`/`spin_pid` fixture（支持 `TARGET_PYTHON` 跨版本端到端）已具备；覆盖率基线（`scripts/run_tests.sh --cov`，CI test 阶段强制，79% fail-under）、远程 CI（`.github/workflows/ci.yml`，PR/push 触发、仅调用 `scripts/ci.sh`）、`slow` marker（真实采样/sleep 测试可经 `-m 'not slow'` 跳过）、watch 模式、pytest 严格化（`-ra`/`--strict-markers`/`--strict-config` + `filterwarnings = ["error"]`）、ruff lint（`scripts/lint.sh`）均已落地。以下为剩余缺口。TDD 是流程约束，靠自觉必退化。
+> 现状：895 个测试（含参数化展开，`scripts/run_tests.sh --cov` 实测覆盖率 96.9%）+ FakeReader 构造内存/`Layout` 驱动对象构造器 + `target_pid`/`fast_syscall_pid` fixture（就绪握手 + `TARGET_PYTHON` 跨版本端到端）已具备；覆盖率基线（`scripts/run_tests.sh --cov`，CI test 阶段强制，79% fail-under）、远程 CI（`.github/workflows/ci.yml`，PR/push 触发、仅调用 `scripts/ci.sh`）、`slow` marker（真实采样/sleep 测试可经 `-m 'not slow'` 跳过）、watch 模式、pytest 严格化（`-ra`/`--strict-markers`/`--strict-config` + `filterwarnings = ["error"]`）、ruff lint（`scripts/lint.sh`）均已落地。以下为剩余缺口。TDD 是流程约束，靠自觉必退化。
 
 ### P1 — 流程纪律强制
 
 - [ ] 2. git hooks：pre-commit/pre-push 跑单元测试（无裸命令，走 `scripts/run_tests.sh unit`）
 - [x] 3. AGENTS.md 增补 TDD 工作流约束条目（先写失败测试、red 阶段验证、测试与实现同提交）——并入 §10 批次 0（双代理分工下"同提交"细化为"同验收批"）
-- [ ] 4. design.md §13 增补测试架构对应变更（覆盖率目标、watch 模式、CI 阶段待补）
+- [x] 4. design.md §13 增补测试架构对应变更（覆盖率目标、watch 模式、CI 阶段待补）——§10.6-4 随新架构重写落地
 
 ### P2 — "绿"的质量与重构安全网
 
-- [ ] 5. golden file 测试：`format_process` / CLI 文本与 `--json` 输出的格式快照基线（tests/test_json_output.py 现为结构断言，非快照），保障格式化重构安全
+- [x] 5. golden file 测试：`format_process` / CLI 文本与 `--json` 输出的格式快照基线（tests/test_json_output.py 现为结构断言，非快照），保障格式化重构安全——批次 6 的 test_text/test_jsonout 已改为**逐字串精确断言**（TX1–TX10 / JS1–JS2），且批 7 §10.5-1 旧新 CLI 文本逐字节对比作为运行时 oracle 快照；独立 golden 文件判为冗余
 - [ ] 6. 变异测试（mutmut）：解析二进制内存布局的代码测试"看似覆盖但抓不住错位偏移"风险高，用变异测试验证测试有效性
 - [ ] 7. typecheck（mypy/pyright）：ctypes 重度使用 typecheck 噪音大待评估
 - [ ] 8. 属性测试（hypothesis）：`linetable` / `dict_iter` / `pyobject` 解析器代码的典型受益者
@@ -86,7 +86,7 @@
 
 > 2026-09 依赖审计：20 模块依赖图为干净 DAG，collect/format/dump 三层分离健康；重复消除、模块边界清理与 types.py docstring 收窄均已落地。仅余 `offsets` 去 global 化（高成本重构，独立 PR，覆盖率基线与 lint 已交付作安全网）。涉及模块增删或 API 转正时同步 design.md §2 与 `__init__.py` `__all__`。
 
-- [ ] 1. `offsets` 去 global 化：`_active` 模块级可变单例（offsets.py:177），`get()` 未 configure 时隐式触发 configure（offsets.py:214-217，读路径带副作用）；71 处调用分布于 6 模块（stack_dump 30 / thread_names 12 / pyobject 11 / dict_iter 10 / sampler 7 / linetable 1）。改为 per-session 偏移量表对象随 reader/session 传递后：可同时探测不同 CPython 版本的进程、消除 tests/test_offsets.py 的手工复位（`offsets._active = None`）。改动面大（59 处 `get`）。**并入 §10 ADR A1**——随 next/ 第一性原理重建落地，旧树不再单独执行此重构
+- [x] 1. `offsets` 去 global 化：`_active` 模块级可变单例（offsets.py:177），`get()` 未 configure 时隐式触发 configure（offsets.py:214-217，读路径带副作用）；71 处调用分布于 6 模块（stack_dump 30 / thread_names 12 / pyobject 11 / dict_iter 10 / sampler 7 / linetable 1）。改为 per-session 偏移量表对象随 reader/session 传递后：可同时探测不同 CPython 版本的进程、消除 tests/test_offsets.py 的手工复位（`offsets._active = None`）。改动面大（59 处 `get`）。**§10 ADR A1 已落地**——`target/layout.py:resolve_layout` 显式传递不可变 `Layout`，`offsets.py` 降为只读兼容门面（无 `configure`）
 
 ## 9. 代码审查遗留（2026-10）
 
@@ -94,18 +94,18 @@
 
 ### P0 — 用户正常使用即可撞上
 
-- [ ] 1. `top` idle 线程统计错误（top.py:46-53）：idle 守卫误查 `self.current`（idle 线程永不入该 dict），同一 tid 每个采样周期重复 append 进 `idle_threads`（实测 3 次采样 → `[5, 5, 5]`，渲染 `Idle threads: 5, 5, 5`，50Hz 下无限膨胀刷屏）；且曾活跃线程转 idle 后既不进 idle 列表也不从 `current` 移除，带着陈旧帧留在 "Active threads" 表。修：守卫改查 `idle_threads` 去重，idle 时从 `current` 移除或标记；补"同一 idle 线程连续采样"与"active→idle 转换"守护测试（test_top.py:100 只 update 一次恰好掩盖）
-- [ ] 2. syscall CLI 路径绕过架构检查（syscall_tracer.py:335-337 vs 359-365）：`platform.machine()` 检查只在 `collect_syscalls`，`dump_syscalls` 直接实例化 `SyscallTracer`，其 `except UnsupportedArchitecture` 成死代码。aarch64 上 CLI 会 attach 成功并用 x86-64 `_UserRegs` 布局读寄存器输出垃圾，而非 README 承诺的 `UnsupportedArchitecture` 报错。修：检查下沉 `SyscallTracer.__init__`/`attach()`（关联 §3.2）
-- [ ] 3. `TraceFilter` 混合包含/排除语义反转（syscall_render.py:284-290，实测复现）：`-e trace=file,!openat` 中 openat 被追踪（应排除），`-e trace=read,!write` 中 write 被追踪——`!` 项被并入包含集。纯排除（`-e trace=!futex`）正确，测试只覆盖了纯排除分支。修：改 `include - exclude` 语义 + 补混合表达式测试（关联 §5）
+- [x] 1. `top` idle 线程统计错误（top.py:46-53）：idle 守卫误查 `self.current`（idle 线程永不入该 dict），同一 tid 每个采样周期重复 append 进 `idle_threads`（实测 3 次采样 → `[5, 5, 5]`，渲染 `Idle threads: 5, 5, 5`，50Hz 下无限膨胀刷屏）；且曾活跃线程转 idle 后既不进 idle 列表也不从 `current` 移除，带着陈旧帧留在 "Active threads" 表。修：守卫改查 `idle_threads` 去重，idle 时从 `current` 移除或标记；补"同一 idle 线程连续采样"与"active→idle 转换"守护测试（test_top.py:100 只 update 一次恰好掩盖）
+- [x] 2. syscall CLI 路径绕过架构检查（syscall_tracer.py:335-337 vs 359-365）：`platform.machine()` 检查只在 `collect_syscalls`，`dump_syscalls` 直接实例化 `SyscallTracer`，其 `except UnsupportedArchitecture` 成死代码。aarch64 上 CLI 会 attach 成功并用 x86-64 `_UserRegs` 布局读寄存器输出垃圾，而非 README 承诺的 `UnsupportedArchitecture` 报错。修：检查下沉 `SyscallTracer.__init__`/`attach()`（关联 §3.2）
+- [x] 3. `TraceFilter` 混合包含/排除语义反转（syscall_render.py:284-290，实测复现）：`-e trace=file,!openat` 中 openat 被追踪（应排除），`-e trace=read,!write` 中 write 被追踪——`!` 项被并入包含集。纯排除（`-e trace=!futex`）正确，测试只覆盖了纯排除分支。修：改 `include - exclude` 语义 + 补混合表达式测试（关联 §5）
 
 ### P1 — 边界路径与次要语义
 
-- [ ] 4. `attach()` 重扫循环回滚缺口（syscall_tracer.py:166-170）：循环内 `_list_tids` 抛 `ProcessNotFound`（目标 attach 中途退出）不被 `except AttachFailed` 捕获，已 seize 线程不回滚；`self.tids` 第 182 行才赋值，此刻 `detach()` 为空操作。修：回滚改为捕获所有异常
-- [ ] 5. `_handle_exec` 绕过用户过滤器（syscall_tracer.py:300）：补发 execve 事件用全新 `TraceFilter("")`（全匹配），`-e trace=!execve` 也输出。修：把 `flt` 传入
-- [ ] 6. `timespec_out` 参数在 entry 时读取（syscall_render.py:202-203）：`clock_gettime` 输出参数读到的是调用前陈旧内容，`_fill_out_args` 只处理 `buf_in`/`buf_out` 从不重读（strace 在 exit 时读）。修：exit 阶段重读 `timespec_out`
-- [ ] 7. `_fill_out_args` EOF 误读（syscall_render.py:234）：`ret == 0` 时按 32 字节读取并展示内核未写的缓冲区内容；同函数 `ret < 0` 分支为死代码（调用点保证 `ret >= 0`）。修：`ret == 0` 渲染空串
-- [ ] 8. `TopStats.render` 无名顶帧 OWN% 恒 0（top.py:85 vs 57）：`update()` 把无名帧存 `"?"` 键，render 却用 `frame.name`（`None`）查询。修：render 侧同样 `or "?"` 归一
-- [ ] 9. 琐碎项打包：`run()` 的 `wpid == 0` 死分支（阻塞式 waitpid 不返回 0，syscall_tracer.py:230）；`_list_tids` 捕获 `listdir` 不会抛的 `ProcessLookupError` 却漏 `PermissionError`（/proc 权限不足时用户看到 traceback 而非 `[!]` 错误，syscall_tracer.py:104-107）；`read_pybytes` 的 `size < 0` 死检查（pyobject.py:59，`read_u64` 无符号）；attach 时线程已在 syscall 内的相位判定可能产生一条伪事件（rax 中的 syscall 号被当返回值）——已知 ptrace 类问题，修复或记入 design.md §14.4 坑位清单
+- [x] 4. `attach()` 重扫循环回滚缺口（syscall_tracer.py:166-170）：循环内 `_list_tids` 抛 `ProcessNotFound`（目标 attach 中途退出）不被 `except AttachFailed` 捕获，已 seize 线程不回滚；`self.tids` 第 182 行才赋值，此刻 `detach()` 为空操作。修：回滚改为捕获所有异常
+- [x] 5. `_handle_exec` 绕过用户过滤器（syscall_tracer.py:300）：补发 execve 事件用全新 `TraceFilter("")`（全匹配），`-e trace=!execve` 也输出。修：把 `flt` 传入
+- [x] 6. `timespec_out` 参数在 entry 时读取（syscall_render.py:202-203）：`clock_gettime` 输出参数读到的是调用前陈旧内容，`_fill_out_args` 只处理 `buf_in`/`buf_out` 从不重读（strace 在 exit 时读）。修：exit 阶段重读 `timespec_out`
+- [x] 7. `_fill_out_args` EOF 误读（syscall_render.py:234）：`ret == 0` 时按 32 字节读取并展示内核未写的缓冲区内容；同函数 `ret < 0` 分支为死代码（调用点保证 `ret >= 0`）。修：`ret == 0` 渲染空串
+- [x] 8. `TopStats.render` 无名顶帧 OWN% 恒 0（top.py:85 vs 57）：`update()` 把无名帧存 `"?"` 键，render 却用 `frame.name`（`None`）查询。修：render 侧同样 `or "?"` 归一
+- [x] 9. 琐碎项打包：`run()` 的 `wpid == 0` 死分支（阻塞式 waitpid 不返回 0，syscall_tracer.py:230）；`_list_tids` 捕获 `listdir` 不会抛的 `ProcessLookupError` 却漏 `PermissionError`（/proc 权限不足时用户看到 traceback 而非 `[!]` 错误，syscall_tracer.py:104-107）；`read_pybytes` 的 `size < 0` 死检查（pyobject.py:59，`read_u64` 无符号）；attach 时线程已在 syscall 内的相位判定可能产生一条伪事件（rax 中的 syscall 号被当返回值）——已知 ptrace 类问题，修复或记入 design.md §14.4 坑位清单
 
 ## 10. 第一性原理重构（next/ 重建 + 原子替换）
 
@@ -129,50 +129,50 @@
 - [x] A4. **内存视图分离**：`SnapshotView`（页级 LRU，单次快照语义）/ `LiveView`（不缓存，长时观测）替代"RemoteReader 缓存 + read_uncached + _UncachedReader + 每 sample 手工新建 reader"四个零散机制；每种观测声明自己的一致性需求（批次 1 落地 `kernel/views.py`）
 - [x] A5. **DTO 去 format() 化**：数据与呈现严格分离（反转 §8.9 妥协），格式化全部入 `present/text.py`；dto 只存数据（批次 1 数据半、批次 6 呈现半落地）
 - [x] A6. **保留决策**（第一性原理验证后保留，非惯性）：collect/format/dump 三层、CLI 薄壳、errors 层级、clicolors 颜色策略（各批次逐层落地；批次 6 present/color.py 收官）
-- [ ] A7. **行为修复**（吞并 §9 P0/P1）：TopStats idle 统计（§9 P0-1）、arch 检查下沉（§9 P0-2）、TraceFilter 混合表达式（§9 P0-3）、§9 P1 批次（timespec_out exit 重读 / EOF 空渲染 / execve 走用户过滤器 / attach 全异常回滚 / 无名帧 OWN% 归一 / 琐碎项）
-- [ ] A8. **子包化与依赖规则**：`kernel/ target/ cpython/ observe/ present/` + 横切（errors/dto/color）；import 方向由结构契约测试机械强制（禁反向）
+- [x] A7. **行为修复**（吞并 §9 P0/P1）：TopStats idle 统计（§9 P0-1）、arch 检查下沉（§9 P0-2）、TraceFilter 混合表达式（§9 P0-3）、§9 P1 批次（timespec_out exit 重读 / EOF 空渲染 / execve 走用户过滤器 / attach 全异常回滚 / 无名帧 OWN% 归一 / 琐碎项）
+- [x] A8. **子包化与依赖规则**：`kernel/ target/ cpython/ observe/ present/` + 横切（errors/dto/color）；import 方向由结构契约测试机械强制（禁反向）
 
 ### 10.2 测试架构重设计（按 oracle 类型组织，非按模块镜像）
 
-- [ ] 1. **spec-oracle 测试**（最高价值，新增）：linetable 解析 vs CPython 自带 `co_lines()`（2026-10 审查验证过的方法）；layout 表 vs gen_offsets 真实头文件产物；errno/flag/syscall 号常量 vs 系统头文件；syscall 渲染样例 vs strace 真实输出；native 线程头/符号样例 vs gdb 输出
+- [x] 1. **spec-oracle 测试**（最高价值，新增）：linetable 解析 vs CPython 自带 `co_lines()`（2026-10 审查验证过的方法）；layout 表 vs gen_offsets 真实头文件产物；errno/flag/syscall 号常量 vs 系统头文件；syscall 渲染样例 vs strace 真实输出；native 线程头/符号样例 vs gdb 输出（**批 7 以 `stack --native --json` 旧新 CLI 差异对比替代 gdb oracle——运行时 oracle 强于静态样例，见 §10.5-1**）
 - [x] 2. **构造内存单测**：FakeMemory 构造器由 Layout 驱动（禁止从被测常量照抄）；版本布局 × 对象变体矩阵参数化（批次 3 落地：next/tests/fakemem.py + 3.11–3.14 矩阵）
 - [x] 3. **状态机单测**：统一 ptrace 引擎以 stubbed libc/waitpid 覆盖全状态路径（CLONE/EXEC/信号转发/detach 幂等）——批次 1 落地（next/tests/test_ptrace.py）
 - [x] 4. **存活集成测试**：~~target~~（批次 4：READY 行就绪握手）/~~spin~~（批次 6：record CLI 全链路）/~~fast-syscall~~（批次 5）三 fixture；session→snapshot→sampling→tracing 端到端（批次 4/5/6 分段全通）；integration ≤15s 预算
-- [ ] 5. **差异对比测试**：旧新 CLI 子进程（§10.5-1）
+- [x] 5. **差异对比测试**：旧新 CLI 子进程（§10.5-1）
 - [x] 6. **结构契约测试**：公共 API 面 + 子包 import 方向（A8）机械强制（批次 0 test_structure 落地，批次 6 增补 offsets facade 守护与 API 面名单 pin）
-- [ ] 7. conftest/fixture 重设计（原 D6）：~~override 隔离~~（批次 2 已落地：A1 显式 `overrides_path` 参数 + conftest autouse 指不存在路径，契约 L12）、~~就绪轮询替代固定 `sleep(0.5)`~~（批次 4 已落地：target_app READY 行握手）、~~fast syscall target~~（批次 5 已落地：fast_syscall_app 0.2s nanosleep）、`run_tests.sh` mode 与透传 `-m` 合并为 and 表达式（pytest 多个 `-m` 后者胜的静默覆盖坑）
+- [x] 7. conftest/fixture 重设计（原 D6）：~~override 隔离~~（批次 2 已落地：A1 显式 `overrides_path` 参数 + conftest autouse 指不存在路径，契约 L12）、~~就绪轮询替代固定 `sleep(0.5)`~~（批次 4 已落地：target_app READY 行握手）、~~fast syscall target~~（批次 5 已落地：fast_syscall_app 0.2s nanosleep）、`run_tests.sh` mode 与透传 `-m` 合并为 and 表达式（pytest 多个 `-m` 后者胜的静默覆盖坑）
 
 ### 10.3 行为点清单机制（"参考旧代码"的落地）
 
-- [ ] 1. 主代理逐模块产出行为点清单（旧模块 → 行为点 → 新契约条目 → 新测试）；缺项即契约缺口
-- [ ] 2. 旧测试逐文件标注"已覆盖 / 已放弃（理由入 ADR）"，100% 过一遍
-- [ ] 3. 复刻约束（非差异，禁止"顺手优化"）：6 寄存器参数全显、summary `total/s` 列、32 字符截断、线程升序、路径缩短规则（Python 帧末 2 级 / native basename）、空闲双启发式、JSON schema 与退出码等"怪但文档化"行为一律保留
+- [x] 1. 主代理逐模块产出行为点清单（旧模块 → 行为点 → 新契约条目 → 新测试）；缺项即契约缺口
+- [x] 2. 旧测试逐文件标注"已覆盖 / 已放弃（理由入 ADR）"，100% 过一遍
+- [x] 3. 复刻约束（非差异，禁止"顺手优化"）：6 寄存器参数全显、summary `total/s` 列、32 字符截断、线程升序、路径缩短规则（Python 帧末 2 级 / native basename）、空闲双启发式、JSON schema 与退出码等"怪但文档化"行为一律保留
 
 ### 10.4 批次计划（按新架构依赖方向，每批一个派发包）
 
-- [ ] 0. 脚手架：`next/{pyprobe,tests,pyproject.toml}` 布局（包名仍 `pyprobe` 替换免改名；两套件独立 pytest 进程隔离，旧↔新对比走 CLI 子进程）、`scripts/next.sh`、CI next 作业、AGENTS.md TDD 工作流节（§7.3 并入）、`next/docs/contracts.md`（ADR 全文 + 模块契约骨架 + 行为点清单模板）、`next/pyprobe/offsets.json` 从根拷贝
+- [x] 0. 脚手架：`next/{pyprobe,tests,pyproject.toml}` 布局（包名仍 `pyprobe` 替换免改名；两套件独立 pytest 进程隔离，旧↔新对比走 CLI 子进程）、`scripts/next.sh`、CI next 作业、AGENTS.md TDD 工作流节（§7.3 并入）、`next/docs/contracts.md`（ADR 全文 + 模块契约骨架 + 行为点清单模板）、`next/pyprobe/offsets.json` 从根拷贝（双树期脚手架，替换时按 §10.6-2 移除 `scripts/next.sh` 与 CI next 作业）
 - [x] 1. `kernel/` + errors + dto：mem 传输 / Snapshot·Live 视图（A4）/ procfs / **统一 ptrace 引擎**（A2，批内最大件，状态机 stub 测试全绿）
 - [x] 2. `target/`：identity / layout（A1 落地）/ symbols
 - [x] 3. `cpython/`：objects / dicts / code / frames / runtime / names（A3 落地；spec-oracle 测试同步上）
 - [x] 4. `observe/`：session / snapshot / sampling / profile / topstats（A7 中 TopStats 修复；首个端到端里程碑：snapshot 对 live target 出栈）
 - [x] 5. `observe/`：syscalls / native（共享批 1 ptrace 引擎；A7 中 syscall 修复）
 - [x] 6. `present/` + `cli` + 打包：text / jsonout / color（A5 落地）/ argparse 薄壳 / package-data
-- [ ] 7. 对齐验收（§10.5 全量）+ 替换（§10.6 runbook）
+- [x] 7. 对齐验收（§10.5 全量）+ 替换（§10.6 runbook）
 
 ### 10.5 对齐验收门禁（批 7 出口；行为对齐是约束，全部量化）
 
-- [ ] 1. CLI 差异对比：同一存活目标上旧新 CLI 对比 `stack --json` / `stack --native --json` / `syscall --json`——归一化（pid/tid/thread_id/pc/elapsed/rendered 内地址正则抹零）后逐字节一致，豁免仅 A7 涉及字段；`record` folded 比键集合（计数天然抖动）；文本输出对固定 fixture 快照一致
-- [ ] 2. 库 API 面对齐：`__all__` 名单一致（A1 新增 `resolve_layout` 为显式例外）
-- [ ] 3. 全套件 unit+integration 绿、lint 净、覆盖率 ≥80%（分树度量）、import 方向契约测试绿
-- [ ] 4. README 全部命令示例对新 CLI 重跑核对（示例必须来自真实输出，文档漂移教训）
-- [ ] 5. 行为点清单 100% 标注完成；ADR 逐项有守护测试且注释回链契约条目
+- [x] 1. CLI 差异对比：同一存活目标上旧新 CLI 对比 `stack --json` / `stack --native --json` / `syscall --json`——归一化（pid/tid/thread_id/pc/elapsed/rendered 内地址正则抹零）后逐字节一致，豁免仅 A7 涉及字段；`record` folded 比键集合（计数天然抖动）；文本输出对固定 fixture 快照一致（**实测发现并回退 4 类批 5 引入的未授权渲染漂移：fd/dirfd 符号扩展、addr hex、rem NULL——见 SY9 契约与守护测试**）
+- [x] 2. 库 API 面对齐：`__all__` 名单一致（A1 新增 `resolve_layout` 为显式例外）
+- [x] 3. 全套件 unit+integration 绿、lint 净、覆盖率 ≥80%（分树度量）、import 方向契约测试绿（替换后单树：895 passed / 1 skipped / 覆盖率 96.9% / lint 净）
+- [x] 4. README 全部命令示例对新 CLI 重跑核对（示例必须来自真实输出，文档漂移教训）
+- [x] 5. 行为点清单 100% 标注完成；ADR 逐项有守护测试且注释回链契约条目
 
 ### 10.6 替换 runbook（单提交原子化）
 
-- [ ] 1. `git rm -r pyprobe tests`；`git mv next/pyprobe pyprobe`；`git mv next/tests tests`
-- [ ] 2. 根 pyproject/scripts/CI 去掉 next 专属配置，lint 范围还原
-- [ ] 3. `scripts/ci.sh full` 全绿（含 smoke wheel 验证 package-data）后单提交落盘（消息列 A1–A8 与验收证据）
-- [ ] 4. design.md 重写为新架构 SSOT（§2 模块表/§3 分层/§13 测试架构）；勾掉 §8.1 与 §9 对应项；回滚 = `git revert` 该提交
+- [x] 1. `git rm -r pyprobe tests`；`git mv next/pyprobe pyprobe`；`git mv next/tests tests`
+- [x] 2. 根 pyproject/scripts/CI 去掉 next 专属配置，lint 范围还原
+- [x] 3. `scripts/ci.sh full` 全绿（含 smoke wheel 验证 package-data）后单提交落盘（消息列 A1–A8 与验收证据）
+- [x] 4. design.md 重写为新架构 SSOT（§2 模块表/§3 分层/§13 测试架构）；勾掉 §8.1 与 §9 对应项；回滚 = `git revert` 该提交
 
 ### 10.7 风险与控制
 
