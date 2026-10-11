@@ -6,7 +6,7 @@
 > contracts.md，不重复架构内容，避免散弹式修改。
 >
 > 本文描述的是第一性原理重构（contracts.md §10）后的架构（旧树已由 `next/` 原子替换，2026-10；
-> 见 [contracts.md ADR A1–A8](contracts.md#2-架构决策记录adr重构允许的全部架构变更)）。
+> 见 [contracts.md ADR A1–A13](contracts.md#2-架构决策记录adr重构允许的全部架构变更)）。
 
 ---
 
@@ -25,6 +25,10 @@ CPython 运行时状态并呈现。它提供四种工作模式：
 - **采样与性能分析**（`record` / `top` 子命令）— 周期性采样 Python 调用栈：
   `record` 聚合为 folded stacks，`top` 终端实时刷新各线程当前帧与热点函数排行
   （§15）。使用 `process_vm_readv(2)`，**不需要 ptrace attach**。
+- **Web 监控**（`web` 子命令，可选 extras `pyprobe[web]`，ADR A13）— 采样观测模式
+  的浏览器前端：HTTP 服务器 + SSE 推送热点统计与活跃线程**完整调用栈**。与 `top`
+  共享 Sampler/TopStats，同样**不需要 ptrace attach**；web 是与 cli 平级的顶层
+  消费形态，非第五种观测模式。
 
 主交付物为**纯 Python 实现**（仅标准库 ctypes/struct），另附 C 参考实现用于开发期
 交叉校验（不对外交付）。
@@ -34,7 +38,7 @@ CPython 运行时状态并呈现。它提供四种工作模式：
 pyprobe 的能力被分解为七项不可约能力，各归唯一的包；包间依赖方向**唯一合法**：
 
 ```
-kernel → target → cpython → observe → present → cli
+kernel → target → cpython → observe → present → {cli, web}
 ```
 
 | 能力 | 归属包 |
@@ -89,13 +93,19 @@ pyprobe/                     纯 Python 实现（入口 pyprobe.cli:main）
 │   ├── syscalls.py          syscall 追踪 + 参数解码 + TraceFilter
 │   ├── syscall_abi.py       x86-64 syscall 号表 / 解码元数据 / flags
 │   └── native.py            native 回溯（libdw/libdwfl）
-└── present/                 呈现层
-    ├── color.py             ANSI 颜色 + clicolors 检测
-    ├── text.py              全部文本格式化（ADR A5）
-    ├── jsonout.py           JSON 输出（schema 复刻）
-    └── dumps.py             dump_* 编排（collect + 颜色决策 + 打印 + 退出码）
+├── present/                 呈现层
+│   ├── color.py             ANSI 颜色 + clicolors 检测
+│   ├── text.py              全部文本格式化（ADR A5）
+│   ├── jsonout.py           JSON 输出（schema 复刻）
+│   └── dumps.py             dump_* 编排（collect + 颜色决策 + 打印 + 退出码）
+└── web/                     Web 监控前端（可选 extras `pyprobe[web]`，ADR A13；与 cli 平级）
+    ├── monitor.py           采样调度 + TopStats 聚合 + 订阅扇出（纯 Python，框架无关）
+    ├── app.py               FastAPI 路由 + SSE 编码 + 静态伺服（monitor 注入）
+    ├── serve.py             serve_web 编排（monitor + uvicorn + 退出码，dump_* 语义位）
+    └── static/              React 构建产物（git 入库；wheel package-data）
 
 tools/gen_offsets.c          生成 pyprobe/offsets.json
+frontend/                    React + Vite 源码（build 输出至 pyprobe/web/static/，产物入库）
 scripts/                     构建/测试/CI 脚本（单一入口，见 README）
 tests/                       测试（§13）
 ```
@@ -118,6 +128,7 @@ tests/                       测试（§13）
 | 格式化 | `format_process` / `format_native` / `format_summary` / `format_folded` | 数据 → CLI 风格字符串（`present/text.py`） | `str` |
 | 格式化 | `format_process_json` / `format_native_json` / `format_syscalls_json` | 数据 → JSON（`present/jsonout.py`） | `str` |
 | CLI 封装 | `dump_python` / `dump_native` / `dump_syscalls` / `dump_record` / `dump_top` | collect + format + print + 退出码（`present/dumps.py`） | `int` |
+| Web 编排 | `serve_web(pid, *, rate, interval, host, port)` | Monitor + FastAPI + uvicorn 编排（`web/serve.py`，ADR A13，dump_* 语义位） | `int` |
 
 设计要点：
 - `collect_*` **不打印**，返回结构化 dataclass，调用方可程序化使用。
@@ -458,6 +469,19 @@ else:
 
 `resolve_layout(version)` 可用于在无目标进程时直接取版本布局（A1 新增 API）。
 
+### 12.4 Web 监控模式（可选 extras，ADR A13）
+
+```bash
+pip install 'pyprobe[web]'        # fastapi + uvicorn 最小集；核心 wheel 零依赖不变
+pyprobe web -p <pid>              # http://127.0.0.1:9470/ 实时热点 + 完整线程调用栈
+```
+
+- `web/` 与 cli 平级（依赖方向 `… → present → {cli, web}`）；`pyprobe/__init__.py`
+  不 import web，缺依赖时 `pyprobe web` 友好报错（rc 2），其余子命令不受影响。
+- 前端为 React + Vite（`frontend/`），构建产物**入库 git**（`pyprobe/web/static/`），
+  wheel 构建不依赖 Node；离线构建流程（§12.1 与 README）不受影响。
+- SSE 协议与 API schema 契约见 contracts.md 批次 8（WM/WA/WS/WC/ST-W/FE 系）。
+
 ---
 
 ## 13. 测试架构
@@ -498,8 +522,8 @@ else:
 
 ### 13.5 结构契约测试
 
-`tests/test_structure.py` 以 ast 扫描机械强制 import 方向（kernel→…→present→cli 单向，
-横切层不自咬）与 offsets facade 禁用；`tests/test_package.py` 守护包解析根、offsets.json
+`tests/test_structure.py` 以 ast 扫描机械强制 import 方向（kernel→…→present→{cli, web}
+单向，横切层不自咬）与 offsets facade 禁用；`tests/test_package.py` 守护包解析根、offsets.json
 与"旧模块名不可导入"；`tests/test_api_exports.py` pin `__all__` 名单。
 
 ### 13.6 差异对比（批 7 门禁）

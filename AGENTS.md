@@ -41,7 +41,7 @@
 - Typecheck 暂无（ctypes 重度使用，mypy/pyright 噪音大；TODO §6.3 待评估）
 
 # TDD 工作流（强制约束）
-> 契约与 ADR 记录见 [docs/contracts.md](docs/contracts.md)（重构期产出，见 contracts.md §10：ADR A1–A8 + 模块契约 + 行为点清单）。
+> 契约与 ADR 记录见 [docs/contracts.md](docs/contracts.md)（ADR 见 contracts.md §2，模块契约与行为点清单见 §4–§5）。
 
 - **循环**：契约 → 测试 → Red 验证 → 实现 → 全套件绿 + lint；严格先契约后测试、先测试后实现，禁止反向
 - **Red 验证**：新测试必须先跑出失败，且失败原因须为预期断言（非语法/导入错误），输出存档供验收

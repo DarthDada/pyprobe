@@ -1,6 +1,6 @@
 # pyprobe 模块与 ADR 契约
 
-> 本文件记录第一性原理重建（原 TODO §10，2026-10 原子替换完成）的**架构决策（ADR A1–A8）**、
+> 本文件记录第一性原理重建（原 TODO §10，2026-10 原子替换完成）的**架构决策（ADR A1–A13）**、
 > 分层与依赖规则、模块契约骨架、行为点清单与派发包模板。架构叙述 SSOT 见
 > [design.md](design.md)，本文是其 ADR / 模块契约明细；tests/ 的契约守护测试注释回链
 > 本文条目编号（如 T12、V8、SY9）。
@@ -27,14 +27,16 @@ pyprobe 的本质是**外部观测者问题**：仅凭 PID 与内核接口重建
 | 时间维度（快照 / 采样 / 事件流） | `observe/` |
 | 呈现（文本 / JSON / 颜色） | `present/` |
 
-**依赖方向铁律**：`kernel → target → cpython → observe → present → cli`，仅横切层
+**依赖方向铁律**：`kernel → target → cpython → observe → present → {cli, web}`
+（cli 与 web 平级、互不依赖；cli→web 合法且仅经函数内延迟 import，见 A13），仅横切层
 （`errors` / `dto` / `color`）可被任意层引用且自身不依赖任何层。import 方向由结构契约
 测试机械强制（ADR A8），禁反向。
 
 ## 2. 架构决策记录（ADR——重构允许的全部架构变更）
 
 > 决策已确认（2026-10）：A1、A2、A3/A4/A5 三件套、A8 全部纳入；A9–A12 为替换后
-> 增量解禁（native P0-1/P0-2/P0-3/P1-4/P1-5）。每项 ADR 落地时须有
+> 增量解禁（native P0-1/P0-2/P0-3/P1-4/P1-5）；A13 为替换后新功能扩展（web 监控
+> 模式）。每项 ADR 落地时须有
 > 守护测试，且测试注释回链本文件对应条目（§10.5-5 验收项）。
 
 ### A1. Layout 值对象化（吞并旧 §8.1）
@@ -150,6 +152,43 @@ pyprobe 在**呈现层**（`present/text.py`）施加同一截断：`_shorten_sy
   无 source 但有模块 → `... from <module>`；皆无 → `... in <sym> ()`。
 - 仅带 DWARF 行表的模块（如 `-g` 编译的扩展 / uvloop）生效；无调试信息的模块
   与 gdb 一致地只有 `from`。
+
+### A13. Web 监控模式（`pyprobe[web]` extras 与 `web/` 顶层消费者包）
+
+新增 web 服务器模式：`pyprobe web -p <pid>` 起 HTTP 服务器监控单个目标进程，
+浏览器页面实时展示热点视图（top 信息结构）与**完整线程调用栈**（活跃线程帧链
+随推送帧下发，不丢弃——Web 形态相对终端的增强）。决策已确认（2026-10）：
+
+- **定位**：web 不是第五种观测模式，而是与 cli 平级的**顶层消费形态**——复用
+  observe 采样模式（Sampler + TopStats）与 dto 数据面；七项不可约能力归属不变
+  （web/monitor 是采样能力的消费编排，非新能力包，不违反 §1 建包铁律）。
+- **extras 隔离（核心零依赖红线不破）**：`[project.optional-dependencies] web =
+  ["fastapi>=0.141.1", "uvicorn>=0.30"]`（最小集，不拉 `fastapi[standard]` 全家
+  桶）；核心 wheel 无新运行时依赖。`pyprobe/__init__.py` **不得 import web**
+  （否则 ImportError 传染核心包；API1 名单不变），web 只经 `pyprobe.web` 显式
+  触达。
+- **依赖方向扩展**：`kernel → target → cpython → observe → present → {cli, web}`；
+  cli→web 合法（dispatch 消费），web→cli 禁止，任何能力层→web 禁止；web 仅可
+  依赖 observe 与横切层（dto/errors）——**web→present 禁止**（web 的 JSON 面经
+  `dataclasses.asdict` 直出，不复用 CLI 呈现层；present 保持 CLI 呈现语义纯净）。
+  结构契约测试机械强制（A8 机制延伸，ST-W 系条目）。
+- **延迟 import 与缺依赖语义**：cli.py dispatch 分支函数体内 import；web 依赖
+  （fastapi/uvicorn 及其传递依赖）缺席 → stderr
+  `[!] the web subcommand requires extra dependencies — install with: pip install 'pyprobe[web]'`
+  + **rc 2**（对齐 DP5 top 非 tty 的"环境不满足"语义）；pyprobe 自身代码的
+  ImportError 不得被该分支吞掉（仅依赖缺席转提示）。
+- **目标退出语义**：ProcessExited → 广播 exit 终态事件后采样线程终止；服务器
+  **继续运行**（页面保活显示终态）；新 SSE 连接立即收到粘性 exit 帧。
+- **前端产物入库**：React + Vite 构建产物（`pyprobe/web/static/`）**git 跟踪**——
+  wheel 构建不依赖 Node，README 离线构建承诺不变；CI 前端校验任务仅
+  `frontend/**` 变更时触发（产物新鲜度 diff 校验），与主流水线解耦。
+- **打包**：package-data 显式列 `web/static/*`、`web/static/assets/*` 两层——
+  不用 `**` 递归 glob，维持 `setuptools>=61` 下限（避免连带 `_common.sh` 回退与
+  README 离线预装说明的散弹式修改）。
+- **安全默认**：`--host` 默认 127.0.0.1（不暴露公网）；`--port` 默认 9470
+  （避开 examples/fastapi_app.py 的 8000 与常见开发端口）。
+- **权限模型**：与 record/top 相同（`process_vm_readv(2)`，无 ptrace attach）——
+  README 权限段随批次落地补一行。
 
 ## 3. 复刻约束（非差异，禁止"顺手优化"）
 
@@ -650,6 +689,79 @@ SnapshotView（单次快照语义），长时追踪（批次 5 syscalls）用 Li
 | tests/test_json_output.py | 已覆盖（test_jsonout JS1/JS2） | — |
 | tests/test_cli.py | 已覆盖（test_cli CLI1–CLI3 复刻） | — |
 | tests/test_api_exports.py | 已覆盖（test_api_exports API1/2，名单 pin 强化） | — |
+
+### 批次 8 — `web/`（Web 监控模式，ADR A13；新功能无旧树对应物）
+
+| 模块 | 职责 | 公开 API | 行为点清单 |
+|------|------|----------|------------|
+| `web/monitor.py` | 采样调度 + TopStats 聚合 + 订阅扇出（纯 Python，不 import fastapi/uvicorn——框架无关可单测） | `Monitor(pid, *, rate=50, interval=1.0, sampler_factory=Sampler)`；`.start()`/`.stop()`；`.subscribe() -> Queue`/`.unsubscribe(q)`；`.proc_info`/`.version_warning`/`.exited` | 见批 8 表 |
+| `web/app.py` | FastAPI 路由 + SSE 编码 + 静态伺服（monitor 注入，无全局状态） | `create_app(monitor, *, static_dir=None) -> FastAPI` | 同上 |
+| `web/serve.py` | 编排（对齐 present/dumps.py 的 dump_* 语义位）：monitor 生命周期 + uvicorn + 异常→退出码 | `serve_web(pid, *, rate=50, interval=1.0, host="127.0.0.1", port=9470) -> int` | 同上 |
+| `cli.py`（增补） | web 子命令（参数解析 + 延迟 import 分发；A6 薄壳不破） | — | 同上 |
+
+#### 批 8 行为点清单
+
+**web/monitor.py**（订阅队列内事件载体为 dict `{type: "stats"\|"exit", data: …}`——monitor 不知 SSE 存在，编码归 app 层）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| WM1 | 构造即解析目标（Sampler 初始化，SE1 语义承接）：ProcessNotFound/SymbolNotFound 等 PyProbeError 子类构造期上抛，不进后台线程 | （新增，A13） | test_web_monitor.py |
+| WM2 | start() 起后台采样线程：按 rate 绝对时间调度（PF2 语义承接：落后重置不补发）；每样本 TopStats.update 并留存该样本 ThreadInfo 列表为最新快照 | （新增，A13） | 同 |
+| WM3 | 每 interval 广播一帧 `{type: "stats", data: …}` 至全部订阅队列；data.threads 为最新一次采样的完整 ThreadInfo 序列化——完整帧链不丢弃（A13：实时调用栈增强点） | （新增，A13） | 同 |
+| WM4 | stats data 键集 pin：`process={pid, cmdline, exe_path, python_version, version_warning}`；`elapsed`: float；`samples`/`idle_samples`: int；`top_functions: [{name, own, total, own_pct, total_pct, time}]`（pct 为占 samples 百分比、time=own/rate 秒；samples==0 时 pct/time 为 0）；`threads: [{native_tid, thread_id, name, idle, own_pct, frames: [{name, filename, line}]}]`（own_pct 为该线程顶帧函数的 own 占比，无顶帧为 0；idle 线程 frames 为 []） | （新增，A13） | 同（键集 + 边界值成对） |
+| WM5 | 订阅扇出：subscribe() 返回有界队列（maxsize=64）；满时丢最旧保最新（监控取最新语义；广播 put_nowait 不阻塞采样线程）；unsubscribe 幂等 | （新增，A13） | 同 |
+| WM6 | ProcessExited → 广播 `{type: "exit", data: {}}` → 采样线程终止；exit 粘性（新订阅立即收到一帧 exit）；`.exited` 属性为 True | （新增，A13） | 同 |
+| WM7 | stop() 幂等：置停止标志 + join(timeout=5)；重复调用无副作用 | （新增，A13） | 同 |
+| WM8 | sampler_factory 注入点（对齐 Sampler view_factory 测试模式）；version_warning 自 session 透出（SE2 承接），Monitor 本身不打印 | （新增，A13） | 同 |
+
+**web/app.py**
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| WA1 | GET / → static/index.html（缺失 → 503 纯文本提示构建产物缺席，不 traceback）；GET /assets/* 经 StaticFiles 挂载（目录穿越防护由其实现承担）；static_dir 注入点 | （新增，A13） | test_web_app.py（TestClient） |
+| WA2 | GET /api/process → `asdict(proc_info)` 四键 + `version_warning` 键（None → null）；键集 pin（非 ASCII 值不 pin 转义形态——前端透明） | （新增，A13） | 同 |
+| WA3 | GET /api/events → StreamingResponse：media_type `text/event-stream`；`Cache-Control: no-cache` + `X-Accel-Buffering: no`；进入即 subscribe，首帧立即到达（stats 或粘性 exit）；客户端断开 → unsubscribe 且生成器结束 | （新增，A13） | 同（流式断言） |
+| WA4 | SSE 帧编码：`event: stats\ndata: <单行 json>\n\n`；exit：`event: exit\ndata: {}\n\n`；exit 帧发出后服务器正常结束该流（前端收 exit 后 close() 不重连，防无限重连循环，FE2 配套）；15s 无帧输出 `: ping\n\n` 心跳 | （新增，A13） | 同 |
+| WA5 | 路由无全局状态：monitor 经 create_app 注入（stub monitor + TestClient 单测，无真实目标进程） | （新增，A13） | 同 |
+
+**web/serve.py**（对齐 dump_* 编排语义位；uvicorn 细节以注入/monkeypatch 单测）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| WS1 | Monitor 构造失败（PyProbeError 子类）→ stderr `[!] <err>`（red，DP1 语义承接）+ rc 1 | （新增，A13） | test_web_serve.py |
+| WS2 | version_warning 非 None → 启动前打 stderr（DP2 承接；web 无 JSON 模式，恒打印） | （新增，A13） | 同 |
+| WS3 | 启动行 `[i] pyprobe web: monitoring pid <n> at http://<host>:<port>/` 走 stderr（record/top 摘要惯例）；uvicorn log_level 压 warning（访问日志噪声不入 stderr 惯例） | （新增，A13） | 同 |
+| WS4 | 端口占用 → `[!] port <port> already in use` + rc 1（uvicorn 启动失败的包装，用户可见语义 pin） | （新增，A13） | 同 |
+| WS5 | Ctrl-C → monitor.stop() + 服务器关闭，rc 0（DP5 干净退出语义承接）；目标退出后服务器继续运行（A13：页面保活显示终态） | （新增，A13） | 同 |
+
+**cli.py 增补**（A6 薄壳不破：仅参数解析 + 分发）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| WC1 | web 子命令参数形态：`-p/--pid` 必填 int；`-r/--rate`（`_positive_float(0,1000]`，默认 50）；`-i/--interval`（`_positive_float(0,60]`，默认 1.0）；`--host` 默认 127.0.0.1；`--port` int 默认 9470（避开 examples 8000 与常见端口，A13） | （新增，A13） | test_cli.py 增补 |
+| WC2 | 延迟 import（dispatch 分支函数体内）：web 依赖（fastapi/uvicorn 及传递依赖）缺席 → stderr `[!] the web subcommand requires extra dependencies — install with: pip install 'pyprobe[web]'` + **rc 2**（DP5 环境不满足语义）；pyprobe 自身代码的 ImportError 不得被吞（仅依赖缺席转提示） | （新增，A13） | 同（monkeypatch 模拟依赖缺席/自身 bug 成对） |
+| WC3 | 返回值透传 serve_web 返回值（CLI4 同语义） | （新增，A13） | 同 |
+
+**结构契约增补**（A8 机制延伸，tests/test_structure.py 机械强制）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| ST-W1 | web 层 import 方向：能力层（kernel/target/cpython/observe/present）不得 import web；web 仅可 import observe 与横切（禁 kernel/target/cpython/present/cli）；cli→web 合法且仅经函数内延迟 import | （新增，A13） | test_structure.py |
+| ST-W2 | pyprobe/__init__.py 不得 import web（核心零依赖红线，A13）；API1 名单不变 | （新增，A13） | test_structure.py + test_api_exports.py |
+
+**端到端**（integration，≤15s 预算）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| E2E-W1 | 真实子进程（conftest target 模式）+ 真 Monitor + TestClient（in-process，不经 uvicorn）拉 /api/events：首帧 stats 含目标函数名/线程名；terminate 目标后收到 exit 帧 | （新增，A13） | test_web_live.py（integration） |
+
+**前端**（`frontend/`，React + Vite；产物入库 `pyprobe/web/static/`）
+
+| # | 行为点 | 旧测试出处 | 新测试 |
+|---|--------|------------|--------|
+| FE1 | 页面信息结构对齐 top：进程头 + Active threads 表 + Idle threads 行 + Top functions 表；Active 表点击线程展开完整实时调用栈（A13） | （新增，A13） | 手动验证（批 8c 出口记录） |
+| FE2 | EventSource 消费 /api/events：stats 帧整表刷新；exit 帧显示"目标进程已退出"终态横幅并 close() 不重连（WA4 配套） | （新增，A13） | 同 |
+| FE3 | 产物入库新鲜度：`npm run build` 后 `git diff --exit-code pyprobe/web/static/`（CI 前端任务，仅 frontend/** 变更触发，与主流水线解耦） | （新增，A13） | CI 任务 |
 
 ## 5. 行为点清单机制（§10.3 落地模板）
 
