@@ -96,14 +96,18 @@ class TestStraceOracle:
         def canon(line):
             """归一化为 (name, args元组, ret)——抹平两方的**文档化**格式
             差异（contracts.md §10.3 复刻约束保留、非 bug）：pyprobe 全显 6 参数、
-            timespec 无名花括号、clockid/flags 数值；strace 按真实元数
-            显示、{tv_sec=…} 具名、常量名解码。差异项归一后语义等价。"""
+            timespec 无名花括号、clockid/flags 数值、NULL 指针走标量 → "0"；
+            strace 按真实元数显示、{tv_sec=…} 具名、常量名解码、指针作 NULL。
+            差异项归一后语义等价。"""
             line = re.sub(r"0x[0-9a-f]+", "0xADDR", line)
             line = re.sub(r"\{tv_sec=\d+, tv_nsec=\d+\}", "{TS}", line)
             line = re.sub(r"\{\d+, \d+\}", "{TS}", line)
             # strace 的常量名解码 → 数值（对齐 pyprobe 的数值渲染）
             for name, num in _STRACE_CONST_NAMES.items():
                 line = line.replace(name, num)
+            # SY9 复刻约束：pyprobe 对 addr/rem 走标量规则，NULL 指针 → "0"；
+            # strace 打印 NULL——归一化这一文档化差异（非行为差异）。
+            line = line.replace("NULL", "0")
             line = re.sub(r"\s*<\d+\.\d+>$", "", line)  # strace -T 尾
             line = re.sub(r"^\s*\d+\s+", "", line)      # tid 列
             m = re.match(r"(\w+)\((.*)\) = (\S+)$", line.strip())
