@@ -7,9 +7,8 @@
 3. [native 栈输出对齐 gdb](#3-native-栈输出对齐-gdb)
 4. [syscall 对齐 strace](#4-syscall-对齐-strace)
 5. [深度检查与差异化](#5-深度检查与差异化)
-6. [工程基础设施](#6-工程基础设施)
 
-> **全局优先级**：§1/§2/§3/§4/§5 新功能待逐项推进；§6 剩余工程项（git hooks、CI 版本矩阵、变异/类型/属性测试）与 aarch64（§2）为后续项。已完成的重构章节（原 §8 代码模块化、§9 代码审查遗留、§10 第一性原理重构）已从本文件移除，其条款编号（原 §10.x）定义迁移至 [docs/contracts.md](docs/contracts.md) §7。
+> **全局优先级**：§1/§2/§3/§4/§5 新功能待逐项推进；aarch64（§2）为后续项。工程基础设施已完成（git hooks + CI 跨版本矩阵，见 git 历史）；变异/类型/属性测试三项经评估不采用，不再列入。已完成的重构章节（原 §8 代码模块化、§9 代码审查遗留、§10 第一性原理重构）已从本文件移除，其条款编号（原 §10.x）定义迁移至 [docs/contracts.md](docs/contracts.md) §7。
 
 ## 1. CLI 易用性与集成
 
@@ -61,17 +60,3 @@
 
 - [ ] 1. Python 帧局部变量/参数读取：遍历 `_PyInterpreterFrame.localsplus`，dump 时显示调用参数。py-spy 无此能力，是真正差异化功能，但需完整 object graph 解析
 - [ ] 2. Python/native 混合栈：py-spy `--native` 会把 Python 帧内联进 native 栈；当前两种栈割裂，`--native` 输出对 Python 用户语义有限
-
-## 6. 工程基础设施
-
-> 现状：914 个测试（含参数化展开；`scripts/run_tests.sh --cov` 实测 913 passed + 1 skipped，覆盖率 97.0%）+ FakeReader 构造内存/`Layout` 驱动对象构造器 + `target_pid`/`fast_syscall_pid` fixture（就绪握手 + `TARGET_PYTHON` 跨版本端到端）已具备；覆盖率基线（`scripts/run_tests.sh --cov`，CI test 阶段强制，79% fail-under）、远程 CI（`.github/workflows/ci.yml`，PR/push 触发、仅调用 `scripts/ci.sh`）、`slow` marker（真实采样/sleep 测试可经 `-m 'not slow'` 跳过）、watch 模式、pytest 严格化（`-ra`/`--strict-markers`/`--strict-config` + `filterwarnings = ["error"]`）、ruff lint（`scripts/lint.sh`）均已落地。以下为剩余缺口。TDD 是流程约束，靠自觉必退化。
-
-### P1 — 流程纪律强制
-
-- [x] 1. git hooks：`.githooks/`（pre-commit 跑 lint+单元测试、pre-push 跑单元测试，均走 `scripts/`）经 `scripts/install_hooks.sh` 启用；CI 跨版本矩阵（3.11–3.14 × `TARGET_PYTHON`，`scripts/ci_target.sh`）已落地；结构守护见 `tests/test_infra.py`（矩阵暴露并修复 3.14 目标 `InterpreterState.sysdict` 偏移 bug）
-
-### P2 — "绿"的质量与重构安全网
-
-- [ ] 2. 变异测试（mutmut）：解析二进制内存布局的代码测试"看似覆盖但抓不住错位偏移"风险高，用变异测试验证测试有效性
-- [ ] 3. typecheck（mypy/pyright）：ctypes 重度使用 typecheck 噪音大待评估
-- [ ] 4. 属性测试（hypothesis）：`linetable` / `dict_iter` / `pyobject` 解析器代码的典型受益者
