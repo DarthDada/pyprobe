@@ -132,7 +132,7 @@ tests/                       测试（§13）
 FrameInfo(name, filename, line)              # 单个 Python 栈帧
 ThreadInfo(native_tid, thread_id, name, frames, idle)  # 线程 + 帧列表
 ProcessInfo(pid, cmdline, exe_path, python_version)    # 进程元数据
-NativeFrame(pc, symbol, module)              # 单个 native 栈帧
+NativeFrame(pc, symbol, module, filename, line)  # 单个 native 栈帧（filename/line 为 DWARF 源码位置，A12）
 NativeThreadInfo(tid, comm, frames, unwind_failed)     # native 线程 + 帧列表
 SyscallEvent(tid, nr, name, args, rendered, ret, error, elapsed)  # 单次系统调用观测
 ProfileData(proc_info, counts, samples, idle_samples, elapsed, version_warning)
@@ -141,7 +141,8 @@ ProfileData(proc_info, counts, samples, idle_samples, elapsed, version_warning)
 DTO 字段名/顺序/默认值与旧树一致（`asdict` 键集即 JSON schema，复刻约束；D1）。
 **路径缩短**（显示层约定）：数据字段始终保存完整路径，`present/text.py` 缺省
 （`verbose=False`）缩短显示——Python 帧取路径**末 2 级**（对齐 py-spy），native
-module 取 **basename**；`verbose=True`（`-v/--verbose`）保持完整路径。
+module 取 **basename**；`verbose=True`（`-v/--verbose`）保持完整路径。native 符号名
+同属显示层：缺省截断 LLVM 尾部 `.llvm.<数字>`（ADR A11），数据面（DTO / JSON）保持原值。
 
 ### 3.2 公共 API 面与兼容映射
 
@@ -342,7 +343,10 @@ syscall 追踪与 native 回溯共享同一套 seize/interrupt/wait 状态机（
 
 - 帧解析：`dwfl_frame_pc`（非激活帧 `lookup=pc−1`）、`dwfl_module_addrname`（缺 →
   `??`）、`dwfl_module_info` 取模块路径；单线程帧上限 `_MAX_FRAMES=256`。
-- 线程结果按 tid 升序；`unwind_failed = (fr != 0 且 0 帧)`（复刻旧判定）。
+- 源码位置（A12）：`dwfl_module_getsrc`+`dwfl_lineinfo` 取 `(filename, line)`，仅在
+  模块带 DWARF 行表时可得（gate 于 `available_symbols`）；否则帧只有模块路径。
+- 线程结果按 tid 升序；`unwind_failed` = `fr != 0 且 0 帧`，或 lone `pc == 0`
+  哨兵帧（ADR A10，对齐 gdb "Backtrace stopped"）。
 - ctypes 回调（`CFUNCTYPE`）经 `ctypes.py_object` 传递 Python list 收集结果。
 
 > A2 使 native 行为有变，contracts.md §10.5-1 的 `stack --native --json` 旧新差异对比为其强制验证

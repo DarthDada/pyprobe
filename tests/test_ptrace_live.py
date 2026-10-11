@@ -138,3 +138,25 @@ class TestNativeUnwindLive:
         assert tids == sorted(tids)
         main = [t for t in threads if t.tid == target_pid]
         assert main and (main[0].frames or main[0].unwind_failed)
+
+
+class TestNativeSourceLineLive:
+    def test_resolves_source_line(self, dwarf_target_pid):
+        """NA11（ADR A12 / TODO §3 P1-5）：对含 DWARF 的 -g 模块，native 帧
+        解析出 `file:line`（libdw/权限不足时 skip，同 NA9 语义）。"""
+        try:
+            threads = collect_native(dwarf_target_pid)
+        except (AttachFailed, OSError) as e:
+            pytest.skip(f"native unwind unavailable: {e}")
+        frames = [f for t in threads for f in t.frames]
+        spin = [f for f in frames if f.symbol == "pyprobe_spin_ms"]
+        assert spin, (
+            f"pyprobe_spin_ms frame not found in "
+            f"{sorted({f.symbol for f in frames})}")
+        located = [f for f in spin
+                   if f.filename and f.filename.endswith("dwarf_mod.c")
+                   and f.line]
+        assert located, (
+            f"no file:line resolved: "
+            f"{[(f.filename, f.line) for f in spin]}")
+

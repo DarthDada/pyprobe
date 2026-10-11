@@ -1,4 +1,4 @@
-# Remote CI (TODO §7.1): enforce all-green commits by running the exact same
+# Remote CI: enforce all-green commits by running the exact same
 # pipeline as a local `scripts/ci.sh` (sync gen-offsets lint test smoke). The
 # workflow must not hand-type build/test commands — everything is orchestrated
 # by the scripts/ layer, so CI and local can't drift.

@@ -46,7 +46,7 @@ uv run python examples/fastapi_app.py   # FastAPI on :8000
 pgrep -f fastapi_app                     # 获取 PID，例如 14695
 ```
 
-> **注意**：`uv run` 先派生 `uv` 包装进程再 exec Python，`pgrep -f` 可能同时命中两者。请选用命令行为 `.../python ... fastapi_app.py` 的那个 PID——对非 Python 进程查找 `_PyRuntime` 符号必然失败（PID 错位风险详见 [design.md §13.3](docs/design.md#133-手动探测约束)）。
+> **注意**：`uv run` 先派生 `uv` 包装进程再 exec Python，`pgrep -f` 可能同时命中两者。请选用命令行为 `.../python ... fastapi_app.py` 的那个 PID——对非 Python 进程查找 `_PyRuntime` 符号必然失败（PID 错位风险详见 [design.md §13.7](docs/design.md#137-手动探测约束)）。
 
 ### Python 栈转储
 

@@ -31,14 +31,14 @@
 - **改一处同步相关处**：如改构建依赖需同步 `pyproject.toml`、`scripts/_common.sh` 回退、README 离线流程说明
 
 # Manual probing（AI 行为约束）
-> 完整技术原因见 [design.md §13.3 手动探测约束](docs/design.md#133-手动探测约束)
+> 完整技术原因见 [design.md §13.7 手动探测约束](docs/design.md#137-手动探测约束)
 
 - **必须** `subprocess.Popen` 派生子进程经 stdout 获取 PID（复用 `tests/conftest.py:target_pid`），`finally` 中 `terminate()`+`wait(5)`
 - **禁止** shell `&` + `$!`/`pgrep` 取 PID（`uv run` 包装器导致 PID 错位）；**禁止**持久 shell 裸 `&` 跑长驻进程（管道继承致 shell 卡死）
 
 # Lint / Typecheck
 - Lint 走 `scripts/lint.sh`（ruff，配置在 `pyproject.toml` `[tool.ruff]`），CI 在 test 阶段前强制；禁裸 `ruff` 命令
-- Typecheck 暂无（ctypes 重度使用，mypy/pyright 噪音大；TODO §7.7 待评估）
+- Typecheck 暂无（ctypes 重度使用，mypy/pyright 噪音大；TODO §6.3 待评估）
 
 # TDD 工作流（强制约束）
 > 契约与 ADR 记录见 [docs/contracts.md](docs/contracts.md)（重构期产出，见 contracts.md §10：ADR A1–A8 + 模块契约 + 行为点清单）。

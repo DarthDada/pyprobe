@@ -7,12 +7,12 @@ detach 经引擎幂等完成（与 design.md §14.2 相同的安全 detach 理�
 native 行为因此有变，contracts.md §10.5-1 的 ``stack --native --json`` 旧新差异对比
 为其强制验证项（批 7 出口）。
 
-契约（contracts.md 批 5 表 NA1–NA9）。当前为骨架：常量/签名已锁定，
-函数返回哨兵，批次 5 实现填实。
+契约（contracts.md 批 5 表 NA1–NA10）。
 """
 
 import ctypes
 import os
+from ctypes.util import find_library
 
 from .. import dto
 from ..errors import AttachFailed
@@ -22,9 +22,18 @@ from ..kernel.ptrace import PtraceEngine
 #: Per-thread frame cap (契约 NA5, 复刻约束).
 MAX_FRAMES = 256
 
-#: libdw handle, populated by _init_libs (NA1: libdw.so.1; §4 P0-1 加载名
-#: 回退为冻结期新功能，不实施).
+#: Candidate libdw sonames probed in order (NA1 / ADR A9).
+_LIBDW_NAMES = ("libdw.so.1", "libdw.so")
+
+#: Optional libdw symbols gating P1/P2 features (NA10 / ADR A9, A12).
+_OPTIONAL_SYMBOLS = ("dwarf_getscopes", "dwfl_module_getsrc",
+                     "dwarf_cfi_addrframe", "dwfl_lineinfo")
+
+#: libdw handle, populated by _init_libs (NA1).
 libdw = None
+
+#: Subset of _OPTIONAL_SYMBOLS the loaded libdw exports (NA10 / ADR A9).
+available_symbols = frozenset()
 
 #: Set only by the real _init_libs — the cache flag tracks "real load
 #: happened", not "the global is non-None", so a test double installed at
@@ -74,13 +83,81 @@ _frame_cb_t = ctypes.CFUNCTYPE(
     ctypes.c_int, ctypes.POINTER(Dwfl_Frame), ctypes.c_void_p)
 
 
+def _load_libdw(*, loader=ctypes.CDLL, finder=find_library):
+    """Load libdw, probing candidate sonames in order (NA1 / ADR A9).
+
+    ldconfig environments register either ``libdw.so.1`` or ``libdw.so``;
+    both are tried, then the ``find_library("dw")`` result as a last
+    resort. The first candidate that loads wins; if none does, the last
+    ``OSError`` propagates (a load failure is never swallowed).
+    """
+    candidates = list(_LIBDW_NAMES)
+    located = finder("dw")
+    if located and located not in candidates:
+        candidates.append(located)
+    last_error = None
+    for name in candidates:
+        try:
+            return loader(name, use_errno=True)
+        except OSError as exc:
+            last_error = exc
+    raise last_error
+
+
+def _probe_optional(lib) -> frozenset:
+    """Probe optional P1/P2 symbols the loaded libdw exports (NA10 / ADR A9).
+
+    Missing symbols are non-fatal: the core symbol-name + unwind path
+    (NA4) does not depend on them, and future P1/P2 consumers gate on
+    this capability set instead of crashing on old elfutils.
+    """
+    return frozenset(name for name in _OPTIONAL_SYMBOLS if hasattr(lib, name))
+
+
+def _unwind_failed(fr: int, frames: list[dto.NativeFrame]) -> bool:
+    """Whether dwfl failed to produce a usable backtrace (NA6 / ADR A10).
+
+    True when the unwinder errored with nothing read, or when the result
+    is a lone ``pc == 0`` sentinel frame — gdb's "Backtrace stopped:
+    Cannot access memory at address 0x0" case (e.g. io_uring ``iou-sqp-*``
+    kernel worker threads). A single real frame is *not* a failure even
+    when ``fr`` reports an error.
+    """
+    if fr != 0 and not frames:
+        return True
+    return len(frames) == 1 and frames[0].pc == 0
+
+
+def _resolve_line(mod, lookup):
+    """Best-effort DWARF source position ``(filename, line)`` (NA11 / ADR A12).
+
+    Uses libdwfl's ``dwfl_module_getsrc`` + ``dwfl_lineinfo`` when the loaded
+    libdw exposes both (NA10 capability gate). Modules without DWARF line
+    info (e.g. a stripped CPython binary) yield ``(None, None)``, matching
+    gdb's fallback to ``from <module>``.
+    """
+    if not mod or "dwfl_module_getsrc" not in available_symbols \
+            or "dwfl_lineinfo" not in available_symbols:
+        return None, None
+    src = libdw.dwfl_module_getsrc(mod, lookup)
+    if not src:
+        return None, None
+    linep = ctypes.c_int(0)
+    name = libdw.dwfl_lineinfo(src, None, ctypes.byref(linep), None, None,
+                               None)
+    if not name or linep.value <= 0:
+        return None, None
+    return name.decode("utf-8", "replace"), linep.value
+
+
 def _init_libs() -> None:
-    """Load libdw and wire every dwfl/dwarf signature (NA1)."""
-    global libdw, _libdw_loaded
+    """Load libdw, probe optional symbols, wire every signature (NA1, NA10)."""
+    global libdw, _libdw_loaded, available_symbols
     if _libdw_loaded:
         return
-    libdw = ctypes.CDLL("libdw.so.1", use_errno=True)
+    libdw = _load_libdw()
     _libdw_loaded = True
+    available_symbols = _probe_optional(libdw)
 
     libdw.dwfl_begin.restype = ctypes.POINTER(Dwfl)
     libdw.dwfl_begin.argtypes = [ctypes.POINTER(Dwfl_Callbacks)]
@@ -125,6 +202,19 @@ def _init_libs() -> None:
     libdw.dwfl_thread_getframes.restype = ctypes.c_int
     libdw.dwfl_thread_getframes.argtypes = [
         ctypes.POINTER(Dwfl_Thread), _frame_cb_t, ctypes.c_void_p]
+
+    # Optional P1/P2 API (NA10): wire only the symbols the loaded libdw
+    # exposes, so old elfutils stays usable (NA11 源码位置 gate).
+    if "dwfl_module_getsrc" in available_symbols:
+        libdw.dwfl_module_getsrc.restype = ctypes.c_void_p
+        libdw.dwfl_module_getsrc.argtypes = [
+            ctypes.POINTER(Dwfl_Module), Dwarf_Addr]
+    if "dwfl_lineinfo" in available_symbols:
+        libdw.dwfl_lineinfo.restype = ctypes.c_char_p
+        libdw.dwfl_lineinfo.argtypes = [
+            ctypes.c_void_p, ctypes.POINTER(Dwarf_Addr),
+            ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_uint64), ctypes.POINTER(ctypes.c_uint64)]
 
 
 def _default_callbacks() -> Dwfl_Callbacks:
@@ -215,10 +305,14 @@ def collect_native(pid: int) -> list[dto.NativeThreadInfo]:
                     if mainfile.value:
                         modpath = mainfile.value.decode("utf-8", "replace")
 
+                filename, lineno = _resolve_line(mod, lookup)
+
                 frames = current["frames"]
                 if frames is not None and len(frames) < MAX_FRAMES:  # NA5
                     frames.append(dto.NativeFrame(pc=pc.value, symbol=sym,
-                                                  module=modpath))
+                                                  module=modpath,
+                                                  filename=filename,
+                                                  line=lineno))
                 return 0
 
             @_thread_cb_t
@@ -230,8 +324,9 @@ def collect_native(pid: int) -> list[dto.NativeThreadInfo]:
                 current["frames"] = None
                 results.append(dto.NativeThreadInfo(
                     tid=tid, comm=read_comm(pid, tid), frames=frames,
-                    # NA6: 复刻旧判定（§4 P0-3 修正为冻结期新功能，不实施）
-                    unwind_failed=(fr != 0 and len(frames) == 0),
+                    # NA6: ADR A10 — dwfl error with no frames, or a lone
+                    # pc=0 sentinel frame (gdb "Backtrace stopped").
+                    unwind_failed=_unwind_failed(fr, frames),
                 ))
                 return 0
 

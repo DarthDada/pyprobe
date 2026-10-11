@@ -40,15 +40,18 @@ class FakeLibdw:
 
     threads: list of dicts {tid, comm, frames, getframes_rc}
     frames:  list of (pc, isact, symbol|None, module_path|None)
+    src_map: optional {pc: (filename, line)} — DWARF source positions (A12)
     """
 
-    def __init__(self, threads=(), begin_ok=True, report_rc=0, attach_rc=0):
+    def __init__(self, threads=(), begin_ok=True, report_rc=0, attach_rc=0,
+                 src_map=None):
         self.threads = list(threads)
         self.begin_ok = begin_ok
         self.report_rc = report_rc
         self.attach_rc = attach_rc
         self.calls = []
         self.addrname_lookups = []  # NA4: lookup 地址记录（pc−1 语义守护）
+        self.src_map = src_map or {}  # NA11: pc → (filename, line)
         self._tokens = {}
 
     # -- helpers ---------------------------------------------------------
@@ -123,6 +126,26 @@ class FakeLibdw:
                 if addr in (pc, pc - 1):
                     return pc, _isact, _sym, _m
         return None
+
+    def _pc_for_mod(self, mod_tok):
+        frame = self._frame_for(mod_tok)
+        return frame[0] if frame else None
+
+    def dwfl_module_getsrc(self, mod, addr):
+        """NA11: Dwarf_Line* for a module address with DWARF line info."""
+        pc = self._pc_for_mod(mod)
+        if pc in self.src_map:
+            return self._token(("src", pc))
+        return None
+
+    def dwfl_lineinfo(self, line, addr_ref, linep, colp, mtime, length):
+        """NA11: fill *linep and return the filename for a Dwarf_Line*."""
+        key = self._tokens[line.contents.value]
+        fname, lineno = self.src_map[key[1]]
+        if linep:
+            ctypes.cast(linep,
+                        ctypes.POINTER(ctypes.c_int)).contents.value = lineno
+        return fname.encode() if fname else None
 
     def dwfl_module_addrname(self, mod, addr):
         self.addrname_lookups.append(addr)
@@ -272,13 +295,195 @@ class TestFrameMapping:
         assert len(threads[0].frames) == 256
 
     def test_unwind_failed_flag(self, fake_libdw, stub_engine, monkeypatch):
-        """NA6（复刻旧判定）：getframes 非 0 且 0 帧 → unwind_failed=True；
-        有帧则 False（§4 P0-3 修正为冻结期新功能，不实施）。"""
+        """NA6（ADR A10 修正）：getframes 非 0 且 0 帧 → unwind_failed=True；
+        有真实帧则 False（错误不掩蔽已读到的帧）；lone pc=0 哨兵帧（gdb
+        "Backtrace stopped" 场景，如 io_uring iou-sqp-*）亦为 True。"""
         fake_libdw(FakeLibdw(threads=[
             {"tid": 100, "comm": "", "frames": [], "getframes_rc": -1},
             {"tid": 101, "comm": "",
-             "frames": [(0x1000, True, "f", None)], "getframes_rc": -1}]))
+             "frames": [(0x1000, True, "f", None)], "getframes_rc": -1},
+            {"tid": 102, "comm": "",
+             "frames": [(0x0, True, "??", None)], "getframes_rc": 0}]))
         monkeypatch.setattr(nat_mod, "read_comm", lambda pid, tid: "")
         threads = collect_native(PID)
-        assert threads[0].unwind_failed is True
-        assert threads[1].unwind_failed is False
+        assert threads[0].unwind_failed is True    # 无帧 + dwfl 错误
+        assert threads[1].unwind_failed is False   # 有真实帧
+        assert threads[2].unwind_failed is True    # lone pc=0 哨兵帧
+
+
+class TestSourceLocation:
+    """NA11（ADR A12 / TODO §3 P1-5）：帧源码位置 file:line 解析。"""
+
+    def test_resolves_file_and_line(self, fake_libdw, stub_engine, monkeypatch):
+        """有 DWARF 行表且能力位具备 → 帧带 filename/line。"""
+        fake_libdw(FakeLibdw(
+            threads=[{"tid": 100, "comm": "uvloop",
+                      "frames": [(0x1000, True, "uv__io_poll", "/lib/loop.so")]}],
+            src_map={0x1000: ("src/unix/linux.c", 1432)}))
+        monkeypatch.setattr(nat_mod, "read_comm", lambda pid, tid: "uvloop")
+        monkeypatch.setattr(nat_mod, "available_symbols",
+                            frozenset({"dwfl_module_getsrc", "dwfl_lineinfo"}))
+        threads = collect_native(PID)
+        f = threads[0].frames[0]
+        assert (f.filename, f.line) == ("src/unix/linux.c", 1432)
+
+    def test_absent_when_capability_missing(self, fake_libdw, stub_engine,
+                                            monkeypatch):
+        """失败模式：库缺 dwfl_module_getsrc/lineinfo 能力位 → None（保底
+        NA4 的 from module，不崩）。"""
+        fake_libdw(FakeLibdw(
+            threads=[{"tid": 100, "comm": "",
+                      "frames": [(0x1000, True, "f", "/lib/x.so")]}],
+            src_map={0x1000: ("x.c", 3)}))
+        monkeypatch.setattr(nat_mod, "read_comm", lambda pid, tid: "")
+        monkeypatch.setattr(nat_mod, "available_symbols", frozenset())
+        threads = collect_native(PID)
+        assert (threads[0].frames[0].filename,
+                threads[0].frames[0].line) == (None, None)
+
+    def test_no_dwarf_leaves_none(self, fake_libdw, stub_engine, monkeypatch):
+        """失败模式：模块无 DWARF（getsrc 返回 NULL）→ filename/line 为 None
+        （Python 主程序无 .debug_* 的常态，与 gdb 持平）。"""
+        fake_libdw(FakeLibdw(
+            threads=[{"tid": 100, "comm": "",
+                      "frames": [(0x1000, True, "PyRun",
+                                  "/usr/bin/python3.12")]}]))
+        monkeypatch.setattr(nat_mod, "read_comm", lambda pid, tid: "")
+        monkeypatch.setattr(nat_mod, "available_symbols",
+                            frozenset({"dwfl_module_getsrc", "dwfl_lineinfo"}))
+        threads = collect_native(PID)
+        assert (threads[0].frames[0].filename,
+                threads[0].frames[0].line) == (None, None)
+
+
+class TestLibdwLoad:
+    """NA1（ADR A9 / TODO §3 P0-1）：libdw 加载名回退链。
+
+    防护：ldconfig 只注册 ``libdw.so.1`` 或 ``libdw.so`` 其一的环境，以及
+    ``find_library("dw")`` 末位兜底；首候选命中即停（不产生多余 dlopen）。
+    """
+
+    def test_prefers_primary_soname(self):
+        """首候选 libdw.so.1 命中即返回，不再尝试后续候选。"""
+        tried = []
+        sentinel = object()
+
+        def loader(name, use_errno=False):
+            tried.append(name)
+            return sentinel
+
+        got = nat_mod._load_libdw(loader=loader, finder=lambda _n: None)
+        assert got is sentinel
+        assert tried == ["libdw.so.1"]
+
+    def test_falls_back_to_bare_soname(self):
+        """libdw.so.1 缺失 → 回退 libdw.so（只注册其一的 ldconfig 环境）。"""
+        tried = []
+        sentinel = object()
+
+        def loader(name, use_errno=False):
+            tried.append(name)
+            if name == "libdw.so.1":
+                raise OSError("libdw.so.1: cannot open shared object file")
+            return sentinel
+
+        got = nat_mod._load_libdw(loader=loader, finder=lambda _n: None)
+        assert got is sentinel
+        assert tried == ["libdw.so.1", "libdw.so"]
+
+    def test_falls_back_to_find_library(self):
+        """两个 soname 均缺失 → 末位尝试 find_library("dw") 的结果。"""
+        tried = []
+        sentinel = object()
+
+        def loader(name, use_errno=False):
+            tried.append(name)
+            if name == "/usr/lib/libdw.so.2":
+                return sentinel
+            raise OSError(name)
+
+        got = nat_mod._load_libdw(
+            loader=loader, finder=lambda _n: "/usr/lib/libdw.so.2")
+        assert got is sentinel
+        assert tried == ["libdw.so.1", "libdw.so", "/usr/lib/libdw.so.2"]
+
+    def test_find_library_result_not_duplicated(self):
+        """find_library 返回已尝试过的 soname 时不重复尝试。"""
+        tried = []
+        sentinel = object()
+
+        def loader(name, use_errno=False):
+            tried.append(name)
+            if name == "libdw.so":
+                return sentinel
+            raise OSError(name)
+
+        got = nat_mod._load_libdw(loader=loader, finder=lambda _n: "libdw.so")
+        assert got is sentinel
+        assert tried == ["libdw.so.1", "libdw.so"]
+
+    def test_raises_last_error_when_all_fail(self):
+        """全部候选失败 → 抛最后的 OSError（不得静默吞掉加载失败）。"""
+        def loader(name, use_errno=False):
+            raise OSError(f"cannot load {name}")
+
+        with pytest.raises(OSError, match=r"libdw\.so$"):
+            nat_mod._load_libdw(loader=loader, finder=lambda _n: None)
+
+
+class TestOptionalSymbolProbe:
+    """NA10（ADR A9 / TODO §3 P0-2）：可选符号探测降级。
+
+    防护：旧 elfutils（缺 dwarf_getscopes/dwfl_module_getsrc/dwarf_cfi_addrframe）
+    下核心"符号名 + 回溯"必须照常；P1/P2 特性按能力位跳过而非崩溃。
+    """
+
+    def test_reports_present_subset(self):
+        """只把实际导出的可选符号记为可用。"""
+        class Lib:
+            dwarf_getscopes = object()
+            dwfl_module_getsrc = object()
+
+            def __getattr__(self, name):
+                raise AttributeError(name)
+
+        assert nat_mod._probe_optional(Lib()) == frozenset(
+            {"dwarf_getscopes", "dwfl_module_getsrc"})
+
+    def test_empty_when_none_present(self):
+        """一个可选符号都没有 → 空集合（核心路径不受影响）。"""
+        class Lib:
+            def __getattr__(self, name):
+                raise AttributeError(name)
+
+        assert nat_mod._probe_optional(Lib()) == frozenset()
+
+
+class _Slot:
+    """Attribute sink: stands in for a writable ctypes function pointer."""
+
+
+class _AnyLib:
+    """Stand-in for ctypes.CDLL: any attribute resolves to a fresh _Slot."""
+
+    def __getattr__(self, name):
+        return _Slot()
+
+
+class TestInitLibs:
+    """NA1/NA10（ADR A9）：_init_libs 经 _load_libdw 取库并探测可选符号。"""
+
+    def test_init_libs_loads_then_probes(self, monkeypatch):
+        """_load_libdw 取库 → _probe_optional 探测 → 结果落到 available_symbols。"""
+        fake = _AnyLib()
+        monkeypatch.setattr(nat_mod, "libdw", None)
+        monkeypatch.setattr(nat_mod, "available_symbols", frozenset())
+        monkeypatch.setattr(nat_mod, "_libdw_loaded", False)
+        monkeypatch.setattr(nat_mod, "_load_libdw", lambda **kw: fake)
+        monkeypatch.setattr(
+            nat_mod, "_probe_optional",
+            lambda lib: frozenset({"dwarf_getscopes"}) if lib is fake
+            else frozenset())
+        nat_mod._init_libs()
+        assert nat_mod.libdw is fake
+        assert nat_mod.available_symbols == frozenset({"dwarf_getscopes"})

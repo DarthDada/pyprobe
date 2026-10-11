@@ -11,6 +11,7 @@ types.py/stack_dump/native_dump/record/top/syscall_render 逐字节复刻
 """
 
 import os
+import re
 
 from .. import dto
 from .color import cyan, dim, green, red, yellow_bold
@@ -114,6 +115,19 @@ def format_process(proc_info: dto.ProcessInfo,
     return "\n".join(parts)
 
 
+#: LLVM-local symbol discriminator suffix (ADR A11): gdb shows the short name.
+_LLVM_SUFFIX = re.compile(r"\.llvm\.\d+$")
+
+
+def _shorten_symbol(name: str) -> str:
+    """Strip the trailing ``.llvm.<digits>`` suffix (TX5 / ADR A11).
+
+    Display-layer only: DTOs and ``--json`` keep the raw addrname (data
+    stays complete, mirroring Python-frame path shortening).
+    """
+    return _LLVM_SUFFIX.sub("", name)
+
+
 def format_native_thread(thread: dto.NativeThreadInfo, index: int, *,
                          color: bool = False, verbose: bool = False) -> str:
     """One native thread block (TX5): gdb-style header + frames."""
@@ -121,28 +135,32 @@ def format_native_thread(thread: dto.NativeThreadInfo, index: int, *,
         f'Thread {index} (LWP {yellow_bold(str(thread.tid), color)}) '
         f'"{thread.comm}":'
     )
-    if not thread.frames and thread.unwind_failed:
-        # TX5 (逐字复刻): unwind died on a corrupt stack with nothing read.
-        body = red(
+    lines = []
+    for j, f in enumerate(thread.frames):
+        pc = dim(f"0x{f.pc:016x}", color)
+        symbol = green(_shorten_symbol(f.symbol), color)
+        if f.filename and f.line:
+            # TX5 (ADR A12): gdb-style source position replaces "from module".
+            lines.append(
+                f"  #{j}  {pc} in {symbol} () at "
+                f"{cyan(f.filename, color)}:{dim(str(f.line), color)}")
+        elif f.module:
+            # TX5 (复刻约束 native basename): non-verbose shows the
+            # module basename; -v keeps the full path.
+            module = f.module if verbose else os.path.basename(f.module)
+            lines.append(
+                f"  #{j}  {pc} in {symbol} () "
+                f"from {cyan(module, color)}")
+        else:
+            lines.append(f"  #{j}  {pc} in {symbol} ()")
+    if thread.unwind_failed:
+        # TX5 (ADR A10): emit after any frame lines so a lone pc=0 sentinel
+        # frame is kept, matching gdb's "#0 0x0 in ??()" + stopped line;
+        # with no frames this degenerates to the old single-line output.
+        lines.append(red(
             "  Backtrace stopped: Cannot access memory at address 0x0",
-            color)
-    elif not thread.frames:
-        body = ""
-    else:
-        lines = []
-        for j, f in enumerate(thread.frames):
-            pc = dim(f"0x{f.pc:016x}", color)
-            symbol = green(f.symbol, color)
-            if f.module:
-                # TX5 (复刻约束 native basename): non-verbose shows the
-                # module basename; -v keeps the full path.
-                module = f.module if verbose else os.path.basename(f.module)
-                lines.append(
-                    f"  #{j}  {pc} in {symbol} () "
-                    f"from {cyan(module, color)}")
-            else:
-                lines.append(f"  #{j}  {pc} in {symbol} ()")
-        body = "\n".join(lines)
+            color))
+    body = "\n".join(lines)
     return header + "\n" + body if body else header
 
 

@@ -37,10 +37,13 @@ def test_process_info_fields_and_defaults():
 
 
 def test_native_frame_fields_and_defaults():
-    """D1: 键集 + symbol 默认 "??"（无名符号的 native 帧占位，复刻约束）。"""
+    """D1: 键集 + symbol 默认 "??"（无名符号的 native 帧占位）；filename/line
+    为 A12 新增源码位置字段（默认 None，无 DWARF 时的占位）。"""
     f = dto.NativeFrame(0xDEADBEEF)
-    assert _keys(dto.NativeFrame(1)) == ["pc", "symbol", "module"]
-    assert (f.symbol, f.module) == ("??", None)
+    assert _keys(dto.NativeFrame(1)) == [
+        "pc", "symbol", "module", "filename", "line"]
+    assert (f.symbol, f.module, f.filename, f.line) == (
+        "??", None, None, None)
 
 
 def test_native_thread_info_fields_and_defaults():

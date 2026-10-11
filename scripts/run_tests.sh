@@ -36,7 +36,7 @@ done
 # Merge the mode marker with any `-m`/`--marker` passed after `--` into a single
 # AND expression. pytest's last `-m` wins, so e.g. `run_tests.sh unit -- -m 'not
 # slow'` would silently drop the unit selector; combining avoids the trap
-# (TODO §10.2-7).
+# (contracts.md §10.2-7).
 case "$mode" in
     all)         mode_expr="" ;;
     unit)        mode_expr="not integration" ;;
@@ -72,7 +72,7 @@ selector=()
 [ -n "$combined" ] && selector=(-m "$combined")
 [ "$mode" = "integration" ] && selector+=(-v)
 
-# Coverage baseline (TODO §7.1): guard against coverage regressions. Raise it
+# Coverage baseline (ratchet): guard against coverage regressions. Raise it
 # as coverage improves; never lower it without an explicit decision.
 COV_FAIL_UNDER=79
 cov_args=()

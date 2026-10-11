@@ -48,6 +48,8 @@ class NativeFrame:
     pc: int
     symbol: str = "??"
     module: str | None = None
+    filename: str | None = None   # DWARF source file, when available (A12)
+    line: int | None = None       # DWARF source line, when available (A12)
 
 
 @dataclass

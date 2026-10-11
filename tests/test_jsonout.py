@@ -62,8 +62,12 @@ class TestNativeJson:
                             module="/usr/bin/python3.12")])
         doc = json.loads(format_native_json(100, "python3 app.py", [t]))
         assert doc["process"] == {"pid": 100, "cmdline": "python3 app.py"}
-        assert doc["threads"][0]["frames"][0]["pc"] == 0x1000
-        assert doc["threads"][0]["frames"][0]["symbol"] == "main"
+        frame = doc["threads"][0]["frames"][0]
+        assert frame["pc"] == 0x1000
+        assert frame["symbol"] == "main"
+        # A12: native 帧键集扩展 filename/line（数据面，未解析时为 null）
+        assert "filename" in frame
+        assert "line" in frame
 
 
 class TestSyscallsJson:

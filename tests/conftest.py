@@ -42,7 +42,36 @@ def fast_syscall_pid():
     yield from _spawn_target("fast_syscall_app.py")
 
 
-def _spawn_target(script_name):
+@pytest.fixture(scope="session")
+def dwarf_mod(tmp_path_factory):
+    """contracts.md NA11（ADR A12）fixture：编译带 -g 的迷你 .so。
+
+    native 源码位置 file:line 解析的活体来源；无 C 编译器时 skip（集成
+    测试的可选依赖降级）。
+    """
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    cc = shutil.which("cc") or shutil.which("gcc")
+    if cc is None:
+        pytest.skip("no C compiler for the DWARF source-line fixture")
+    out = tmp_path_factory.mktemp("dwarfmod") / "libdwarfmod.so"
+    src = Path(__file__).parent / "targets" / "dwarf_mod.c"
+    subprocess.run(
+        [cc, "-g", "-O0", "-fPIC", "-shared", "-o", str(out), str(src)],
+        check=True)
+    return out
+
+
+@pytest.fixture(scope="session")
+def dwarf_target_pid(dwarf_mod):
+    """contracts.md NA11：目标进程主线程持有 -g C 帧（pyprobe_spin_ms）。"""
+    yield from _spawn_target(
+        "dwarf_app.py", env={"PYPROBE_DWARF_MOD": str(dwarf_mod)})
+
+
+def _spawn_target(script_name, env=None):
     """Shared spawn/READY-handshake/teardown for target fixtures (E2E1)."""
     import os
     import subprocess
@@ -54,8 +83,10 @@ def _spawn_target(script_name):
 
     interpreter = os.environ.get("TARGET_PYTHON") or sys.executable
     script = Path(__file__).parent / "targets" / script_name
+    child_env = {**os.environ, **env} if env else None
     child = subprocess.Popen(
         [interpreter, str(script)],
+        env=child_env,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     try:
         line = child.stdout.readline()  # 阻塞至 READY 或 EOF（即就绪轮询）

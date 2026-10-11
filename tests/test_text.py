@@ -173,10 +173,59 @@ class TestFormatNativeThread:
         assert "from /lib/libc.so" in format_native_thread(t, 1, verbose=True)
 
     def test_unwind_failed(self):
-        """TX5：回溯失败且无帧 → Backtrace stopped 提示（逐字复刻）。"""
+        """TX5：回溯失败且无帧 → 仅 Backtrace stopped 提示（逐字复刻）。"""
         t = dto.NativeThreadInfo(tid=5, comm="x", unwind_failed=True)
-        assert "Backtrace stopped: Cannot access memory" in \
-            format_native_thread(t, 1)
+        out = format_native_thread(t, 1)
+        assert "Backtrace stopped: Cannot access memory" in out
+        assert "#0" not in out
+
+    def test_unwind_failed_with_sentinel_frame(self):
+        """TX5（ADR A10）：lone pc=0 哨兵帧保留，Backtrace stopped 行在其后
+        （对齐 gdb `#0 0x0 in ??()` 后接 stopped 提示）。"""
+        t = dto.NativeThreadInfo(
+            tid=5, comm="x", unwind_failed=True,
+            frames=[dto.NativeFrame(pc=0x0, symbol="??", module=None)])
+        out = format_native_thread(t, 1)
+        assert "#0  0x0000000000000000 in ?? ()" in out
+        assert out.index("#0") < out.index("Backtrace stopped")
+
+    def test_source_location_at_file_line(self):
+        """TX5/A12：有源码位置 → `at file:line`（gdb 风格），替代 `from module`；
+        行号随帧显示，模块信息不重复出现。"""
+        t = dto.NativeThreadInfo(
+            tid=100, comm="uvloop",
+            frames=[dto.NativeFrame(pc=0x1000, symbol="uv__io_poll",
+                                    module="/lib/loop.so",
+                                    filename="src/unix/linux.c", line=1432)])
+        out = format_native_thread(t, 1)
+        assert "in uv__io_poll () at src/unix/linux.c:1432" in out
+        assert "from" not in out
+
+    def test_source_location_falls_back_to_module(self):
+        """TX5/A12：无源码位置但有模块 → 维持 `from <module>`（未解析的帧）。"""
+        t = dto.NativeThreadInfo(
+            tid=100, comm="python3",
+            frames=[dto.NativeFrame(pc=0x1000, symbol="PyRun",
+                                    module="/usr/bin/python3.12")])
+        out = format_native_thread(t, 1)
+        assert "in PyRun () from python3.12" in out
+        assert "at " not in out
+
+    def test_llvm_suffix_truncated(self):
+        """TX5/A11：符号尾部 `.llvm.<数字>` 截断（对齐 gdb 短符号名）；
+        无该后缀的名字（含 "??"）原样保留。"""
+        t = dto.NativeThreadInfo(
+            tid=100, comm="python3",
+            frames=[
+                dto.NativeFrame(pc=0x10, symbol="run_mod.llvm.1234",
+                                module=None),
+                dto.NativeFrame(pc=0x20, symbol="plain_fn", module=None),
+                dto.NativeFrame(pc=0x30, symbol="??", module=None)])
+        out = format_native_thread(t, 1)
+        assert "in run_mod ()" in out
+        assert "llvm" not in out
+        assert "in plain_fn ()" in out
+        assert "in ?? ()" in out
 
     def test_color(self):
         """TX5：颜色点位（pc 暗/符号绿/模块青/失败红）。"""

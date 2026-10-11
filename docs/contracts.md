@@ -33,7 +33,8 @@ pyprobe 的本质是**外部观测者问题**：仅凭 PID 与内核接口重建
 
 ## 2. 架构决策记录（ADR——重构允许的全部架构变更）
 
-> 决策已确认（2026-10）：A1、A2、A3/A4/A5 三件套、A8 全部纳入。每项 ADR 落地时须有
+> 决策已确认（2026-10）：A1、A2、A3/A4/A5 三件套、A8 全部纳入；A9–A12 为替换后
+> 增量解禁（native P0-1/P0-2/P0-3/P1-4/P1-5）。每项 ADR 落地时须有
 > 守护测试，且测试注释回链本文件对应条目（§10.5-5 验收项）。
 
 ### A1. Layout 值对象化（吞并旧 §8.1）
@@ -89,6 +90,66 @@ collect/format/dump 三层语义、CLI 薄壳、errors 层级、clicolors 颜色
 颜色策略属呈现层（`present/color.py`，仅 present/cli 可引用），非横切——
 A5 落地后 dto 不再依赖颜色（2026-10 批次 1 契约细化，修订 §10.1 A8 原文
 "横切含 color" 的表述）。
+
+### A9. native 冻结期新功能解禁（TODO §3 P0-1 / P0-2）
+
+原子替换后，下述两项曾作为 native 的"冻结期不实施"复刻项（NA1 备注）保留；
+现解禁，作为替换**之后**的增量特性落地（2026-10，非复刻约束违反）：
+
+- **P0-1 libdw 加载名回退**：`_load_libdw` 依次尝试 `libdw.so.1` → `libdw.so`
+  → `find_library("dw")`，首个可加载者胜出；全部失败抛最后的 `OSError`
+  （不静默吞掉加载失败）。有 `libdw.so.1` 的常见环境行为与旧树一致，
+  故对成功路径非行为变更。
+- **P0-2 可选符号探测**：加载后探测 `dwarf_getscopes` / `dwfl_module_getsrc`
+  / `dwarf_cfi_addrframe` 是否导出，记入 `available_symbols`；后续 P1/P2
+  消费者按能力位跳过缺失特性，核心"符号名 + 回溯"路径（NA4）不依赖可选符号。
+  当前无消费者，为 P1/P2 的前置能力位。
+
+**不改动**：本 ADR 批内不改 NA6 的 `unwind_failed` 判定与 TX5 输出；P0-3 随后由
+A10 解禁修正，P1-4（符号后缀截断）仍为契约冻结项。
+
+### A10. native 回溯失败判定对齐 gdb（TODO §3 P0-3）
+
+NA6 此前冻结旧判定 `unwind_failed = (fr != 0 且 0 帧)`。该判定把"回溯在地址 0
+即停"的线程当成成功：dwfl 返回单个 `pc == 0` 哨兵帧（如 io_uring `iou-sqp-*`
+内核工作线程），pyprobe 显示一帧即告成功，而 gdb `thread apply all bt` 会打印
+`#0  0x0000000000000000 in ?? ()` 后接 `Backtrace stopped: Cannot access memory
+at address 0x0`。现解禁并修正：
+
+- **判定**：`unwind_failed` 为真当 `fr != 0 且 0 帧`，**或**结果为单个 `pc == 0`
+  的哨兵帧。
+- **呈现**（TX5）：`unwind_failed` 时恒在帧行**之后**输出红色
+  `Backtrace stopped: Cannot access memory at address 0x0`；无帧时退化为仅有该行
+  （与旧行为一致）。lone `pc == 0` 帧**保留**（对齐 gdb 显示 `#0 0x0`）。
+
+这是对 NA6/TX5 复刻约束的有意解禁（记录于本 ADR）；原批 7 差异豁免不再涵盖该项。
+NA9 的集成 oracle 不受影响。
+
+### A11. native 符号 LLVM 后缀截断（TODO §3 P1-4）
+
+gdb 展示 LLVM 生成的局部符号时用**短符号名**（截断尾部 `.llvm.<数字>` 判别后缀）。
+pyprobe 在**呈现层**（`present/text.py`）施加同一截断：`_shorten_symbol` =
+`re.sub(r'\.llvm\.\d+$', '', name)`（如 `run_mod.llvm.1234` → `run_mod`）。
+
+- 仅改文本输出（TX5）；DTO 与 `--json` 保持 `dwfl_module_addrname` 原值
+  （数据面完整，与 Python 帧路径缩短同规则——design.md §3.1）。
+- 无该后缀的名字（含 `??`）原样保留。
+
+### A12. native 帧源码位置 `at file:line`（TODO §3 P1-5）
+
+对齐 gdb：native 帧在能解析出源码位置时输出 `at <file>:<line>`，否则维持
+`from <module>`（互斥，gdb 语义）。
+
+- **解析**：frame_cb 在符号查找后，经 `dwfl_module_getsrc(mod, lookup)` +
+  `dwfl_lineinfo(line, …)` 取 `(filename, lineno)`；能力位 gate 于 NA10 的
+  `available_symbols`（探测集新增 `dwfl_lineinfo`），缺则跳过、保底 `from module`。
+- **数据**：`dto.NativeFrame` 增 `filename: str | None`、`line: int | None`
+  （D1 键集与 JS1/JS2 native schema 随之扩展——本 ADR 覆盖 §3「JSON schema
+  逐字节兼容」约束的**有意变更**，`--json` 面新增这两个键）。
+- **呈现**：TX5 帧行有 source → `  #j  0x<pc16> in <sym> () at <file>:<line>`；
+  无 source 但有模块 → `... from <module>`；皆无 → `... in <sym> ()`。
+- 仅带 DWARF 行表的模块（如 `-g` 编译的扩展 / uvloop）生效；无调试信息的模块
+  与 gdb 一致地只有 `from`。
 
 ## 3. 复刻约束（非差异，禁止"顺手优化"）
 
@@ -185,7 +246,7 @@ A5 落地后 dto 不再依赖颜色（2026-10 批次 1 契约细化，修订 §1
 
 | # | 行为点 | 旧测试出处 | 新测试 |
 |---|--------|------------|--------|
-| D1 | 7 个 dataclass 字段名/顺序/默认值同旧（asdict 键集 = JSON schema 复刻约束） | test_json_output.py 结构断言 | test_dto.py（键集 pin） |
+| D1 | 7 个 dataclass 字段名/顺序/默认值同旧（asdict 键集 = JSON schema 复刻约束）；**例外**：`NativeFrame` 增 `filename`/`line`（A12，JSON schema 有意扩展） | test_json_output.py 结构断言 | test_dto.py（键集 pin） |
 | D2 | 无 format()/format_header() 方法；不 import 颜色（A5 守护） | （A5 新增） | test_dto.py + test_structure.py |
 
 #### 批 1 旧测试标注（§5.2 实例）
@@ -484,15 +545,17 @@ SnapshotView（单次快照语义），长时追踪（批次 5 syscalls）用 Li
 
 | # | 行为点 | 旧测试出处 | 新测试 |
 |---|--------|------------|--------|
-| NA1 | libdw 加载 libdw.so.1 + 全量函数签名装配（复刻；§4 P0-1 加载名回退为冻结期新功能，不实施） | （旧 _init_libs） | test_native.py |
+| NA1 | libdw 加载（A9/P0-1）：依次 `libdw.so.1` → `libdw.so` → `find_library("dw")`，首个可加载者胜出、全败抛最后 `OSError`；随后装配全量函数签名。有 `libdw.so.1` 时与旧树一致 | （旧 _init_libs） | test_native.py::TestLibdwLoad |
 | NA2 | dwfl 回调装配（find_elf/find_debuginfo/section_address/debuginfo_path）；dwfl_begin 失败 → AttachFailed(pid, "dwfl_begin failed: …") | （旧 L157-159） | 同 |
 | NA3 | dwfl_linux_proc_report/attach 失败 → AttachFailed(pid, strerror) | （旧 L162-170） | 同 |
 | NA4 | 帧回调：pc 经 dwfl_frame_pc（非激活帧 lookup=pc−1）；符号 dwfl_module_addrname（缺 → "??"）；模块路径 dwfl_module_info mainfile | （旧 frame_cb） | 同（stub dwfl 守护） |
 | NA5 | 单线程帧上限 _MAX_FRAMES=256 | （旧 L111/200） | 同 |
-| NA6 | 线程回调：tid/comm（procfs.read_comm）；unwind_failed = (fr!=0 且 0 帧)（**复刻旧判定**；§4 P0-3 修正为冻结期新功能，不实施，记入批 7 差异豁免评估） | （旧 thread_cb） | 同 |
+| NA6 | 线程回调：tid/comm（procfs.read_comm）；unwind_failed 判定（**A10 修正**）：`fr != 0 且 0 帧` **或** lone `pc == 0` 哨兵帧 → True | （旧 thread_cb） | test_native.py::TestFrameMapping::test_unwind_failed_flag |
 | NA7 | 线程结果按 tid 升序 | （旧 L221） | 同 |
 | NA8 | **A2 迁移**：PtraceEngine(feature="native stack dump") seize(options=0) → stop_all → dwfl（assume_ptrace_stopped=True）→ finally detach；不再使用 PTRACE_ATTACH | （旧 _attach_all_threads/_detach_all） | 同（引擎调用序列守护） |
 | NA9 | 集成：collect_native 对 live target 出 native 帧（libdw 缺失/权限不足时 skip——旧 test_collect_native_or_skip 语义） | TestNativeDump::test_collect_native_or_skip | 同（integration） |
+| NA10 | 可选符号探测（A9/P0-2，A12 扩展）：`available_symbols` = 加载库实际导出的 `dwarf_getscopes`/`dwfl_module_getsrc`/`dwarf_cfi_addrframe`/`dwfl_lineinfo` 子集，`_init_libs` 经 `_load_libdw`+`_probe_optional` 装配；缺失不致命（保底 NA4 符号+回溯）。消费者：NA11（getsrc/lineinfo 作能力位） | （新增，A9/P0-2） | test_native.py::TestOptionalSymbolProbe + TestInitLibs |
+| NA11 | 源码位置（A12/P1-5）：frame_cb 经 `dwfl_module_getsrc`+`dwfl_lineinfo` 取 `(filename, lineno)` 填入 `NativeFrame.filename/line`；gate 于 `available_symbols`，缺/无 DWARF → 两者 None（保底 `from module`，NA4） | （新增，A12） | test_native.py::TestFrameMapping + 集成 |
 
 #### 批 5 旧测试标注（§5.2 实例）
 
@@ -532,7 +595,7 @@ SnapshotView（单次快照语义），长时追踪（批次 5 syscalls）用 Li
 | TX2 | 线程块：`Thread <tid>[ (idle)][: "name"]` + 帧行；无帧 → `  (no Python frame — thread may be in C code or idle)`；颜色点位 | TestThreadInfo 全量 10 条 | 同 |
 | TX3 | 进程头：`Process <pid>: <cmdline>\nPython v<ver> (<exe>)\n` | TestProcessInfo 2 条 | 同 |
 | TX4 | format_process：进程头 + 逐线程块 + 空行分隔 | TestFormatProcess 5 条 | 同 |
-| TX5 | native 线程：`Thread <i> (LWP <tid>) "<comm>":`；帧 `  #<j>  0x<pc16> in <sym> () [from <module>]`；非 verbose 模块 basename（**复刻约束 native basename**）；unwind_failed 且无帧 → red "Backtrace stopped: Cannot access memory at address 0x0" | TestNativeFrame 全量 7 条 | 同 |
+| TX5 | native 线程：`Thread <i> (LWP <tid>) "<comm>":`；帧 `  #<j>  0x<pc16> in <sym> ()`，有源码位置 → ` at <file>:<line>`（A12）、否则有模块 → ` from <module>`；非 verbose 模块 basename（**复刻约束 native basename**）、符号尾部 `.llvm.\d+` 截断（A11）；unwind_failed → 帧行之后 red "Backtrace stopped: Cannot access memory at address 0x0"（无帧时仅有该行）；lone pc=0 帧保留（A10） | TestNativeFrame 全量 + TestFormatNativeThread | 同 |
 | TX6 | syscall 事件行：`<tid>  <name>(<rendered>) = <ret>`；error → `= -1 <ENAME> (<edesc>)`（未知 errno → ERRNO_<n>/Unknown error）；elapsed 非 0 → ` <0.000123>`（**复刻约束 elapsed 格式**）；errno 名/描述表自旧 types.py 逐字 | TestSyscallEvent 全量 9 条 | 同 |
 | TX7 | format_summary：表头列 `syscall/calls/errors/total/total/s/per-call`（**复刻约束 total/s 列**）、82 连字符分隔、按 total_time 降序、总计行；SyscallStat 累加器 | TestFormatSummary 5 条 | 同 |
 | TX8 | format_folded：计数降序 + 键升序确定性排序；空 → ""；单行尾换行 | TestFormatFolded 3 条 | 同 |
@@ -544,7 +607,7 @@ SnapshotView（单次快照语义），长时追踪（批次 5 syscalls）用 Li
 | # | 行为点 | 旧测试出处 | 新测试 |
 |---|--------|------------|--------|
 | JS1 | 三函数均 `json.dumps(asdict, indent=2, ensure_ascii=False) + "\n"`；键集 = dto asdict（D1 已 pin 的数据面，此处 pin 包装形态） | test_json_output.py 结构断言 | test_jsonout.py |
-| JS2 | format_process_json：{"process":…,"threads":[…]}；format_native_json：process 仅 pid/cmdline（无 Python 元数据——旧注释语义）；format_syscalls_json：{"events":[…]} | 同上 | 同 |
+| JS2 | format_process_json：{"process":…,"threads":[…]}；format_native_json：process 仅 pid/cmdline（无 Python 元数据——旧注释语义）、帧键集含 `filename`/`line`（A12）；format_syscalls_json：{"events":[…]} | 同上 | 同 |
 
 **present/dumps.py**（旧各 dump_* 编排段；collect/format/dump 三层契约的 dump 层）
 

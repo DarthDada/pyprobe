@@ -1,0 +1,207 @@
+........................................................................ [  8%]
+........................................................................ [ 16%]
+........................................................................ [ 24%]
+........................................................................ [ 32%]
+........................................................................ [ 40%]
+........................................................................ [ 48%]
+...................................FFFFFFF.............................. [ 56%]
+........................................................................ [ 64%]
+........................................................................ [ 73%]
+........................................................................ [ 81%]
+........................................................................ [ 89%]
+........................................................................ [ 97%]
+.......................                                                  [100%]
+=================================== FAILURES ===================================
+_________________ TestLibdwLoad.test_falls_back_to_bare_soname _________________
+
+self = <tests.test_native.TestLibdwLoad object at 0x743ebe8c04d0>
+
+    def test_falls_back_to_bare_soname(self):
+        """libdw.so.1 缺失 → 回退 libdw.so（只注册其一的 ldconfig 环境）。"""
+        tried = []
+        sentinel = object()
+    
+        def loader(name, use_errno=False):
+            tried.append(name)
+            if name == "libdw.so.1":
+                raise OSError("libdw.so.1: cannot open shared object file")
+            return sentinel
+    
+>       got = nat_mod._load_libdw(loader=loader, finder=lambda _n: None)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_native.py:318: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+pyprobe/observe/native.py:91: in _load_libdw
+    return loader(_LIBDW_NAMES[0], use_errno=True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'libdw.so.1', use_errno = True
+
+    def loader(name, use_errno=False):
+        tried.append(name)
+        if name == "libdw.so.1":
+>           raise OSError("libdw.so.1: cannot open shared object file")
+E           OSError: libdw.so.1: cannot open shared object file
+
+tests/test_native.py:315: OSError
+________________ TestLibdwLoad.test_falls_back_to_find_library _________________
+
+self = <tests.test_native.TestLibdwLoad object at 0x743ebe8c0830>
+
+    def test_falls_back_to_find_library(self):
+        """两个 soname 均缺失 → 末位尝试 find_library("dw") 的结果。"""
+        tried = []
+        sentinel = object()
+    
+        def loader(name, use_errno=False):
+            tried.append(name)
+            if name == "/usr/lib/libdw.so.2":
+                return sentinel
+            raise OSError(name)
+    
+>       got = nat_mod._load_libdw(
+            loader=loader, finder=lambda _n: "/usr/lib/libdw.so.2")
+
+tests/test_native.py:333: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+pyprobe/observe/native.py:91: in _load_libdw
+    return loader(_LIBDW_NAMES[0], use_errno=True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'libdw.so.1', use_errno = True
+
+    def loader(name, use_errno=False):
+        tried.append(name)
+        if name == "/usr/lib/libdw.so.2":
+            return sentinel
+>       raise OSError(name)
+E       OSError: libdw.so.1
+
+tests/test_native.py:331: OSError
+____________ TestLibdwLoad.test_find_library_result_not_duplicated _____________
+
+self = <tests.test_native.TestLibdwLoad object at 0x743ebe8c0b90>
+
+    def test_find_library_result_not_duplicated(self):
+        """find_library 返回已尝试过的 soname 时不重复尝试。"""
+        tried = []
+        sentinel = object()
+    
+        def loader(name, use_errno=False):
+            tried.append(name)
+            if name == "libdw.so":
+                return sentinel
+            raise OSError(name)
+    
+>       got = nat_mod._load_libdw(loader=loader, finder=lambda _n: "libdw.so")
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_native.py:349: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+pyprobe/observe/native.py:91: in _load_libdw
+    return loader(_LIBDW_NAMES[0], use_errno=True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'libdw.so.1', use_errno = True
+
+    def loader(name, use_errno=False):
+        tried.append(name)
+        if name == "libdw.so":
+            return sentinel
+>       raise OSError(name)
+E       OSError: libdw.so.1
+
+tests/test_native.py:347: OSError
+______________ TestLibdwLoad.test_raises_last_error_when_all_fail ______________
+
+self = <tests.test_native.TestLibdwLoad object at 0x743ebe8b3a70>
+
+    def test_raises_last_error_when_all_fail(self):
+        """全部候选失败 → 抛最后的 OSError（不得静默吞掉加载失败）。"""
+        def loader(name, use_errno=False):
+            raise OSError(f"cannot load {name}")
+    
+>       with pytest.raises(OSError, match=r"libdw\.so$"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: 'libdw\\.so$'
+E         Actual message: 'cannot load libdw.so.1'
+
+tests/test_native.py:358: AssertionError
+_____________ TestOptionalSymbolProbe.test_reports_present_subset ______________
+
+self = <tests.test_native.TestOptionalSymbolProbe object at 0x743ebe8b0590>
+
+    def test_reports_present_subset(self):
+        """只把实际导出的可选符号记为可用。"""
+        class Lib:
+            dwarf_getscopes = object()
+            dwfl_module_getsrc = object()
+    
+            def __getattr__(self, name):
+                raise AttributeError(name)
+    
+>       assert nat_mod._probe_optional(Lib()) == frozenset(
+            {"dwarf_getscopes", "dwfl_module_getsrc"})
+E       AssertionError: assert frozenset({'d...dule_getsrc'}) == frozenset({'d...dule_getsrc'})
+E         
+E         Extra items in the left set:
+E         'dwarf_cfi_addrframe'
+E         Use -v to get more diff
+
+tests/test_native.py:378: AssertionError
+_____________ TestOptionalSymbolProbe.test_empty_when_none_present _____________
+
+self = <tests.test_native.TestOptionalSymbolProbe object at 0x743ebe8960c0>
+
+    def test_empty_when_none_present(self):
+        """一个可选符号都没有 → 空集合（核心路径不受影响）。"""
+        class Lib:
+            def __getattr__(self, name):
+                raise AttributeError(name)
+    
+>       assert nat_mod._probe_optional(Lib()) == frozenset()
+E       AssertionError: assert frozenset({'d...dule_getsrc'}) == frozenset()
+E         
+E         Extra items in the left set:
+E         'dwfl_module_getsrc'
+E         'dwarf_getscopes'
+E         'dwarf_cfi_addrframe'
+E         Use -v to get more diff
+
+tests/test_native.py:387: AssertionError
+________________ TestInitLibs.test_init_libs_loads_then_probes _________________
+
+self = <tests.test_native.TestInitLibs object at 0x743ebe895df0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x743ebe54ea20>
+
+    def test_init_libs_loads_then_probes(self, monkeypatch):
+        """_load_libdw 取库 → _probe_optional 探测 → 结果落到 available_symbols。"""
+        fake = _AnyLib()
+        monkeypatch.setattr(nat_mod, "libdw", None)
+        monkeypatch.setattr(nat_mod, "available_symbols", frozenset())
+        monkeypatch.setattr(nat_mod, "_libdw_loaded", False)
+        monkeypatch.setattr(nat_mod, "_load_libdw", lambda **kw: fake)
+        monkeypatch.setattr(
+            nat_mod, "_probe_optional",
+            lambda lib: frozenset({"dwarf_getscopes"}) if lib is fake
+            else frozenset())
+        nat_mod._init_libs()
+>       assert nat_mod.libdw is fake
+E       AssertionError: assert <CDLL 'libdw.so.1', handle 25b9a560 at 0x743ebe54dcd0> is <tests.test_native._AnyLib object at 0x743ebe54eb70>
+E        +  where <CDLL 'libdw.so.1', handle 25b9a560 at 0x743ebe54dcd0> = nat_mod.libdw
+
+tests/test_native.py:416: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_native.py::TestLibdwLoad::test_falls_back_to_bare_soname - ...
+FAILED tests/test_native.py::TestLibdwLoad::test_falls_back_to_find_library
+FAILED tests/test_native.py::TestLibdwLoad::test_find_library_result_not_duplicated
+FAILED tests/test_native.py::TestLibdwLoad::test_raises_last_error_when_all_fail
+FAILED tests/test_native.py::TestOptionalSymbolProbe::test_reports_present_subset
+FAILED tests/test_native.py::TestOptionalSymbolProbe::test_empty_when_none_present
+FAILED tests/test_native.py::TestInitLibs::test_init_libs_loads_then_probes
+7 failed, 880 passed, 17 deselected in 0.94s
