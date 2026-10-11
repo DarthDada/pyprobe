@@ -69,13 +69,16 @@ class TestSpecOracleUnistdHeader:
         return out
 
     def test_table_matches_header(self):
-        """SY11：表内每个号/名对与头文件一致（内核可能更新——只校验
-        表内已有的号，头文件新增的号不强制收录）。"""
+        """SY11：交集一致性——头文件已收录的号，名号必须与表一致；表里有而
+        头文件未收录的号（内核头文件落后于表，如 uretprobe 335）与头文件新增
+        的号（表未收录）都**不**强制，容忍两向版本漂移（CI runner 的内核头
+        文件常旧于开发机）。`len(header)` 下限防头文件解析失败导致的空校验。"""
         header = self._parse_header()
+        assert len(header) >= 300, "unistd_64.h looks truncated"
         for nr, name in SYSCALL_NAMES.items():
-            assert nr in header, f"{nr} ({name}) not in header"
-            assert header[nr] == name, (
-                f"nr {nr}: table says {name}, header says {header[nr]}")
+            if nr in header:
+                assert header[nr] == name, (
+                    f"nr {nr}: table says {name}, header says {header[nr]}")
 
 
 class TestSpecOracleFlagTables:
