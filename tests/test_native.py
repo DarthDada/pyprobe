@@ -312,7 +312,7 @@ class TestFrameMapping:
 
 
 class TestSourceLocation:
-    """NA11（ADR A12 / TODO §3 P1-5）：帧源码位置 file:line 解析。"""
+    """NA11（ADR A12 / 原 TODO §3 P1-5）：帧源码位置 file:line 解析。"""
 
     def test_resolves_file_and_line(self, fake_libdw, stub_engine, monkeypatch):
         """有 DWARF 行表且能力位具备 → 帧带 filename/line。"""
@@ -357,7 +357,7 @@ class TestSourceLocation:
 
 
 class TestLibdwLoad:
-    """NA1（ADR A9 / TODO §3 P0-1）：libdw 加载名回退链。
+    """NA1（ADR A9 / 原 TODO §3 P0-1）：libdw 加载名回退链。
 
     防护：ldconfig 只注册 ``libdw.so.1`` 或 ``libdw.so`` 其一的环境，以及
     ``find_library("dw")`` 末位兜底；首候选命中即停（不产生多余 dlopen）。
@@ -432,7 +432,7 @@ class TestLibdwLoad:
 
 
 class TestOptionalSymbolProbe:
-    """NA10（ADR A9 / TODO §3 P0-2）：可选符号探测降级。
+    """NA10（ADR A9 / 原 TODO §3 P0-2）：可选符号探测降级。
 
     防护：旧 elfutils（缺 dwarf_getscopes/dwfl_module_getsrc/dwarf_cfi_addrframe）
     下核心"符号名 + 回溯"必须照常；P1/P2 特性按能力位跳过而非崩溃。

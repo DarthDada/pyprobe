@@ -1,0 +1,19 @@
+=== scripts/check_docs.sh ===
+check_docs: OK (7 docs, D1–D5)
+=== scripts/lint.sh ===
+All checks passed!
+check_docs: OK (7 docs, D1–D5)
+=== scripts/run_tests.sh unit ===
+tests/test_topstats.py ........                                          [ 96%]
+tests/test_views.py .............................                        [100%]
+
+====================== 898 passed, 18 deselected in 1.07s ======================
+=== 行数 ===
+   323 README.md
+    66 AGENTS.md
+    66 TODO.md
+   620 docs/design.md
+   860 docs/contracts.md
+    76 docs/migration-2026-10.md
+    35 docs/tasks/2026-10-web-monitor.md
+  2046 total

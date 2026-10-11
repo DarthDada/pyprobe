@@ -25,7 +25,7 @@ CPython 运行时状态并呈现。它提供四种工作模式：
 - **采样与性能分析**（`record` / `top` 子命令）— 周期性采样 Python 调用栈：
   `record` 聚合为 folded stacks，`top` 终端实时刷新各线程当前帧与热点函数排行
   （§15）。使用 `process_vm_readv(2)`，**不需要 ptrace attach**。
-- **Web 监控**（`web` 子命令，可选 extras `pyprobe[web]`，ADR A13）— 采样观测模式
+- **Web 监控**（`web` 子命令，可选 extras `pyprobe[web]`，ADR A13；批 8 进行中，未落地）— 采样观测模式
   的浏览器前端：HTTP 服务器 + SSE 推送热点统计与活跃线程**完整调用栈**。与 `top`
   共享 Sampler/TopStats，同样**不需要 ptrace attach**；web 是与 cli 平级的顶层
   消费形态，非第五种观测模式。
@@ -57,58 +57,28 @@ kernel → target → cpython → observe → present → {cli, web}
 
 ---
 
-## 2. 模块结构
+## 2. 模块结构（架构地图）
 
-```
-pyprobe/                     纯 Python 实现（入口 pyprobe.cli:main）
-├── __init__.py              公共 API 面（__all__）+ resolve_layout 例外（§3.2）
-├── __main__.py              python -m pyprobe 入口
-├── cli.py                   argparse 薄壳（stack / syscall / record / top）
-├── offsets.py               contracts.md §10.5-2 兼容门面（只读；无 configure 全局副作用）
-├── colors.py                兼容门面（= present.color 的再出口）
-├── errors.py                异常层级（横切；消息逐字复刻旧语义）
-├── dto.py                   纯数据 DTO（横切；无 format()，不依赖颜色）
-├── kernel/                  内核接口层
-│   ├── mem.py               Transport：process_vm_readv 原语
-│   ├── views.py             SnapshotView（页级 LRU）/ LiveView（不缓存）
-│   ├── procfs.py            /proc 元信息（cmdline / task 枚举 / comm / stat / maps）
-│   └── ptrace.py            统一 ptrace 状态机（ADR A2）
-├── target/                  目标进程知识层
-│   ├── identity.py          进程识别与版本判定（exe / Py_Version）
-│   ├── layout.py            Layout 值对象 + resolve_layout（ADR A1）
-│   └── symbols.py           ELF64 符号查找 + 常量读取
-├── cpython/                 CPython 对象模型层（ADR A3）
-│   ├── objects.py           PyLong / Unicode / Bytes typed reader
-│   ├── dicts.py             字典遍历（combined/unicode/split/managed）
-│   ├── code.py              Code 对象头 + PEP 626 行号表
-│   ├── frames.py            InterpreterFrame 链遍历
-│   ├── runtime.py           解释器/线程图遍历
-│   └── names.py             threading._active 线程名查找
-├── observe/                 时间维度层
-│   ├── session.py           Session：存活期不变量一次性解析 + view 工厂
-│   ├── snapshot.py          单次快照栈采集 + 空闲双启发式
-│   ├── sampling.py          Sampler 采样引擎（热路径）
-│   ├── profile.py           record 折叠栈聚合
-│   ├── topstats.py          top 增量聚合（纯数据）
-│   ├── syscalls.py          syscall 追踪 + 参数解码 + TraceFilter
-│   ├── syscall_abi.py       x86-64 syscall 号表 / 解码元数据 / flags
-│   └── native.py            native 回溯（libdw/libdwfl）
-├── present/                 呈现层
-│   ├── color.py             ANSI 颜色 + clicolors 检测
-│   ├── text.py              全部文本格式化（ADR A5）
-│   ├── jsonout.py           JSON 输出（schema 复刻）
-│   └── dumps.py             dump_* 编排（collect + 颜色决策 + 打印 + 退出码）
-└── web/                     Web 监控前端（可选 extras `pyprobe[web]`，ADR A13；与 cli 平级）
-    ├── monitor.py           采样调度 + TopStats 聚合 + 订阅扇出（纯 Python，框架无关）
-    ├── app.py               FastAPI 路由 + SSE 编码 + 静态伺服（monitor 注入）
-    ├── serve.py             serve_web 编排（monitor + uvicorn + 退出码，dump_* 语义位）
-    └── static/              React 构建产物（git 入库；wheel package-data）
+会话先读本表，按「入口」列定位文件；**禁止未读地图先全库 grep**。地图只写已落地结构
+（批 8 的 `web/`、`frontend/` 未落地，目标形态见 ADR A13）；改结构时更新对应行并刷新
+验证日期，函数级改动禁止回写（配套行为规则见 AGENTS.md「架构地图使用规则」）。
 
-tools/gen_offsets.c          生成 pyprobe/offsets.json
-frontend/                    React + Vite 源码（build 输出至 pyprobe/web/static/，产物入库）
-scripts/                     构建/测试/CI 脚本（单一入口，见 README）
-tests/                       测试（§13）
-```
+| 路径 | 职责 | 入口（文件:符号） | 禁令/依赖 |
+|------|------|------------------|-----------|
+| `pyprobe/kernel/` | 内核接口：字节传输 + 动态控制 | `mem.py:Transport`、`ptrace.py:PtraceEngine` | 禁 import 上层；仅横切 |
+| `pyprobe/target/` | 目标知识：符号定位 + 布局 + 识别 | `layout.py:resolve_layout`、`symbols.py:ElfImage` | → kernel |
+| `pyprobe/cpython/` | CPython 对象模型：零裸偏移遍历 | `frames.py:walk_frames`、`runtime.py:read_thread_chain` | → target |
+| `pyprobe/observe/` | 时间维度：快照 / 采样 / 事件流 | `session.py:open_session`、`sampling.py:Sampler` | → cpython |
+| `pyprobe/present/` | 呈现：文本 / JSON / 颜色 | `text.py:format_process`、`dumps.py:dump_python` | → observe |
+| `pyprobe/cli.py` | argparse 薄壳（stack/syscall/record/top） | `cli.py:main` | 可 import 全部；web 延迟 import |
+| `pyprobe/dto.py` + `pyprobe/errors.py` | 横切：纯数据 DTO / 异常层级 | — | 禁 import 任何层 |
+| `pyprobe/offsets.py` + `pyprobe/colors.py` | 兼容门面（只读再出口） | — | 层模块禁用（结构测试） |
+| `tools/gen_offsets.c` | 偏移量生成器（真实头文件） | `scripts/gen_offsets.sh` | — |
+| `scripts/` | 构建 / 测试 / CI 唯一入口 | `scripts/ci.sh` | 禁裸命令 |
+| `tests/` | 测试（按 oracle 类型组织，§13） | `conftest.py:target_pid` | 禁照抄被测常量 |
+| `reference/c/` | C 参考实现（交叉校验，不交付） | `scripts/build.sh` | 不对外交付 |
+
+以代码为准，验证于 2026-10-11
 
 ---
 
@@ -116,19 +86,17 @@ tests/                       测试（§13）
 
 库 API 与 CLI 分离为三层（`collect_*` / `format_*` / `dump_*`），与包分层对应：
 
-| 层 | 函数 | 职责 | 返回/行为 |
+| 层 | 函数（名称；签名以代码为准） | 职责 | 返回/行为 |
 |----|------|------|-----------|
-| 采集 | `collect_python(pid)` | Python 栈采集（`open_session` + `collect_snapshot` 组合） | `(ProcessInfo, list[ThreadInfo])` |
-| 采集 | `collect_native(pid)` | ptrace seize + DWARF unwind | `list[NativeThreadInfo]` |
-| 采集 | `collect_syscalls(pid, *, trace, max_events, verbose, on_event)` | 统一 ptrace 引擎全线程追踪 | `list[SyscallEvent]` |
-| 采集 | `collect_profile(pid, *, rate=50, duration=None)` | 采样循环聚合 folded counts | `ProfileData`（中断/退出返回部分数据） |
-| 引擎 | `open_session(pid, *, view_factory=None)` → `Session` | 存活期不变量一次性解析（A1/A4 落点） | `Session` |
-| 引擎 | `collect_snapshot(session)` | 单次快照栈采集（每次新建 SnapshotView） | `list[ThreadInfo]` |
-| 引擎 | `Sampler(pid, *, view_factory=None)` | 长时采样（`.sample()` / `.refresh_names()`） | `list[ThreadInfo]` |
+| 采集 | `collect_python` / `collect_native` / `collect_syscalls` / `collect_profile` | Python 栈 / native DWARF 回溯 / syscall 追踪 / 采样聚合 | 结构化 dataclass |
+| 引擎 | `open_session` / `collect_snapshot` / `Sampler` | 存活期不变量一次性解析 + 单次快照 / 长时采样 | `Session` / `list[ThreadInfo]` |
 | 格式化 | `format_process` / `format_native` / `format_summary` / `format_folded` | 数据 → CLI 风格字符串（`present/text.py`） | `str` |
 | 格式化 | `format_process_json` / `format_native_json` / `format_syscalls_json` | 数据 → JSON（`present/jsonout.py`） | `str` |
 | CLI 封装 | `dump_python` / `dump_native` / `dump_syscalls` / `dump_record` / `dump_top` | collect + format + print + 退出码（`present/dumps.py`） | `int` |
-| Web 编排 | `serve_web(pid, *, rate, interval, host, port)` | Monitor + FastAPI + uvicorn 编排（`web/serve.py`，ADR A13，dump_* 语义位） | `int` |
+| Web 编排 | `serve_web`（批 8 未落地） | Monitor + FastAPI + uvicorn 编排（`web/serve.py`，ADR A13） | `int` |
+
+> 上表只钉分层职责与命名；逐函数签名以代码为准，公开 API 面契约见
+> [contracts.md §4](contracts.md) 模块契约表（双写漂移史见 ADR A14）。
 
 设计要点：
 - `collect_*` **不打印**，返回结构化 dataclass，调用方可程序化使用。
@@ -149,7 +117,8 @@ SyscallEvent(tid, nr, name, args, rendered, ret, error, elapsed)  # 单次系统
 ProfileData(proc_info, counts, samples, idle_samples, elapsed, version_warning)
 ```
 
-DTO 字段名/顺序/默认值与旧树一致（`asdict` 键集即 JSON schema，复刻约束；D1）。
+DTO 字段名/顺序/默认值与旧树一致（`asdict` 键集即 JSON schema，复刻约束；D1）；名单以
+`pyprobe/dto.py` 为准。
 **路径缩短**（显示层约定）：数据字段始终保存完整路径，`present/text.py` 缺省
 （`verbose=False`）缩短显示——Python 帧取路径**末 2 级**（对齐 py-spy），native
 module 取 **basename**；`verbose=True`（`-v/--verbose`）保持完整路径。native 符号名
@@ -184,8 +153,8 @@ PyProbeError                      基类
 └── UnsupportedArchitecture       架构不支持（syscall/native 仅 x86-64）
 ```
 
-消息逐字复刻旧语义（CLI `[!] {e}` 用户可见输出；E2）。`collect_*` 抛具体异常，
-`dump_*` 捕获后转 stderr + 退出码。
+消息逐字复刻旧语义（CLI `[!] {e}` 用户可见输出；E2）；层级以 `pyprobe/errors.py` 为准。
+`collect_*` 抛具体异常，`dump_*` 捕获后转 stderr + 退出码。
 
 ### 3.4 颜色基础设施（present/color.py）
 
@@ -469,7 +438,7 @@ else:
 
 `resolve_layout(version)` 可用于在无目标进程时直接取版本布局（A1 新增 API）。
 
-### 12.4 Web 监控模式（可选 extras，ADR A13）
+### 12.4 Web 监控模式（可选 extras，ADR A13；批 8 进行中，未落地）
 
 ```bash
 pip install 'pyprobe[web]'        # fastapi + uvicorn 最小集；核心 wheel 零依赖不变
@@ -526,13 +495,7 @@ pyprobe web -p <pid>              # http://127.0.0.1:9470/ 实时热点 + 完整
 单向，横切层不自咬）与 offsets facade 禁用；`tests/test_package.py` 守护包解析根、offsets.json
 与"旧模块名不可导入"；`tests/test_api_exports.py` pin `__all__` 名单。
 
-### 13.6 差异对比（批 7 门禁）
-
-旧新 CLI 在同一存活目标上归一化（计时字段）后逐字节对比；`stack --json` /
-`stack --native --json` / `syscall --json` 为强制项，`record` folded 比键集合。该门禁
-在 contracts.md §10.5 替换前执行（临时资产，替换后移除）。
-
-### 13.7 手动探测约束
+### 13.6 手动探测约束
 
 手动端到端验证时：
 

@@ -1,4 +1,4 @@
-# Remote CI (TODO §6-1): enforce all-green commits by running the exact same
+# Remote CI (原 TODO §6-1): enforce all-green commits by running the exact same
 # pipeline as a local `scripts/ci.sh` (sync gen-offsets lint test smoke), plus
 # a cross-version integration matrix (TARGET_PYTHON 3.11–3.14) driven by
 # scripts/ci_target.sh. The workflow must not hand-type build/test commands —
@@ -40,7 +40,7 @@ jobs:
       - name: CI pipeline (sync gen-offsets lint test smoke)
         run: scripts/ci.sh
 
-  # TODO §6-1: exercise the conftest TARGET_PYTHON mechanism across supported
+  # 原 TODO §6-1: exercise the conftest TARGET_PYTHON mechanism across supported
   # CPython versions. pyprobe runs on the pinned 3.12 interpreter; only the
   # inspected target varies (scripts/ci_target.sh installs it and runs the
   # integration suite).

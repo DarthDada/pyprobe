@@ -1,0 +1,51 @@
+AGENTS.md:41: [D3] 禁止裸章节号引用 TODO（编号会漂移；历史指称写作「原 TODO §<n>」）
+TODO.md:18: [D5] 未勾条目缺日期锚（需「（YYYY-MM」）
+TODO.md:19: [D5] 未勾条目缺日期锚（需「（YYYY-MM」）
+TODO.md:20: [D5] 未勾条目缺日期锚（需「（YYYY-MM」）
+TODO.md:26: [D5] 未勾条目缺日期锚（需「（YYYY-MM」）
+TODO.md:27: [D5] 未勾条目缺日期锚（需「（YYYY-MM」）
+TODO.md:43: [D5] 未勾条目缺日期锚（需「（YYYY-MM」）
+TODO.md:47: [D5] 未勾条目缺日期锚（需「（YYYY-MM」）
+TODO.md:48: [D5] 未勾条目缺日期锚（需「（YYYY-MM」）
+TODO.md:49: [D5] 未勾条目缺日期锚（需「（YYYY-MM」）
+TODO.md:55: [D5] 未勾条目缺日期锚（需「（YYYY-MM」）
+TODO.md:56: [D5] 未勾条目缺日期锚（需「（YYYY-MM」）
+TODO.md:57: [D5] 未勾条目缺日期锚（需「（YYYY-MM」）
+TODO.md:63: [D5] 未勾条目缺日期锚（需「（YYYY-MM」）
+TODO.md:64: [D5] 未勾条目缺日期锚（需「（YYYY-MM」）
+TODO.md:88: [D5] 未勾条目缺日期锚（需「（YYYY-MM」）
+TODO.md:92: [D5] 未勾条目缺日期锚（需「（YYYY-MM」）
+TODO.md:98: [D5] 未勾条目缺日期锚（需「（YYYY-MM」）
+TODO.md:102: [D5] 未勾条目缺日期锚（需「（YYYY-MM」）
+docs/contracts.md:832: [D2] 不存在的脚本 scripts/next.sh
+docs/contracts.md:96: [D3] 禁止裸章节号引用 TODO（编号会漂移；历史指称写作「原 TODO §<n>」）
+docs/contracts.md:113: [D3] 禁止裸章节号引用 TODO（编号会漂移；历史指称写作「原 TODO §<n>」）
+docs/contracts.md:130: [D3] 禁止裸章节号引用 TODO（编号会漂移；历史指称写作「原 TODO §<n>」）
+docs/contracts.md:140: [D3] 禁止裸章节号引用 TODO（编号会漂移；历史指称写作「原 TODO §<n>」）
+
+[!] check_docs: 24 violation(s)
+============================= test session starts ==============================
+platform linux -- Python 3.12.15, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/admin/projects/pyprobe
+configfile: pyproject.toml
+plugins: anyio-4.15.1, cov-7.1.0
+collected 916 items / 915 deselected / 1 selected
+
+tests/test_structure.py F                                                [100%]
+
+=================================== FAILURES ===================================
+___________________ test_architecture_map_matches_filesystem ___________________
+
+    def test_architecture_map_matches_filesystem():
+        """A14 守护（contracts.md）：design.md §2 架构地图必须与文件系统一致——
+        未落地结构画进现状地图曾误导定位（A14 决策背景）；地图只写已落地
+        结构，「入口」列指向真实文件与符号，函数级细节由代码提供。"""
+        rows = _map_rows()
+>       assert rows, "design.md §2 架构地图缺失（四字段表）"
+E       AssertionError: design.md §2 架构地图缺失（四字段表）
+E       assert []
+
+tests/test_structure.py:152: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_structure.py::test_architecture_map_matches_filesystem - As...
+====================== 1 failed, 915 deselected in 0.25s =======================

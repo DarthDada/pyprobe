@@ -146,7 +146,7 @@ class TestNativeUnwindLive:
 
 class TestNativeSourceLineLive:
     def test_resolves_source_line(self, dwarf_target_pid):
-        """NA11（ADR A12 / TODO §3 P1-5）：对含 DWARF 的 -g 模块，native 帧
+        """NA11（ADR A12 / 原 TODO §3 P1-5）：对含 DWARF 的 -g 模块，native 帧
         解析出 `file:line`（libdw/权限不足时 skip，同 NA9 语义）。"""
         try:
             threads = collect_native(dwarf_target_pid)

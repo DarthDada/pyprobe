@@ -46,7 +46,7 @@ uv run python examples/fastapi_app.py   # FastAPI on :8000
 pgrep -f fastapi_app                     # 获取 PID，例如 14695
 ```
 
-> **注意**：`uv run` 先派生 `uv` 包装进程再 exec Python，`pgrep -f` 可能同时命中两者。请选用命令行为 `.../python ... fastapi_app.py` 的那个 PID——对非 Python 进程查找 `_PyRuntime` 符号必然失败（PID 错位风险详见 [design.md §13.7](docs/design.md#137-手动探测约束)）。
+> **注意**：`uv run` 先派生 `uv` 包装进程再 exec Python，`pgrep -f` 可能同时命中两者。请选用命令行为 `.../python ... fastapi_app.py` 的那个 PID——对非 Python 进程查找 `_PyRuntime` 符号必然失败（PID 错位风险详见 [design.md §13.6](docs/design.md#136-手动探测约束)）。
 
 ### Python 栈转储
 
@@ -270,6 +270,7 @@ Top functions
 | `scripts/smoke.sh` | wheel 冒烟测试（构建 + 隔离 venv 安装 + import/CLI 校验） |
 | `scripts/run_tests.sh` | 测试（`unit`/`integration`/全部；`--cov` 覆盖率基线；`watch` 保存即重跑） |
 | `scripts/lint.sh` | ruff 代码检查（`--fix` 自动修复；`format` 应用格式化） |
+| `scripts/check_docs.sh` | 文档契约检查（链接/锚点、脚本引用、TODO 引用、预算棘轮；ADR A14，随 `lint.sh` 执行） |
 | `scripts/ci.sh` | CI 全流程编排（`sync gen-offsets lint test smoke`，`full` 含 `build-c`） |
 | `scripts/ci_target.sh` | CI 跨版本阶段：对矩阵 `TARGET_PYTHON`（3.11–3.14）跑集成测试 |
 | `scripts/install_hooks.sh` | 启用 git hooks（`core.hooksPath=.githooks`；pre-commit/pre-push） |

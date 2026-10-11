@@ -1,5 +1,5 @@
 #!/bin/bash
-# Enable the tracked git hooks (TODO §6-1): point core.hooksPath at .githooks
+# Enable the tracked git hooks (原 TODO §6-1): point core.hooksPath at .githooks
 # so pre-commit/pre-push run through scripts/. Local-only and reversible.
 set -e
 cd "$(dirname "$0")/.."

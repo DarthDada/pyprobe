@@ -7,7 +7,7 @@
 #   sync          install/sync dependencies          (scripts/sync.sh)
 #   gen-offsets   regenerate pyprobe/offsets.json     (scripts/gen_offsets.sh)
 #   build-c       build the C reference implementation (scripts/build.sh)
-#   lint          ruff check over pyprobe/ + tests/   (scripts/lint.sh)
+#   lint          ruff + docs contract check         (scripts/lint.sh)
 #   test          run the test suite + coverage baseline   (scripts/run_tests.sh)
 #   smoke         build wheel + import/CLI smoke test (scripts/smoke.sh)
 #

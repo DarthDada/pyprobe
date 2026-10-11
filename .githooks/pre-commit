@@ -1,5 +1,5 @@
 #!/bin/sh
-# pyprobe pre-commit hook (TODO §6-1).
+# pyprobe pre-commit hook (原 TODO §6-1).
 # Lint + unit tests, through scripts/ only (no bare tool invocations).
 # Enable with: scripts/install_hooks.sh  (sets core.hooksPath=.githooks)
 set -e

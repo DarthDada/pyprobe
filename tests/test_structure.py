@@ -13,9 +13,14 @@ Rules:
 """
 
 import ast
+import re
 from pathlib import Path
 
-PKG = Path(__file__).resolve().parent.parent / "pyprobe"
+REPO = Path(__file__).resolve().parent.parent
+PKG = REPO / "pyprobe"
+
+MAP_PACKAGES = ["kernel", "target", "cpython", "observe", "present"]
+MAP_FOOTER_RE = re.compile(r"以代码为准，验证于 \d{4}-\d{2}-\d{2}")
 
 LAYERS = ["kernel", "target", "cpython", "observe", "present"]
 CROSS_CUTTING = {"errors", "dto"}
@@ -118,3 +123,50 @@ def test_layers_do_not_import_offsets_facade():
             if imp == "pyprobe.offsets" or imp.startswith("pyprobe.offsets."):
                 violations.append(f"{rel}: imports offsets facade")
     assert violations == []
+
+
+def _map_section():
+    """design.md §2 架构地图正文（标题到下一个 §）。"""
+    text = (REPO / "docs" / "design.md").read_text(encoding="utf-8")
+    return text.split("\n## 2. ", 1)[1].split("\n## ", 1)[0]
+
+
+def _map_rows():
+    """地图表的数据行（跳过表头与分隔行），每行返回单元格列表。"""
+    rows = []
+    for line in _map_section().splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) < 4 or set(cells[0]) <= set("-: ") or cells[0] == "路径":
+            continue
+        rows.append(cells)
+    return rows
+
+
+def test_architecture_map_matches_filesystem():
+    """A14 守护（contracts.md）：design.md §2 架构地图必须与文件系统一致——
+    未落地结构画进现状地图曾误导定位（A14 决策背景）；地图只写已落地
+    结构，「入口」列指向真实文件与符号，函数级细节由代码提供。"""
+    rows = _map_rows()
+    assert rows, "design.md §2 架构地图缺失（四字段表）"
+
+    joined_paths = " ".join(r[0] for r in rows)
+    for pkg in MAP_PACKAGES:
+        assert f"pyprobe/{pkg}/" in joined_paths, f"地图缺包：pyprobe/{pkg}/"
+
+    for path_cell, _duty, entry_cell, _ban in rows:
+        paths = re.findall(r"`([^`]+)`", path_cell) or [path_cell]
+        for path in paths:
+            assert (REPO / path).exists(), f"地图条目指向不存在的路径：{path}"
+        for file_rel, symbol in re.findall(r"`([\w./-]+\.py):(\w+)`", entry_cell):
+            base = REPO / paths[0]
+            base_dir = base if base.is_dir() else base.parent
+            candidates = [base_dir / file_rel, REPO / file_rel]
+            target = next((c for c in candidates if c.is_file()), None)
+            assert target is not None, f"入口文件不存在：{file_rel}"
+            assert symbol in target.read_text(encoding="utf-8"), (
+                f"入口符号不存在：{file_rel}:{symbol}")
+
+    assert MAP_FOOTER_RE.search(_map_section()), (
+        "架构地图缺末行「以代码为准，验证于 YYYY-MM-DD」")

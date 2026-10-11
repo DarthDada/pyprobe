@@ -1,5 +1,5 @@
 #!/bin/bash
-# CI cross-version stage (TODO §6-1): run the integration suite against a
+# CI cross-version stage (原 TODO §6-1): run the integration suite against a
 # matrix TARGET_PYTHON (3.11–3.14). pyprobe itself stays on the pinned
 # interpreter (.python-version); only the inspected target varies, so the
 # suite validates cross-version end-to-end (the conftest TARGET_PYTHON
