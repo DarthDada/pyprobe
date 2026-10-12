@@ -60,7 +60,7 @@
 
 ## 6. Web 监控模式（`pyprobe[web]`，进行中）
 
-> 契约 SSOT：ADR A13（[contracts.md §2](docs/contracts.md)）+ 批 8 清单（§4，WM/WA/WS/WC/ST-W/PG/E2E-W/FE 系）；
-> **交付形态修订（2026-10）**：打包期隔离——web 独立顶层包 `pyprobe_web/` + 独立发行物 `pyprobe-web`，核心 wheel 不含 fastapi 代码。
+> 契约 SSOT：ADR A13（[contracts.md §2](docs/contracts.md)）+ 批次 8 行为点清单（contracts.md §4，
+> WM/WA/WS/WC/ST-W/E2E-W/FE 系）；架构落点 design.md §2 模块结构 / §12.4 集成模式。
 
-- [ ] 1. 批 8a–8d 依次推进（2026-10）：先补 ADR（web 交付形态），需求分析与逐批清单见 [docs/tasks/2026-10-web-monitor.md](docs/tasks/2026-10-web-monitor.md)；当前：批 8a
+- [ ] 1. 批 8a–8d 依次推进（2026-10）：需求与选型已确认（2026-10，见 ADR A13）；详细计划、逐批清单与后续迭代见 [docs/tasks/2026-10-web-monitor.md](docs/tasks/2026-10-web-monitor.md)；当前：批 8a（extras 与 Monitor）
