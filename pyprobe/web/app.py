@@ -13,13 +13,15 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import (
     FileResponse,
     PlainTextResponse,
     StreamingResponse,
 )
 from starlette.staticfiles import StaticFiles
+
+from ..errors import ProcessExited
 
 PING_TIMEOUT = 15.0  # WA4：15s 无帧 → 心跳
 _POLL = 0.5          # 断连轮询粒度（is_disconnected 响应上限）
@@ -82,6 +84,23 @@ def create_app(monitor, *, static_dir=None) -> FastAPI:
         # WA2 — asdict(proc_info) 四键 + version_warning（None → null）。
         return {**asdict(monitor.proc_info),
                 "version_warning": monitor.version_warning}
+
+    @app.get("/api/snapshot")
+    def api_snapshot():
+        # WA6 — on-demand one-shot full-frame snapshot (stack semantics:
+        # every thread keeps its frame chain, idle ones included). Target
+        # exited → 409 (clean programmatic error; the page's terminal
+        # state still travels via the SSE exit frame).
+        try:
+            threads = monitor.snapshot()
+        except ProcessExited:
+            # B904 — translation, not a handling bug: the 409 response is
+            # the error surface for this request.
+            raise HTTPException(status_code=409,
+                                detail="target process exited") from None
+        return {"process": {**asdict(monitor.proc_info),
+                            "version_warning": monitor.version_warning},
+                "threads": [asdict(t) for t in threads]}
 
     @app.get("/api/events")
     async def api_events(request: Request):

@@ -696,7 +696,7 @@ SnapshotView（单次快照语义），长时追踪（批次 5 syscalls）用 Li
 
 | 模块 | 职责 | 公开 API | 行为点清单 |
 |------|------|----------|------------|
-| `web/monitor.py` | 采样调度 + TopStats 聚合 + 订阅扇出（纯 Python，不 import fastapi/uvicorn——框架无关可单测） | `Monitor(pid, *, rate=50, interval=1.0, sampler_factory=Sampler)`；`.start()`/`.stop()`；`.subscribe() -> Queue`/`.unsubscribe(q)`；`.proc_info`/`.version_warning`/`.exited` | 见批 8 表 |
+| `web/monitor.py` | 采样调度 + TopStats 聚合 + 订阅扇出（纯 Python，不 import fastapi/uvicorn——框架无关可单测） | `Monitor(pid, *, rate=50, interval=1.0, sampler_factory=Sampler)`；`.start()`/`.stop()`；`.snapshot()`；`.subscribe() -> Queue`/`.unsubscribe(q)`；`.proc_info`/`.version_warning`/`.exited` | 见批 8 表 |
 | `web/app.py` | FastAPI 路由 + SSE 编码 + 静态伺服（monitor 注入，无全局状态） | `create_app(monitor, *, static_dir=None) -> FastAPI` | 同上 |
 | `web/serve.py` | 编排（对齐 present/dumps.py 的 dump_* 语义位）：monitor 生命周期 + uvicorn + 异常→退出码 | `serve_web(pid, *, rate=50, interval=1.0, host="127.0.0.1", port=9470) -> int` | 同上 |
 | `cli.py`（增补） | web 子命令（参数解析 + 延迟 import 分发；A6 薄壳不破） | — | 同上 |
@@ -715,6 +715,7 @@ SnapshotView（单次快照语义），长时追踪（批次 5 syscalls）用 Li
 | WM6 | ProcessExited → 广播 `{type: "exit", data: {}}` → 采样线程终止；exit 粘性（新订阅立即收到一帧 exit）；`.exited` 属性为 True | 同 |
 | WM7 | stop() 幂等：置停止标志 + join(timeout=5)；重复调用无副作用 | 同 |
 | WM8 | sampler_factory 注入点（对齐 Sampler view_factory 测试模式）；version_warning 自 session 透出（SE2 承接），Monitor 本身不打印 | 同 |
+| WM9 | snapshot() 按需单次全帧栈快照（批 16）：exited 粘性 → 直接 ProcessExited（不发起读取）；否则 collect_snapshot(sampler.session)——stack 语义（全线程完整帧链，无 sample() 的空闲剪枝），复用已解析会话不重复符号定位；NoThreadState → ProcessExited（SA2 策略承接）但不置粘性、不广播——状态转移归采样线程（WM6）；与后台采样线程并发安全（A4 每次快照独立 view，session 构造后只读）；不触碰 TopStats 与最新快照留存 | 同 |
 
 **web/app.py**
 
@@ -725,6 +726,7 @@ SnapshotView（单次快照语义），长时追踪（批次 5 syscalls）用 Li
 | WA3 | GET /api/events → StreamingResponse：media_type `text/event-stream`；`Cache-Control: no-cache` + `X-Accel-Buffering: no`；进入即 subscribe，首帧立即到达（stats 或粘性 exit）；客户端断开 → unsubscribe 且生成器结束 | 同（starlette 1.6 TestClient HTTP 传输全量缓冲——内容断言按完整流读取（exit 帧收尾），断连/首帧增量语义走原生 ASGI 驱动；批 8b 实施期发现） |
 | WA4 | SSE 帧编码：`event: stats\ndata: <单行 json>\n\n`；exit：`event: exit\ndata: {}\n\n`；exit 帧发出后服务器正常结束该流（前端收 exit 后 close() 不重连，防无限重连循环，FE2 配套）；15s 无帧输出 `: ping\n\n` 心跳 | 同 |
 | WA5 | 路由无全局状态：monitor 经 create_app 注入（stub monitor + TestClient 单测，无真实目标进程） | 同 |
+| WA6 | GET /api/snapshot → 200 `{"process": {pid, cmdline, exe_path, python_version, version_warning}, "threads": [asdict(ThreadInfo), …]}`（批 16：process 块同 WA2；threads 键集即 D1 的 asdict schema——`{native_tid, thread_id, name, frames, idle}`，帧链完整不截断）；目标已退出或快照中 NoThreadState → 409 `{"detail": "target process exited"}`（HTTPException，程序化消费的干净错误位；页面终态语义仍走 SSE exit 帧） | 同 |
 
 **web/serve.py**（对齐 dump_* 编排语义位；uvicorn 细节以注入/monkeypatch 单测）
 
@@ -756,6 +758,7 @@ SnapshotView（单次快照语义），长时追踪（批次 5 syscalls）用 Li
 | # | 行为点 | 新测试 |
 |---|--------|--------|
 | E2E-W1 | 真实子进程（conftest target 模式）+ 真 Monitor + in-process 不经 uvicorn 拉 /api/events（批 8b 实施期修订：原生 ASGI 驱动替代 TestClient——starlette 1.6 后者全量缓冲，增量 SSE 不可观测；「in-process、不经 uvicorn」意图不变）：首帧 stats 含目标函数名/线程名；terminate 目标后收到 exit 帧 | test_web_live.py（integration） |
+| E2E-W2 | /api/snapshot 端到端（批 16）：真子进程 + 真 Monitor + TestClient——200 键集（process/threads）、busy-worker 含完整帧链、**空闲 MainThread 仍带完整帧链**（stack 语义 vs stats 空闲剪枝的差异点）；terminate 后转 409（exited 粘性与 NoThreadState 双路径收敛于同一状态码） | 同 |
 
 **前端**（`frontend/`，React + Vite；产物入库 `pyprobe/web/static/`）
 

@@ -17,20 +17,24 @@ from fastapi.testclient import TestClient
 
 import pyprobe.web.app as app_mod
 from pyprobe import dto
+from pyprobe.errors import ProcessExited
 from pyprobe.web.app import create_app
 
 PID = 4242
 
 
 class StubMonitor:
-    """路由依赖的最小 monitor 面：proc_info/version_warning/订阅扇出。"""
+    """路由依赖的最小 monitor 面：proc_info/version_warning/订阅扇出/快照。"""
 
-    def __init__(self, *, version_warning=None, frames=()):
+    def __init__(self, *, version_warning=None, frames=(), snapshot=None,
+                 snapshot_error=None):
         self.proc_info = dto.ProcessInfo(
             pid=PID, cmdline="python3 x — café", exe_path="/x/python",
             python_version="3.12.13")
         self.version_warning = version_warning
         self._frames = list(frames)
+        self._snapshot = list(snapshot) if snapshot is not None else []
+        self._snapshot_error = snapshot_error
         self.queues = []
         self.unsubscribed = []
 
@@ -43,6 +47,11 @@ class StubMonitor:
 
     def unsubscribe(self, q):
         self.unsubscribed.append(q)
+
+    def snapshot(self):
+        if self._snapshot_error is not None:
+            raise self._snapshot_error
+        return self._snapshot
 
 
 def _client(monkeypatch, stub, *, static_dir=None, ping=None, poll=None):
@@ -210,4 +219,43 @@ class TestUncoveredGuards:
         client = _client(monkeypatch, stub)
         assert client.get("/api/process").status_code == 200
         assert client.get("/").status_code == 503
+
+
+class TestApiSnapshot:
+    def test_key_set_and_full_frames(self, monkeypatch):
+        """WA6：GET /api/snapshot → 200；process 块同 WA2（含
+        version_warning）；threads 键集即 asdict(ThreadInfo)（D1
+        schema），帧链完整（stack 语义，无 stats 的空闲剪枝）。"""
+        stub = StubMonitor(snapshot=[
+            dto.ThreadInfo(native_tid=101, thread_id=7, name="w",
+                           frames=[dto.FrameInfo(name="f",
+                                                 filename="a/x.py", line=3)],
+                           idle=False),
+            dto.ThreadInfo(native_tid=102, name="", frames=[], idle=True),
+        ])
+        client = _client(monkeypatch, stub)
+        r = client.get("/api/snapshot")
+        assert r.status_code == 200
+        assert r.json() == {
+            "process": {"pid": PID, "cmdline": "python3 x — café",
+                        "exe_path": "/x/python",
+                        "python_version": "3.12.13",
+                        "version_warning": None},
+            "threads": [
+                {"native_tid": 101, "thread_id": 7, "name": "w",
+                 "frames": [{"name": "f", "filename": "a/x.py", "line": 3}],
+                 "idle": False},
+                {"native_tid": 102, "thread_id": 0, "name": "",
+                 "frames": [], "idle": True},
+            ],
+        }
+
+    def test_exited_409(self, monkeypatch):
+        """WA6：目标已退出（ProcessExited）→ 409 + FastAPI detail 载体
+        （程序化消费的干净错误位；页面终态仍走 SSE exit 帧）。"""
+        stub = StubMonitor(snapshot_error=ProcessExited(PID))
+        client = _client(monkeypatch, stub)
+        r = client.get("/api/snapshot")
+        assert r.status_code == 409
+        assert r.json() == {"detail": "target process exited"}
 

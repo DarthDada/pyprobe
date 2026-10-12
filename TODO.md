@@ -60,5 +60,6 @@
 ## 6. Web 监控后续迭代
 
 > 首版已落地（批 8a–8d，ADR A13；契约 contracts.md §2/§4 批次 8 表；任务档案 [docs/tasks/2026-10-web-monitor.md](docs/tasks/2026-10-web-monitor.md)）。
+> 快照端点已落地（批 16，WM9/WA6；任务档案 [docs/tasks/2026-10-web-snapshot.md](docs/tasks/2026-10-web-snapshot.md)）。
 
-- [ ] 1. Web 监控迭代（2026-10）：多 PID 监控（多采样器 + 前端进程切换）；`GET /api/snapshot` 按需单次栈快照（复用 collect_snapshot）；火焰图（record 聚合 + 页面内嵌渲染）；syscall 事件流页面；交互控制（暂停采样/调频率——需 WebSocket 替换或补充 SSE）
+- [ ] 1. Web 监控迭代（2026-10）：火焰图（record 聚合 + 页面内嵌渲染）；syscall 事件流页面；交互控制（暂停采样/调频率——需 WebSocket 替换或补充 SSE）

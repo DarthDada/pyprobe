@@ -12,7 +12,11 @@ import pytest
 
 import pyprobe.web.monitor as mon_mod
 from pyprobe import dto
-from pyprobe.errors import ProcessExited, ProcessNotFound
+from pyprobe.errors import (
+    NoThreadState,
+    ProcessExited,
+    ProcessNotFound,
+)
 
 PID = 4242
 PROC = {"pid": PID, "cmdline": "python3 x", "exe_path": "/x/python",
@@ -485,3 +489,57 @@ class TestInjectionAndSurfacing:
         out, err = capsys.readouterr()
         assert out == ""
         assert err == ""
+
+
+def _snapshot(monitor):
+    """WM9 被测方法的 Red 安全获取（同 test_objects._read_name 模式：
+    缺席以断言失败呈现，非 AttributeError）。"""
+    fn = getattr(monitor, "snapshot", None)
+    assert fn is not None, "WM9: Monitor.snapshot 未实现"
+    return fn()
+
+
+class TestSnapshot:
+    def test_returns_collect_snapshot_result(self, monkeypatch):
+        """WM9：snapshot() 透传 collect_snapshot(sampler.session)——
+        stack 语义全帧快照；不触碰 TopStats 与最新快照留存（快照与
+        采样统计互不污染）。"""
+        m, stub, release = _harness(monkeypatch, [])
+        canned = [_thread(1, name="w", frames=[_frame("f")])]
+        calls = []
+
+        def fake_collect(session):
+            calls.append(session)
+            return canned
+
+        monkeypatch.setattr(mon_mod, "collect_snapshot", fake_collect)
+        assert _snapshot(m) == canned
+        assert calls == [stub.session]
+        assert m._stats.samples == 0  # 不入统计
+        assert m._latest == []        # 不动最新快照留存
+
+    def test_exited_raises_without_reading(self, monkeypatch):
+        """WM9：exited 粘性 → 直接 ProcessExited，不再发起快照读取
+        （死目标无快照可言，409 的 monitor 侧语义）。"""
+        m, stub, release = _harness(monkeypatch, [])
+        m.exited = True
+        monkeypatch.setattr(
+            mon_mod, "collect_snapshot",
+            lambda s: pytest.fail("exited 后不得发起快照读取"))
+        with pytest.raises(ProcessExited):
+            _snapshot(m)
+
+    def test_no_thread_state_maps_to_process_exited(self, monkeypatch):
+        """WM9：NoThreadState → ProcessExited（SA2 策略承接）但不置粘性、
+        不广播——状态转移归采样线程（WM6），订阅队列无 exit 帧泄漏。"""
+        m, stub, release = _harness(monkeypatch, [])
+        q = m.subscribe()
+
+        def fake_collect(session):
+            raise NoThreadState("chain unreadable")
+
+        monkeypatch.setattr(mon_mod, "collect_snapshot", fake_collect)
+        with pytest.raises(ProcessExited):
+            _snapshot(m)
+        assert m.exited is False
+        assert _drain(q) == []

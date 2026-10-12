@@ -280,6 +280,7 @@ pyprobe web -p 14695                # 浏览器打开 http://127.0.0.1:9470/
 | `--port <n>` | 绑定端口（缺省 9470；占用时友好报错退出码 1） |
 
 - 页面结构对齐 `top`：进程头 + Active threads 表（点击展开完整调用栈）+ Idle threads 行 + Top functions 表
+- `GET /api/snapshot`：按需单次全帧栈快照（stack 语义——空闲线程也带完整帧链），`{"process": …, "threads": […]}`；目标退出后返回 409——curl/脚本等程序化消费入口
 - 目标进程退出后服务保活：页面显示「目标进程已退出」终态横幅，已采集数据仍可查看；Ctrl-C 停止服务器（干净退出，不影响目标）
 - web 依赖缺席时 `pyprobe web` 报 `[!] the web subcommand requires extra dependencies — install with: pip install 'pyprobe[web]'`（退出码 2），其余子命令不受影响
 - 前端源码在 `frontend/`（React + Vite），构建产物已入库（`pyprobe/web/static/`），wheel 构建**不需要 Node**；改动前端后重新生成产物（CI 前端任务校验产物新鲜度）：

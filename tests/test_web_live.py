@@ -24,6 +24,7 @@ import time
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
 from pyprobe.web.app import create_app
 from pyprobe.web.monitor import Monitor
@@ -137,6 +138,48 @@ def test_sse_first_stats_then_exit():
             # 流以最终空 body 块收尾（StreamingResponse 正常完成）
             assert sent[-1]["type"] == "http.response.body"
             assert not sent[-1].get("more_body", False)
+        finally:
+            monitor.stop()
+    finally:
+        if child.poll() is None:
+            _kill(child)
+        child.stdout.close()
+
+
+def test_snapshot_endpoint_full_frames_then_409():
+    """E2E-W2：/api/snapshot 端到端——200 键集（process/threads）、
+    busy-worker 完整帧链、**空闲 MainThread 仍带完整帧链**（stack 语义
+    vs stats 空闲剪枝的差异点）；terminate 后转 409（exited 粘性与
+    NoThreadState 双路径收敛同一状态码）。"""
+    child, pid = _spawn_busy()
+    try:
+        monitor = Monitor(pid)
+        monitor.start()
+        try:
+            client = TestClient(create_app(monitor))
+            r = client.get("/api/snapshot")
+            assert r.status_code == 200
+            data = r.json()
+            assert data["process"]["pid"] == pid
+            assert set(data) == {"process", "threads"}
+            busy = [t for t in data["threads"] if t["name"] == "busy-worker"]
+            assert busy, "快照应含 busy-worker 线程"
+            assert any(f["name"] == "worker" for f in busy[0]["frames"])
+            # 空闲 MainThread（time.sleep 态）在 stack 语义下保留完整帧链
+            main = [t for t in data["threads"] if t["name"] == "MainThread"]
+            assert main, "快照应含 MainThread"
+            assert main[0]["idle"] is True
+            assert main[0]["frames"], "空闲线程帧链不得被剪枝"
+
+            _kill(child)
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                r = client.get("/api/snapshot")
+                if r.status_code == 409:
+                    assert r.json() == {"detail": "target process exited"}
+                    return
+                time.sleep(0.05)
+            pytest.fail("5s 内 /api/snapshot 未转 409")
         finally:
             monitor.stop()
     finally:

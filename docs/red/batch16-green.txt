@@ -1,0 +1,56 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/admin/projects/pyprobe
+configfile: pyproject.toml
+plugins: cov-7.1.0, anyio-4.15.1
+collected 1012 items
+
+tests/test_api_exports.py ........                                       [  0%]
+tests/test_cli.py .................................                      [  4%]
+tests/test_cli_live.py ......                                            [  4%]
+tests/test_code.py ............................                          [  7%]
+tests/test_color.py .....................                                [  9%]
+tests/test_dicts.py ....................................                 [ 13%]
+tests/test_dto.py .........                                              [ 13%]
+tests/test_dumps.py ....................                                 [ 15%]
+tests/test_errors.py ......................                              [ 18%]
+tests/test_frames.py ................................................... [ 23%]
+.....                                                                    [ 23%]
+tests/test_identity.py .........                                         [ 24%]
+tests/test_infra.py ...                                                  [ 24%]
+tests/test_jsonout.py ......                                             [ 25%]
+tests/test_layout.py ................................................... [ 30%]
+........................................................................ [ 37%]
+........................................................................ [ 44%]
+................                                                         [ 46%]
+tests/test_mem.py ..........                                             [ 47%]
+tests/test_names.py ..............                                       [ 48%]
+tests/test_native.py .....................                               [ 50%]
+tests/test_objects.py .................................................. [ 55%]
+..........................................................               [ 61%]
+tests/test_package.py ...                                                [ 61%]
+tests/test_procfs.py ...................                                 [ 63%]
+tests/test_profile.py ...........                                        [ 64%]
+tests/test_ptrace.py ...............................                     [ 67%]
+tests/test_ptrace_live.py ......                                         [ 68%]
+tests/test_runtime.py ............................................       [ 72%]
+tests/test_sampling.py ...........                                       [ 73%]
+tests/test_session.py ........                                           [ 74%]
+tests/test_session_snapshot.py .....                                     [ 75%]
+tests/test_snapshot.py ....................                              [ 76%]
+tests/test_structure.py .........                                        [ 77%]
+tests/test_symbols.py ..................                                 [ 79%]
+tests/test_syscall_abi.py .........                                      [ 80%]
+tests/test_syscalls.py ................................................. [ 85%]
+...................                                                      [ 87%]
+tests/test_text.py ..............................................        [ 91%]
+tests/test_topstats.py ........                                          [ 92%]
+tests/test_views.py .............................                        [ 95%]
+tests/test_web_app.py ............                                       [ 96%]
+tests/test_web_live.py ..                                                [ 96%]
+tests/test_web_monitor.py .....................                          [ 98%]
+tests/test_web_serve.py ...........                                      [100%]
+
+============================ 1012 passed in 15.39s =============================
+All checks passed!
+check_docs: OK (8 docs, DOC1–DOC6)

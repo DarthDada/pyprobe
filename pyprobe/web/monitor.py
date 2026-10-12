@@ -14,8 +14,9 @@ import time
 from dataclasses import asdict
 
 from .. import dto
-from ..errors import ProcessExited
+from ..errors import NoThreadState, ProcessExited
 from ..observe.sampling import Sampler
+from ..observe.snapshot import collect_snapshot
 from ..observe.topstats import TopStats
 
 _QUEUE_MAX = 64  # WM5：订阅队列上界（慢消费者不拖垮采样线程）
@@ -64,6 +65,26 @@ class Monitor:
         t = self._thread
         if t is not None and t is not threading.current_thread():
             t.join(timeout=5)
+
+    def snapshot(self) -> list[dto.ThreadInfo]:
+        """WM9 — on-demand one-shot full-frame stack snapshot.
+
+        ``collect_snapshot`` on the sampler's already-resolved session:
+        every thread keeps its frame chain (stack semantics — no idle
+        pruning, unlike ``sample()``); safe to call concurrently with the
+        background sampling thread (A4 — a fresh view per read; the
+        session is read-only after construction). ``NoThreadState`` maps
+        to ``ProcessExited`` (SA2 policy) but sets no sticky flag and
+        broadcasts nothing — state transitions belong to the sampling
+        thread (WM6). TopStats and the latest-sample retention are
+        untouched.
+        """
+        if self.exited:
+            raise ProcessExited(self.pid)
+        try:
+            return collect_snapshot(self.sampler.session)
+        except NoThreadState as e:
+            raise ProcessExited(self.pid) from e
 
     def subscribe(self) -> queue.Queue:
         """WM5 — a bounded subscriber queue (drop-oldest under pressure)."""
