@@ -71,6 +71,21 @@ def build_unicode(mem, layout, addr, text):
     mem.add(addr, bytes(blob))
 
 
+def build_unicode_raw(mem, layout, addr, data):
+    """Compact-ASCII PyUnicode whose payload is *raw bytes*, unencoded.
+
+    Torn-read fixture (O12): a header that parses as a valid PyUnicode
+    while the payload is recycled binary memory — what a racing sampler
+    sees when it lands on a mid-reuse frame slot.
+    """
+    ascii_sz = layout.get("PyASCIIObject_size")
+    blob = bytearray(ascii_sz + len(data))
+    struct.pack_into("<q", blob, 16, len(data))
+    blob[32] = 0x60  # state byte @32: compact(bit5) | ascii(bit6)
+    blob[ascii_sz:ascii_sz + len(data)] = data
+    mem.add(addr, bytes(blob))
+
+
 def build_unicode_kind(mem, layout, addr, text, kind):
     """Compact non-ASCII PyUnicode of the given kind (1=latin-1, 2=utf-16-le,
     4=utf-32-le; encodings per CPython unicodeobject.h)."""

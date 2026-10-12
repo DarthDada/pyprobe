@@ -7,7 +7,7 @@ partial or empty mapping — never raises (契约 N1–N6).
 
 from ..kernel.views import PTR_SIZE
 from .dicts import DictReader
-from .objects import read_long, read_unicode
+from .objects import read_long, read_name, read_unicode
 
 
 def get_thread_names(view, layout, interp_addr: int) -> dict[int, str]:
@@ -95,7 +95,10 @@ def get_thread_names(view, layout, interp_addr: int) -> dict[int, str]:
                     attr_name = read_unicode(view, layout, ik)
                     if attr_name is None or attr_name != "_name":
                         continue
-                    thread_name = read_unicode(view, layout, iv)
+                    # N6/O12 — the thread name is display-bound: garbage
+                    # content (torn read of recycled memory) counts as
+                    # unreadable so it never reaches fold keys or the panel.
+                    thread_name = read_name(view, layout, iv)
                     if thread_name is not None:
                         names[tid] = thread_name  # N6
                     break

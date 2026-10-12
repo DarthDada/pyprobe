@@ -404,7 +404,7 @@ design.md §3 与本文 §4 的函数签名双写后各自漂移（`collect_sysc
 
 | 模块 | 职责 | 公开 API | 行为点清单 |
 |------|------|----------|------------|
-| `cpython/objects.py` | PyLong/Unicode/Bytes typed reader | `read_long(view, layout, addr) -> int \| None`；`read_bytes(...) -> bytes \| None`；`read_unicode(...) -> str \| None`；`MAX_STR_LEN` | 见 §5.1 批 3 表 |
+| `cpython/objects.py` | PyLong/Unicode/Bytes typed reader | `read_long(view, layout, addr) -> int \| None`；`read_bytes(...) -> bytes \| None`；`read_unicode(...) -> str \| None`；`read_name(...) -> str \| None`；`MAX_STR_LEN` | 见 §5.1 批 3 表 |
 | `cpython/dicts.py` | 字典遍历（combined/unicode/split/managed） | `DictReader(view, layout)`（`.from_dict`/`.from_managed_values`/`.next`） | 同上 |
 | `cpython/code.py` | Code 对象头与 linetable | `read_code_header(view, layout, code_addr) -> CodeHeader \| None`；`addr2line(view, layout, code_addr, lasti, firstlineno) -> int`；纯函数 `line_for_offset(linetable, lasti, firstlineno) -> int` | 同上 |
 | `cpython/frames.py` | 帧链遍历 | `walk_frames(view, layout, frame_addr, trampoline_addr) -> list[dto.FrameInfo]`；`MAX_FRAMES` | 同上 |
@@ -433,6 +433,7 @@ reader 内部消费；跨度装配（如 CodeObject 头、ThreadState 字段簇�
 | O9 | compact+ascii：数据 addr+ascii_sz，ascii/replace 解码 | 同 |
 | O10 | compact 非 ascii：数据 addr+compact_sz；kind→(latin-1,1)/(utf-16-le,2)/(utf-32-le,4)；未知 kind → None | 同（kind 矩阵） |
 | O11 | 非 compact：data_any 指针；NULL → None；按 kind 解码 | 同 |
+| O12 | read_name（显示名严格读取）：read_unicode 成功后做内容可信度校验——含不可打印字符（isprintable() False，覆盖 C0/C1/DEL）或 U+FFFD（replace 有损解码痕迹）→ None；键比较场景仍用 read_unicode。动因：无暂停采样撞上帧栈中间态时，回收复用内存可恰好解析为合法 PyUnicode 头，O9 的 replace 解码将二进制垃圾放行为「函数名」进入 top/record 统计（4 并发压测实测，乱码进面板即不可用）；消费方：frames co_name/co_filename（并入 F6 不可读判定）与 names 线程名（N6） | test_objects.py 增补 + test_frames/test_names 联动 |
 
 **cpython/dicts.py**（旧 `dict_iter.py`；`DictReader(view, layout)` 绑定布局）
 
@@ -465,9 +466,10 @@ reader 内部消费；跨度装配（如 CodeObject 头、ThreadState 字段簇�
 | F3 | f_code==0 → 跳过续走 previous | 同 |
 | F4 | trampoline_addr≠0 且 f_code==trampoline → 跳过；trampoline==0 不跳过 | 同 |
 | F5 | code 头读失败 → 终止（截断已收集帧） | 同 |
-| F6 | name/filename 地址为 0 → None；两者皆 None → 陈旧尾帧终止（3.13 datastack 残留教训，注释保留） | 同 |
+| F6 | name/filename 地址为 0 → None；两者皆 None → 陈旧尾帧终止（3.13 datastack 残留教训，注释保留）；批 15 起 name/filename 经 read_name（O12）读取——乱码内容同计不可读，「两者皆乱码」并入本条终止 | 同 |
 | F7 | 返回 FrameInfo 列表，内层在前 | 同 |
 | F8 | 行号经 code.addr2line（lasti 钳位 C6） | 同（含行号断言） |
+| F9 | co_name 形态校验（O12 之后第二道）：read_name 通过但内容既非标识符（isidentifier()）也非编译器 "<...>" 特殊形态（<lambda>/<module>/<listcomp> 等）→ 按不可读处理。动因：latin-1 可打印垃圾是 O12 唯一拦不住的类（无控制字符、无 U+FFFD），批 15 E2E 复现的最后一个乱码样本（'ÿ...'，1917 中 1 例）即此形态；真实 co_name 必为二者之一（Python 源码标识符或编译器生成），误伤面仅剩第三方 C 代码以怪名创建 code object 的罕见情形 | test_frames.py 增补 |
 
 **cpython/runtime.py**（旧 `stack_dump.read_thread_chain`/`collect_thread` 的帧指针解析段 + `process.resolve_process` 的解释器/蹦床段）
 
@@ -489,7 +491,7 @@ reader 内部消费；跨度装配（如 CodeObject 头、ThreadState 字段簇�
 | N3 | 模块 __dict__：ob_type→tp_dictoffset→value+dictoffset；dictoffset==0/读失败 → 空 | 同 |
 | N4 | "_active" 字典：键 read_long → tid；读失败跳过 | 同 |
 | N5 | 实例字典解析（MANAGED_DICT 分支矩阵）：3.11 obj-3 dict 槽 / obj+pre_values 非标记 values；3.12 tagged&1 内联 values；3.13/3.14 tagged==0 → 对象内嵌（PyObject_size+dictvalues_header）；3.12 tagged==0 → False（dictvalues_header=0）；非 managed → tp_dictoffset | 同（3.11/3.12/3.13 三分支 + 非 managed） |
-| N6 | "_name" 属性 read_unicode → names[tid]；None 跳过 | 同 |
+| N6 | "_name" 属性 read_name（O12：乱码内容按不可读）→ names[tid]；None 跳过 | 同 |
 
 ### 批次 4 — `observe/`（首个端到端里程碑：snapshot 对 live target 出栈）
 

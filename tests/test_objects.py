@@ -22,11 +22,22 @@ from tests.fakemem import (
     build_unicode,
     build_unicode_kind,
     build_unicode_noncompact,
+    build_unicode_raw,
 )
 
 LAYOUTS = ["3.11", "3.12", "3.13", "3.14"]
 NO_OVERRIDE = "/nonexistent/pyprobe-offsets-override.json"
 ADDR = 0x10000
+
+
+def _read_name():
+    """O12 被测符号的 Red 安全获取——缺席时以断言失败呈现（Red 验证
+    纪律：失败须为预期断言而非导入错误），实现落位后等价直接导入。"""
+    from pyprobe.cpython import objects
+
+    fn = getattr(objects, "read_name", None)
+    assert fn is not None, "O12: read_name 未实现"
+    return fn
 
 
 @pytest.fixture(params=LAYOUTS, ids=LAYOUTS)
@@ -211,3 +222,58 @@ class TestReadUnicode:
         blob[32] = 0x60
         mem.add(ADDR, bytes(blob))
         assert read_unicode(mem, layout, ADDR) is None
+
+
+class TestReadName:
+    """O12：显示名严格读取——撕裂读命中回收复用内存时，str 头部可解析
+    但内容为二进制垃圾；read_unicode 的 replace 解码会放行（O9 语义，
+    对路径等一般载体是对的），read_name 为名称消费方把它拦下。"""
+
+    def test_printable_content_kept(self, layout):
+        """O12：可打印内容原样返回（不得误伤正常名称：标识符、
+        <lambda>、非 ASCII 线程名、含空格——空格是 isprintable 唯一
+        放行的 Zs 类字符，锁住这个边界）。"""
+        read_name = _read_name()
+        mem = FakeMemory()
+        build_unicode(mem, layout, ADDR, "matrix_worker")
+        assert read_name(mem, layout, ADDR) == "matrix_worker"
+        build_unicode(mem, layout, ADDR, "<lambda>")
+        assert read_name(mem, layout, ADDR) == "<lambda>"
+        build_unicode_kind(mem, layout, ADDR, "工作线程", kind=2)
+        assert read_name(mem, layout, ADDR) == "工作线程"
+        build_unicode(mem, layout, ADDR, " ")
+        assert read_name(mem, layout, ADDR) == " "
+
+    def test_control_chars_rejected(self, layout):
+        """O12：控制字符（含 DEL）→ None（4 并发压测实测的乱码形态：
+        控制字符与 0x80+ 字节混排）。read_unicode 有损放行为对照。"""
+        read_name = _read_name()
+        mem = FakeMemory()
+        build_unicode_raw(mem, layout, ADDR,
+                          b"\x01\x04\xff\x0e\x00\xaa\x7f")
+        assert read_unicode(mem, layout, ADDR) is not None  # O9 放行
+        assert read_name(mem, layout, ADDR) is None
+
+    def test_replacement_char_rejected(self, layout):
+        """O12：U+FFFD（replace 有损解码的痕迹字符）→ None——FFFD 本身
+        可打印，isprintable 拦不住，必须显式检查（纯 0x80+ 字节垃圾
+        只有这一条拦截线）。"""
+        read_name = _read_name()
+        mem = FakeMemory()
+        build_unicode_raw(mem, layout, ADDR, b"ok\xef\xbf\xbd")
+        assert read_name(mem, layout, ADDR) is None
+
+    def test_latin1_c1_controls_rejected(self, layout):
+        """O12 矩阵：kind=1（latin-1）全字节可解、永不产生 U+FFFD——
+        高位控制字符是唯一拦截线，同样必须拦。"""
+        read_name = _read_name()
+        mem = FakeMemory()
+        build_unicode_kind(mem, layout, ADDR, "\x80\x00\x9f", kind=1)
+        assert read_unicode(mem, layout, ADDR) is not None  # 对照
+        assert read_name(mem, layout, ADDR) is None
+
+    def test_unreadable_header_propagates(self, layout):
+        """O12：头部不可读 → None（与 read_unicode 同语义；可信度校验
+        仅在读取成功后附加，不改变失败传播）。"""
+        read_name = _read_name()
+        assert read_name(FakeMemory(), layout, ADDR) is None

@@ -18,6 +18,7 @@ from tests.fakemem import (
     build_dict,
     build_long,
     build_unicode,
+    build_unicode_raw,
 )
 
 NO_OVERRIDE = "/nonexistent/pyprobe-offsets-override.json"
@@ -204,3 +205,16 @@ class TestDegradation:
         """N 系总失败模式：interp 不可读 → 空 dict（观测不炸）。"""
         lay = resolve_layout("3.13", overrides_path=NO_OVERRIDE)
         assert get_thread_names(FakeMemory(), lay, INTERP) == {}
+
+
+class TestNameCredibility:
+    @pytest.mark.parametrize("version", ["3.11", "3.12", "3.13", "3.14"])
+    def test_garbage_thread_name_excluded(self, version):
+        """N6/O12：_name 读出乱码内容（撕裂读命中复用内存）→ 按不可读
+        跳过、tid 缺席——乱码线程名不得进入 fold_key 前缀与面板。"""
+        lay = resolve_layout(version, overrides_path=NO_OVERRIDE)
+        mem = FakeMemory()
+        _build_names_graph(mem, lay)
+        # 覆盖 S_VALUE 区域：同址重放 raw 载荷（regions 按 addr 整体替换）
+        build_unicode_raw(mem, lay, S_VALUE, b"\x00\x01\xff\x04")
+        assert get_thread_names(mem, lay, INTERP) == {}

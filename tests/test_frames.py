@@ -11,9 +11,13 @@ from pyprobe.cpython.frames import MAX_FRAMES, walk_frames
 from pyprobe.target.layout import resolve_layout
 from tests.fakemem import (
     FakeMemory,
+    build_bytes,
     build_code,
     build_frame,
     build_unicode,
+    build_unicode_kind,
+    build_unicode_raw,
+    linetable_no_line,
     linetable_simple_increments,
 )
 
@@ -149,3 +153,72 @@ class TestWalkFrames:
         build_frame(mem, layout, FRAME_ADDR + 0x1000, 0xDEAD00, 0, 0)
         frames = walk_frames(mem, layout, FRAME_ADDR, 0)
         assert [f.name for f in frames] == ["real"]
+
+    def test_garbage_name_content_kept_as_unreadable(self, layout):
+        """F6/O12：co_name 读出乱码内容（撕裂读命中复用内存）而
+        filename 可读 → 帧保留、name=None（展示层 '?'），乱码不得
+        进入 top/record 统计。"""
+        mem = FakeMemory()
+        build_unicode_raw(mem, layout, NAME_ADDR, b"\x01\x04\xff\x0e\x00")
+        build_unicode(mem, layout, FILE_ADDR, "app/main.py")
+        build_bytes(mem, layout, LT_OBJ_ADDR, linetable_no_line())
+        build_code(mem, layout, CODE_ADDR, NAME_ADDR, FILE_ADDR, 10,
+                   LT_OBJ_ADDR)
+        build_frame(mem, layout, FRAME_ADDR, CODE_ADDR, 0,
+                    CODE_ADDR + layout.get("CodeObject.co_code_adaptive"))
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+        assert len(frames) == 1
+        assert frames[0].name is None
+        assert frames[0].filename == "app/main.py"
+
+    def test_garbage_name_and_filename_truncates(self, layout):
+        """F6/O12：name 与 filename 皆乱码内容 → 并入「两者皆不可读」的
+        陈旧尾终止——撕裂读垃圾帧整帧丢弃，不进入输出。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, name="real",
+                         previous=FRAME_ADDR + 0x1000)
+        tail_code = CODE_ADDR + 0x2000
+        build_unicode_raw(mem, layout, NAME_ADDR + 0x9000, b"\x00\x01\xff")
+        build_unicode_raw(mem, layout, FILE_ADDR + 0x9000, b"\xde\xad\xbe")
+        build_code(mem, layout, tail_code, NAME_ADDR + 0x9000,
+                   FILE_ADDR + 0x9000, 1, 0)
+        build_frame(mem, layout, FRAME_ADDR + 0x1000, tail_code, 0, 0)
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+        assert [f.name for f in frames] == ["real"]
+
+    def test_printable_garbage_code_name_rejected(self, layout):
+        """F9：latin-1 可打印垃圾——O12 唯一拦不住的类（无控制字符、
+        无 U+FFFD）——既非标识符也非 "<...>" 编译器特殊形态 → name 按
+        不可读处理。批 15 E2E 复现的最后一个乱码样本（'ÿ...'）即此。"""
+        mem = FakeMemory()
+        build_unicode_kind(mem, layout, NAME_ADDR, "ÿ¡·", kind=1)
+        build_unicode(mem, layout, FILE_ADDR, "app/main.py")
+        build_bytes(mem, layout, LT_OBJ_ADDR, linetable_no_line())
+        build_code(mem, layout, CODE_ADDR, NAME_ADDR, FILE_ADDR, 10,
+                   LT_OBJ_ADDR)
+        build_frame(mem, layout, FRAME_ADDR, CODE_ADDR, 0,
+                    CODE_ADDR + layout.get("CodeObject.co_code_adaptive"))
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+        assert len(frames) == 1
+        assert frames[0].name is None
+        assert frames[0].filename == "app/main.py"
+
+    def test_unicode_identifier_and_special_code_names_kept(self, layout):
+        """F9 反向：合法形态不得误伤——非 ASCII 标识符（Python 源码
+        允许 Unicode 函数名；构造走 kind=2 载体）与编译器 "<...>"
+        特殊形态原样保留。"""
+        mem = FakeMemory()
+        build_unicode_kind(mem, layout, NAME_ADDR, "工作函数", kind=2)
+        build_unicode(mem, layout, FILE_ADDR, "app/main.py")
+        build_bytes(mem, layout, LT_OBJ_ADDR, linetable_no_line())
+        build_code(mem, layout, CODE_ADDR, NAME_ADDR, FILE_ADDR, 10,
+                   LT_OBJ_ADDR)
+        build_frame(mem, layout, FRAME_ADDR, CODE_ADDR, 0,
+                    CODE_ADDR + layout.get("CodeObject.co_code_adaptive"))
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+        assert [f.name for f in frames] == ["工作函数"]
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR,
+                         name="<lambda>")
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+        assert [f.name for f in frames] == ["<lambda>"]

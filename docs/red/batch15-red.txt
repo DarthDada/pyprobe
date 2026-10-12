@@ -1,0 +1,1031 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/admin/projects/pyprobe
+configfile: pyproject.toml
+plugins: cov-7.1.0, anyio-4.15.1
+collected 998 items / 19 deselected / 979 selected
+
+tests/test_api_exports.py ........                                       [  0%]
+tests/test_cli.py .................................                      [  4%]
+tests/test_code.py ............................                          [  7%]
+tests/test_color.py .....................                                [  9%]
+tests/test_dicts.py ....................................                 [ 12%]
+tests/test_dto.py .........                                              [ 13%]
+tests/test_dumps.py ....................                                 [ 15%]
+tests/test_errors.py ......................                              [ 18%]
+tests/test_frames.py ........................................FFFFFFFF    [ 22%]
+tests/test_identity.py .........                                         [ 23%]
+tests/test_infra.py ...                                                  [ 24%]
+tests/test_jsonout.py ......                                             [ 24%]
+tests/test_layout.py ................................................... [ 30%]
+........................................................................ [ 37%]
+........................................................................ [ 44%]
+................                                                         [ 46%]
+tests/test_mem.py .........                                              [ 47%]
+tests/test_names.py ..........FFFF                                       [ 48%]
+tests/test_native.py .....................                               [ 50%]
+tests/test_objects.py .................................................. [ 55%]
+......................................FFFFFFFFFFFFFFFFFFFF               [ 61%]
+tests/test_package.py ...                                                [ 62%]
+tests/test_procfs.py ...................                                 [ 64%]
+tests/test_profile.py ...........                                        [ 65%]
+tests/test_ptrace.py ...............................                     [ 68%]
+tests/test_runtime.py ............................................       [ 72%]
+tests/test_sampling.py ...........                                       [ 74%]
+tests/test_session.py ........                                           [ 74%]
+tests/test_snapshot.py ....................                              [ 76%]
+tests/test_structure.py .........                                        [ 77%]
+tests/test_symbols.py ..................                                 [ 79%]
+tests/test_syscall_abi.py .........                                      [ 80%]
+tests/test_syscalls.py ................................................. [ 85%]
+...................                                                      [ 87%]
+tests/test_text.py ..............................................        [ 92%]
+tests/test_topstats.py ........                                          [ 93%]
+tests/test_views.py .............................                        [ 96%]
+tests/test_web_app.py ..........                                         [ 97%]
+tests/test_web_monitor.py ..................                             [ 98%]
+tests/test_web_serve.py ...........                                      [100%]
+
+=================================== FAILURES ===================================
+______ TestWalkFrames.test_garbage_name_content_kept_as_unreadable[3.11] _______
+
+self = <tests.test_frames.TestWalkFrames object at 0x78788848a810>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_garbage_name_content_kept_as_unreadable(self, layout):
+        """F6/O12：co_name 读出乱码内容（撕裂读命中复用内存）而
+        filename 可读 → 帧保留、name=None（展示层 '?'），乱码不得
+        进入 top/record 统计。"""
+        mem = FakeMemory()
+        build_unicode_raw(mem, layout, NAME_ADDR, b"\x01\x04\xff\x0e\x00")
+        build_unicode(mem, layout, FILE_ADDR, "app/main.py")
+        build_bytes(mem, layout, LT_OBJ_ADDR, linetable_no_line())
+        build_code(mem, layout, CODE_ADDR, NAME_ADDR, FILE_ADDR, 10,
+                   LT_OBJ_ADDR)
+        build_frame(mem, layout, FRAME_ADDR, CODE_ADDR, 0,
+                    CODE_ADDR + layout.get("CodeObject.co_code_adaptive"))
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+        assert len(frames) == 1
+>       assert frames[0].name is None
+E       AssertionError: assert '\x01\x04�\x0e\x00' is None
+E        +  where '\x01\x04�\x0e\x00' = FrameInfo(name='\x01\x04�\x0e\x00', filename='app/main.py', line=10).name
+
+tests/test_frames.py:170: AssertionError
+______ TestWalkFrames.test_garbage_name_content_kept_as_unreadable[3.12] _______
+
+self = <tests.test_frames.TestWalkFrames object at 0x78788848a9f0>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_garbage_name_content_kept_as_unreadable(self, layout):
+        """F6/O12：co_name 读出乱码内容（撕裂读命中复用内存）而
+        filename 可读 → 帧保留、name=None（展示层 '?'），乱码不得
+        进入 top/record 统计。"""
+        mem = FakeMemory()
+        build_unicode_raw(mem, layout, NAME_ADDR, b"\x01\x04\xff\x0e\x00")
+        build_unicode(mem, layout, FILE_ADDR, "app/main.py")
+        build_bytes(mem, layout, LT_OBJ_ADDR, linetable_no_line())
+        build_code(mem, layout, CODE_ADDR, NAME_ADDR, FILE_ADDR, 10,
+                   LT_OBJ_ADDR)
+        build_frame(mem, layout, FRAME_ADDR, CODE_ADDR, 0,
+                    CODE_ADDR + layout.get("CodeObject.co_code_adaptive"))
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+        assert len(frames) == 1
+>       assert frames[0].name is None
+E       AssertionError: assert '\x01\x04�\x0e\x00' is None
+E        +  where '\x01\x04�\x0e\x00' = FrameInfo(name='\x01\x04�\x0e\x00', filename='app/main.py', line=10).name
+
+tests/test_frames.py:170: AssertionError
+______ TestWalkFrames.test_garbage_name_content_kept_as_unreadable[3.13] _______
+
+self = <tests.test_frames.TestWalkFrames object at 0x78788848aab0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_garbage_name_content_kept_as_unreadable(self, layout):
+        """F6/O12：co_name 读出乱码内容（撕裂读命中复用内存）而
+        filename 可读 → 帧保留、name=None（展示层 '?'），乱码不得
+        进入 top/record 统计。"""
+        mem = FakeMemory()
+        build_unicode_raw(mem, layout, NAME_ADDR, b"\x01\x04\xff\x0e\x00")
+        build_unicode(mem, layout, FILE_ADDR, "app/main.py")
+        build_bytes(mem, layout, LT_OBJ_ADDR, linetable_no_line())
+        build_code(mem, layout, CODE_ADDR, NAME_ADDR, FILE_ADDR, 10,
+                   LT_OBJ_ADDR)
+        build_frame(mem, layout, FRAME_ADDR, CODE_ADDR, 0,
+                    CODE_ADDR + layout.get("CodeObject.co_code_adaptive"))
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+        assert len(frames) == 1
+>       assert frames[0].name is None
+E       AssertionError: assert '\x01\x04�\x0e\x00' is None
+E        +  where '\x01\x04�\x0e\x00' = FrameInfo(name='\x01\x04�\x0e\x00', filename='app/main.py', line=10).name
+
+tests/test_frames.py:170: AssertionError
+______ TestWalkFrames.test_garbage_name_content_kept_as_unreadable[3.14] _______
+
+self = <tests.test_frames.TestWalkFrames object at 0x7878886dc950>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_garbage_name_content_kept_as_unreadable(self, layout):
+        """F6/O12：co_name 读出乱码内容（撕裂读命中复用内存）而
+        filename 可读 → 帧保留、name=None（展示层 '?'），乱码不得
+        进入 top/record 统计。"""
+        mem = FakeMemory()
+        build_unicode_raw(mem, layout, NAME_ADDR, b"\x01\x04\xff\x0e\x00")
+        build_unicode(mem, layout, FILE_ADDR, "app/main.py")
+        build_bytes(mem, layout, LT_OBJ_ADDR, linetable_no_line())
+        build_code(mem, layout, CODE_ADDR, NAME_ADDR, FILE_ADDR, 10,
+                   LT_OBJ_ADDR)
+        build_frame(mem, layout, FRAME_ADDR, CODE_ADDR, 0,
+                    CODE_ADDR + layout.get("CodeObject.co_code_adaptive"))
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+        assert len(frames) == 1
+>       assert frames[0].name is None
+E       AssertionError: assert '\x01\x04�\x0e\x00' is None
+E        +  where '\x01\x04�\x0e\x00' = FrameInfo(name='\x01\x04�\x0e\x00', filename='app/main.py', line=10).name
+
+tests/test_frames.py:170: AssertionError
+________ TestWalkFrames.test_garbage_name_and_filename_truncates[3.11] _________
+
+self = <tests.test_frames.TestWalkFrames object at 0x787888747f50>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_garbage_name_and_filename_truncates(self, layout):
+        """F6/O12：name 与 filename 皆乱码内容 → 并入「两者皆不可读」的
+        陈旧尾终止——撕裂读垃圾帧整帧丢弃，不进入输出。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, name="real",
+                         previous=FRAME_ADDR + 0x1000)
+        tail_code = CODE_ADDR + 0x2000
+        build_unicode_raw(mem, layout, NAME_ADDR + 0x9000, b"\x00\x01\xff")
+        build_unicode_raw(mem, layout, FILE_ADDR + 0x9000, b"\xde\xad\xbe")
+        build_code(mem, layout, tail_code, NAME_ADDR + 0x9000,
+                   FILE_ADDR + 0x9000, 1, 0)
+        build_frame(mem, layout, FRAME_ADDR + 0x1000, tail_code, 0, 0)
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["real"]
+E       AssertionError: assert ['real', '\x00\x01�'] == ['real']
+E         
+E         Left contains one more item: '\x00\x01�'
+E         Use -v to get more diff
+
+tests/test_frames.py:186: AssertionError
+________ TestWalkFrames.test_garbage_name_and_filename_truncates[3.12] _________
+
+self = <tests.test_frames.TestWalkFrames object at 0x78788848a570>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_garbage_name_and_filename_truncates(self, layout):
+        """F6/O12：name 与 filename 皆乱码内容 → 并入「两者皆不可读」的
+        陈旧尾终止——撕裂读垃圾帧整帧丢弃，不进入输出。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, name="real",
+                         previous=FRAME_ADDR + 0x1000)
+        tail_code = CODE_ADDR + 0x2000
+        build_unicode_raw(mem, layout, NAME_ADDR + 0x9000, b"\x00\x01\xff")
+        build_unicode_raw(mem, layout, FILE_ADDR + 0x9000, b"\xde\xad\xbe")
+        build_code(mem, layout, tail_code, NAME_ADDR + 0x9000,
+                   FILE_ADDR + 0x9000, 1, 0)
+        build_frame(mem, layout, FRAME_ADDR + 0x1000, tail_code, 0, 0)
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["real"]
+E       AssertionError: assert ['real', '\x00\x01�'] == ['real']
+E         
+E         Left contains one more item: '\x00\x01�'
+E         Use -v to get more diff
+
+tests/test_frames.py:186: AssertionError
+________ TestWalkFrames.test_garbage_name_and_filename_truncates[3.13] _________
+
+self = <tests.test_frames.TestWalkFrames object at 0x78788848a4e0>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_garbage_name_and_filename_truncates(self, layout):
+        """F6/O12：name 与 filename 皆乱码内容 → 并入「两者皆不可读」的
+        陈旧尾终止——撕裂读垃圾帧整帧丢弃，不进入输出。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, name="real",
+                         previous=FRAME_ADDR + 0x1000)
+        tail_code = CODE_ADDR + 0x2000
+        build_unicode_raw(mem, layout, NAME_ADDR + 0x9000, b"\x00\x01\xff")
+        build_unicode_raw(mem, layout, FILE_ADDR + 0x9000, b"\xde\xad\xbe")
+        build_code(mem, layout, tail_code, NAME_ADDR + 0x9000,
+                   FILE_ADDR + 0x9000, 1, 0)
+        build_frame(mem, layout, FRAME_ADDR + 0x1000, tail_code, 0, 0)
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["real"]
+E       AssertionError: assert ['real', '\x00\x01�'] == ['real']
+E         
+E         Left contains one more item: '\x00\x01�'
+E         Use -v to get more diff
+
+tests/test_frames.py:186: AssertionError
+________ TestWalkFrames.test_garbage_name_and_filename_truncates[3.14] _________
+
+self = <tests.test_frames.TestWalkFrames object at 0x787888489f40>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_garbage_name_and_filename_truncates(self, layout):
+        """F6/O12：name 与 filename 皆乱码内容 → 并入「两者皆不可读」的
+        陈旧尾终止——撕裂读垃圾帧整帧丢弃，不进入输出。"""
+        mem = FakeMemory()
+        _frame_with_code(mem, layout, FRAME_ADDR, CODE_ADDR, name="real",
+                         previous=FRAME_ADDR + 0x1000)
+        tail_code = CODE_ADDR + 0x2000
+        build_unicode_raw(mem, layout, NAME_ADDR + 0x9000, b"\x00\x01\xff")
+        build_unicode_raw(mem, layout, FILE_ADDR + 0x9000, b"\xde\xad\xbe")
+        build_code(mem, layout, tail_code, NAME_ADDR + 0x9000,
+                   FILE_ADDR + 0x9000, 1, 0)
+        build_frame(mem, layout, FRAME_ADDR + 0x1000, tail_code, 0, 0)
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+>       assert [f.name for f in frames] == ["real"]
+E       AssertionError: assert ['real', '\x00\x01�'] == ['real']
+E         
+E         Left contains one more item: '\x00\x01�'
+E         Use -v to get more diff
+
+tests/test_frames.py:186: AssertionError
+_________ TestNameCredibility.test_garbage_thread_name_excluded[3.11] __________
+
+self = <tests.test_names.TestNameCredibility object at 0x78788854e330>
+version = '3.11'
+
+    @pytest.mark.parametrize("version", ["3.11", "3.12", "3.13", "3.14"])
+    def test_garbage_thread_name_excluded(self, version):
+        """N6/O12：_name 读出乱码内容（撕裂读命中复用内存）→ 按不可读
+        跳过、tid 缺席——乱码线程名不得进入 fold_key 前缀与面板。"""
+        lay = resolve_layout(version, overrides_path=NO_OVERRIDE)
+        mem = FakeMemory()
+        _build_names_graph(mem, lay)
+        # 覆盖 S_VALUE 区域：同址重放 raw 载荷（regions 按 addr 整体替换）
+        build_unicode_raw(mem, lay, S_VALUE, b"\x00\x01\xff\x04")
+>       assert get_thread_names(mem, lay, INTERP) == {}
+E       AssertionError: assert {12345: '\x00\x01�\x04'} == {}
+E         
+E         Left contains 1 more item:
+E         {12345: '\x00\x01�\x04'}
+E         Use -v to get more diff
+
+tests/test_names.py:220: AssertionError
+_________ TestNameCredibility.test_garbage_thread_name_excluded[3.12] __________
+
+self = <tests.test_names.TestNameCredibility object at 0x78788854e5a0>
+version = '3.12'
+
+    @pytest.mark.parametrize("version", ["3.11", "3.12", "3.13", "3.14"])
+    def test_garbage_thread_name_excluded(self, version):
+        """N6/O12：_name 读出乱码内容（撕裂读命中复用内存）→ 按不可读
+        跳过、tid 缺席——乱码线程名不得进入 fold_key 前缀与面板。"""
+        lay = resolve_layout(version, overrides_path=NO_OVERRIDE)
+        mem = FakeMemory()
+        _build_names_graph(mem, lay)
+        # 覆盖 S_VALUE 区域：同址重放 raw 载荷（regions 按 addr 整体替换）
+        build_unicode_raw(mem, lay, S_VALUE, b"\x00\x01\xff\x04")
+>       assert get_thread_names(mem, lay, INTERP) == {}
+E       AssertionError: assert {12345: '\x00\x01�\x04'} == {}
+E         
+E         Left contains 1 more item:
+E         {12345: '\x00\x01�\x04'}
+E         Use -v to get more diff
+
+tests/test_names.py:220: AssertionError
+_________ TestNameCredibility.test_garbage_thread_name_excluded[3.13] __________
+
+self = <tests.test_names.TestNameCredibility object at 0x78788854e660>
+version = '3.13'
+
+    @pytest.mark.parametrize("version", ["3.11", "3.12", "3.13", "3.14"])
+    def test_garbage_thread_name_excluded(self, version):
+        """N6/O12：_name 读出乱码内容（撕裂读命中复用内存）→ 按不可读
+        跳过、tid 缺席——乱码线程名不得进入 fold_key 前缀与面板。"""
+        lay = resolve_layout(version, overrides_path=NO_OVERRIDE)
+        mem = FakeMemory()
+        _build_names_graph(mem, lay)
+        # 覆盖 S_VALUE 区域：同址重放 raw 载荷（regions 按 addr 整体替换）
+        build_unicode_raw(mem, lay, S_VALUE, b"\x00\x01\xff\x04")
+>       assert get_thread_names(mem, lay, INTERP) == {}
+E       AssertionError: assert {12345: '\x00\x01�\x04'} == {}
+E         
+E         Left contains 1 more item:
+E         {12345: '\x00\x01�\x04'}
+E         Use -v to get more diff
+
+tests/test_names.py:220: AssertionError
+_________ TestNameCredibility.test_garbage_thread_name_excluded[3.14] __________
+
+self = <tests.test_names.TestNameCredibility object at 0x78788854e720>
+version = '3.14'
+
+    @pytest.mark.parametrize("version", ["3.11", "3.12", "3.13", "3.14"])
+    def test_garbage_thread_name_excluded(self, version):
+        """N6/O12：_name 读出乱码内容（撕裂读命中复用内存）→ 按不可读
+        跳过、tid 缺席——乱码线程名不得进入 fold_key 前缀与面板。"""
+        lay = resolve_layout(version, overrides_path=NO_OVERRIDE)
+        mem = FakeMemory()
+        _build_names_graph(mem, lay)
+        # 覆盖 S_VALUE 区域：同址重放 raw 载荷（regions 按 addr 整体替换）
+        build_unicode_raw(mem, lay, S_VALUE, b"\x00\x01\xff\x04")
+>       assert get_thread_names(mem, lay, INTERP) == {}
+E       AssertionError: assert {12345: '\x00\x01�\x04'} == {}
+E         
+E         Left contains 1 more item:
+E         {12345: '\x00\x01�\x04'}
+E         Use -v to get more diff
+
+tests/test_names.py:220: AssertionError
+________________ TestReadName.test_printable_content_kept[3.11] ________________
+
+self = <tests.test_objects.TestReadName object at 0x7878883b3cb0>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_printable_content_kept(self, layout):
+        """O12：可打印内容原样返回（不得误伤正常名称：标识符、
+        <lambda>、非 ASCII 线程名、含空格——空格是 isprintable 唯一
+        放行的 Zs 类字符，锁住这个边界）。"""
+>       read_name = _read_name()
+                    ^^^^^^^^^^^^
+
+tests/test_objects.py:236: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def _read_name():
+        """O12 被测符号的 Red 安全获取——缺席时以断言失败呈现（Red 验证
+        纪律：失败须为预期断言而非导入错误），实现落位后等价直接导入。"""
+        from pyprobe.cpython import objects
+    
+        fn = getattr(objects, "read_name", None)
+>       assert fn is not None, "O12: read_name 未实现"
+E       AssertionError: O12: read_name 未实现
+E       assert None is not None
+
+tests/test_objects.py:39: AssertionError
+________________ TestReadName.test_printable_content_kept[3.12] ________________
+
+self = <tests.test_objects.TestReadName object at 0x7878883b3e90>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_printable_content_kept(self, layout):
+        """O12：可打印内容原样返回（不得误伤正常名称：标识符、
+        <lambda>、非 ASCII 线程名、含空格——空格是 isprintable 唯一
+        放行的 Zs 类字符，锁住这个边界）。"""
+>       read_name = _read_name()
+                    ^^^^^^^^^^^^
+
+tests/test_objects.py:236: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def _read_name():
+        """O12 被测符号的 Red 安全获取——缺席时以断言失败呈现（Red 验证
+        纪律：失败须为预期断言而非导入错误），实现落位后等价直接导入。"""
+        from pyprobe.cpython import objects
+    
+        fn = getattr(objects, "read_name", None)
+>       assert fn is not None, "O12: read_name 未实现"
+E       AssertionError: O12: read_name 未实现
+E       assert None is not None
+
+tests/test_objects.py:39: AssertionError
+________________ TestReadName.test_printable_content_kept[3.13] ________________
+
+self = <tests.test_objects.TestReadName object at 0x7878883b3f50>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_printable_content_kept(self, layout):
+        """O12：可打印内容原样返回（不得误伤正常名称：标识符、
+        <lambda>、非 ASCII 线程名、含空格——空格是 isprintable 唯一
+        放行的 Zs 类字符，锁住这个边界）。"""
+>       read_name = _read_name()
+                    ^^^^^^^^^^^^
+
+tests/test_objects.py:236: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def _read_name():
+        """O12 被测符号的 Red 安全获取——缺席时以断言失败呈现（Red 验证
+        纪律：失败须为预期断言而非导入错误），实现落位后等价直接导入。"""
+        from pyprobe.cpython import objects
+    
+        fn = getattr(objects, "read_name", None)
+>       assert fn is not None, "O12: read_name 未实现"
+E       AssertionError: O12: read_name 未实现
+E       assert None is not None
+
+tests/test_objects.py:39: AssertionError
+________________ TestReadName.test_printable_content_kept[3.14] ________________
+
+self = <tests.test_objects.TestReadName object at 0x78788831c050>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_printable_content_kept(self, layout):
+        """O12：可打印内容原样返回（不得误伤正常名称：标识符、
+        <lambda>、非 ASCII 线程名、含空格——空格是 isprintable 唯一
+        放行的 Zs 类字符，锁住这个边界）。"""
+>       read_name = _read_name()
+                    ^^^^^^^^^^^^
+
+tests/test_objects.py:236: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def _read_name():
+        """O12 被测符号的 Red 安全获取——缺席时以断言失败呈现（Red 验证
+        纪律：失败须为预期断言而非导入错误），实现落位后等价直接导入。"""
+        from pyprobe.cpython import objects
+    
+        fn = getattr(objects, "read_name", None)
+>       assert fn is not None, "O12: read_name 未实现"
+E       AssertionError: O12: read_name 未实现
+E       assert None is not None
+
+tests/test_objects.py:39: AssertionError
+________________ TestReadName.test_control_chars_rejected[3.11] ________________
+
+self = <tests.test_objects.TestReadName object at 0x78788831c470>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_control_chars_rejected(self, layout):
+        """O12：控制字符（含 DEL）→ None（4 并发压测实测的乱码形态：
+        控制字符与 0x80+ 字节混排）。read_unicode 有损放行为对照。"""
+>       read_name = _read_name()
+                    ^^^^^^^^^^^^
+
+tests/test_objects.py:250: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def _read_name():
+        """O12 被测符号的 Red 安全获取——缺席时以断言失败呈现（Red 验证
+        纪律：失败须为预期断言而非导入错误），实现落位后等价直接导入。"""
+        from pyprobe.cpython import objects
+    
+        fn = getattr(objects, "read_name", None)
+>       assert fn is not None, "O12: read_name 未实现"
+E       AssertionError: O12: read_name 未实现
+E       assert None is not None
+
+tests/test_objects.py:39: AssertionError
+________________ TestReadName.test_control_chars_rejected[3.12] ________________
+
+self = <tests.test_objects.TestReadName object at 0x78788831c650>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_control_chars_rejected(self, layout):
+        """O12：控制字符（含 DEL）→ None（4 并发压测实测的乱码形态：
+        控制字符与 0x80+ 字节混排）。read_unicode 有损放行为对照。"""
+>       read_name = _read_name()
+                    ^^^^^^^^^^^^
+
+tests/test_objects.py:250: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def _read_name():
+        """O12 被测符号的 Red 安全获取——缺席时以断言失败呈现（Red 验证
+        纪律：失败须为预期断言而非导入错误），实现落位后等价直接导入。"""
+        from pyprobe.cpython import objects
+    
+        fn = getattr(objects, "read_name", None)
+>       assert fn is not None, "O12: read_name 未实现"
+E       AssertionError: O12: read_name 未实现
+E       assert None is not None
+
+tests/test_objects.py:39: AssertionError
+________________ TestReadName.test_control_chars_rejected[3.13] ________________
+
+self = <tests.test_objects.TestReadName object at 0x78788831c710>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_control_chars_rejected(self, layout):
+        """O12：控制字符（含 DEL）→ None（4 并发压测实测的乱码形态：
+        控制字符与 0x80+ 字节混排）。read_unicode 有损放行为对照。"""
+>       read_name = _read_name()
+                    ^^^^^^^^^^^^
+
+tests/test_objects.py:250: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def _read_name():
+        """O12 被测符号的 Red 安全获取——缺席时以断言失败呈现（Red 验证
+        纪律：失败须为预期断言而非导入错误），实现落位后等价直接导入。"""
+        from pyprobe.cpython import objects
+    
+        fn = getattr(objects, "read_name", None)
+>       assert fn is not None, "O12: read_name 未实现"
+E       AssertionError: O12: read_name 未实现
+E       assert None is not None
+
+tests/test_objects.py:39: AssertionError
+________________ TestReadName.test_control_chars_rejected[3.14] ________________
+
+self = <tests.test_objects.TestReadName object at 0x78788831c7d0>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_control_chars_rejected(self, layout):
+        """O12：控制字符（含 DEL）→ None（4 并发压测实测的乱码形态：
+        控制字符与 0x80+ 字节混排）。read_unicode 有损放行为对照。"""
+>       read_name = _read_name()
+                    ^^^^^^^^^^^^
+
+tests/test_objects.py:250: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def _read_name():
+        """O12 被测符号的 Red 安全获取——缺席时以断言失败呈现（Red 验证
+        纪律：失败须为预期断言而非导入错误），实现落位后等价直接导入。"""
+        from pyprobe.cpython import objects
+    
+        fn = getattr(objects, "read_name", None)
+>       assert fn is not None, "O12: read_name 未实现"
+E       AssertionError: O12: read_name 未实现
+E       assert None is not None
+
+tests/test_objects.py:39: AssertionError
+______________ TestReadName.test_replacement_char_rejected[3.11] _______________
+
+self = <tests.test_objects.TestReadName object at 0x78788831cbf0>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_replacement_char_rejected(self, layout):
+        """O12：U+FFFD（replace 有损解码的痕迹字符）→ None——FFFD 本身
+        可打印，isprintable 拦不住，必须显式检查（纯 0x80+ 字节垃圾
+        只有这一条拦截线）。"""
+>       read_name = _read_name()
+                    ^^^^^^^^^^^^
+
+tests/test_objects.py:261: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def _read_name():
+        """O12 被测符号的 Red 安全获取——缺席时以断言失败呈现（Red 验证
+        纪律：失败须为预期断言而非导入错误），实现落位后等价直接导入。"""
+        from pyprobe.cpython import objects
+    
+        fn = getattr(objects, "read_name", None)
+>       assert fn is not None, "O12: read_name 未实现"
+E       AssertionError: O12: read_name 未实现
+E       assert None is not None
+
+tests/test_objects.py:39: AssertionError
+______________ TestReadName.test_replacement_char_rejected[3.12] _______________
+
+self = <tests.test_objects.TestReadName object at 0x78788831cdd0>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_replacement_char_rejected(self, layout):
+        """O12：U+FFFD（replace 有损解码的痕迹字符）→ None——FFFD 本身
+        可打印，isprintable 拦不住，必须显式检查（纯 0x80+ 字节垃圾
+        只有这一条拦截线）。"""
+>       read_name = _read_name()
+                    ^^^^^^^^^^^^
+
+tests/test_objects.py:261: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def _read_name():
+        """O12 被测符号的 Red 安全获取——缺席时以断言失败呈现（Red 验证
+        纪律：失败须为预期断言而非导入错误），实现落位后等价直接导入。"""
+        from pyprobe.cpython import objects
+    
+        fn = getattr(objects, "read_name", None)
+>       assert fn is not None, "O12: read_name 未实现"
+E       AssertionError: O12: read_name 未实现
+E       assert None is not None
+
+tests/test_objects.py:39: AssertionError
+______________ TestReadName.test_replacement_char_rejected[3.13] _______________
+
+self = <tests.test_objects.TestReadName object at 0x78788831ce90>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_replacement_char_rejected(self, layout):
+        """O12：U+FFFD（replace 有损解码的痕迹字符）→ None——FFFD 本身
+        可打印，isprintable 拦不住，必须显式检查（纯 0x80+ 字节垃圾
+        只有这一条拦截线）。"""
+>       read_name = _read_name()
+                    ^^^^^^^^^^^^
+
+tests/test_objects.py:261: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def _read_name():
+        """O12 被测符号的 Red 安全获取——缺席时以断言失败呈现（Red 验证
+        纪律：失败须为预期断言而非导入错误），实现落位后等价直接导入。"""
+        from pyprobe.cpython import objects
+    
+        fn = getattr(objects, "read_name", None)
+>       assert fn is not None, "O12: read_name 未实现"
+E       AssertionError: O12: read_name 未实现
+E       assert None is not None
+
+tests/test_objects.py:39: AssertionError
+______________ TestReadName.test_replacement_char_rejected[3.14] _______________
+
+self = <tests.test_objects.TestReadName object at 0x7878883b3c20>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_replacement_char_rejected(self, layout):
+        """O12：U+FFFD（replace 有损解码的痕迹字符）→ None——FFFD 本身
+        可打印，isprintable 拦不住，必须显式检查（纯 0x80+ 字节垃圾
+        只有这一条拦截线）。"""
+>       read_name = _read_name()
+                    ^^^^^^^^^^^^
+
+tests/test_objects.py:261: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def _read_name():
+        """O12 被测符号的 Red 安全获取——缺席时以断言失败呈现（Red 验证
+        纪律：失败须为预期断言而非导入错误），实现落位后等价直接导入。"""
+        from pyprobe.cpython import objects
+    
+        fn = getattr(objects, "read_name", None)
+>       assert fn is not None, "O12: read_name 未实现"
+E       AssertionError: O12: read_name 未实现
+E       assert None is not None
+
+tests/test_objects.py:39: AssertionError
+_____________ TestReadName.test_latin1_c1_controls_rejected[3.11] ______________
+
+self = <tests.test_objects.TestReadName object at 0x7878883b3320>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_latin1_c1_controls_rejected(self, layout):
+        """O12 矩阵：kind=1（latin-1）全字节可解、永不产生 U+FFFD——
+        高位控制字符是唯一拦截线，同样必须拦。"""
+>       read_name = _read_name()
+                    ^^^^^^^^^^^^
+
+tests/test_objects.py:269: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def _read_name():
+        """O12 被测符号的 Red 安全获取——缺席时以断言失败呈现（Red 验证
+        纪律：失败须为预期断言而非导入错误），实现落位后等价直接导入。"""
+        from pyprobe.cpython import objects
+    
+        fn = getattr(objects, "read_name", None)
+>       assert fn is not None, "O12: read_name 未实现"
+E       AssertionError: O12: read_name 未实现
+E       assert None is not None
+
+tests/test_objects.py:39: AssertionError
+_____________ TestReadName.test_latin1_c1_controls_rejected[3.12] ______________
+
+self = <tests.test_objects.TestReadName object at 0x7878883b12e0>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_latin1_c1_controls_rejected(self, layout):
+        """O12 矩阵：kind=1（latin-1）全字节可解、永不产生 U+FFFD——
+        高位控制字符是唯一拦截线，同样必须拦。"""
+>       read_name = _read_name()
+                    ^^^^^^^^^^^^
+
+tests/test_objects.py:269: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def _read_name():
+        """O12 被测符号的 Red 安全获取——缺席时以断言失败呈现（Red 验证
+        纪律：失败须为预期断言而非导入错误），实现落位后等价直接导入。"""
+        from pyprobe.cpython import objects
+    
+        fn = getattr(objects, "read_name", None)
+>       assert fn is not None, "O12: read_name 未实现"
+E       AssertionError: O12: read_name 未实现
+E       assert None is not None
+
+tests/test_objects.py:39: AssertionError
+_____________ TestReadName.test_latin1_c1_controls_rejected[3.13] ______________
+
+self = <tests.test_objects.TestReadName object at 0x7878883b1400>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_latin1_c1_controls_rejected(self, layout):
+        """O12 矩阵：kind=1（latin-1）全字节可解、永不产生 U+FFFD——
+        高位控制字符是唯一拦截线，同样必须拦。"""
+>       read_name = _read_name()
+                    ^^^^^^^^^^^^
+
+tests/test_objects.py:269: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def _read_name():
+        """O12 被测符号的 Red 安全获取——缺席时以断言失败呈现（Red 验证
+        纪律：失败须为预期断言而非导入错误），实现落位后等价直接导入。"""
+        from pyprobe.cpython import objects
+    
+        fn = getattr(objects, "read_name", None)
+>       assert fn is not None, "O12: read_name 未实现"
+E       AssertionError: O12: read_name 未实现
+E       assert None is not None
+
+tests/test_objects.py:39: AssertionError
+_____________ TestReadName.test_latin1_c1_controls_rejected[3.14] ______________
+
+self = <tests.test_objects.TestReadName object at 0x7878883b29f0>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_latin1_c1_controls_rejected(self, layout):
+        """O12 矩阵：kind=1（latin-1）全字节可解、永不产生 U+FFFD——
+        高位控制字符是唯一拦截线，同样必须拦。"""
+>       read_name = _read_name()
+                    ^^^^^^^^^^^^
+
+tests/test_objects.py:269: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def _read_name():
+        """O12 被测符号的 Red 安全获取——缺席时以断言失败呈现（Red 验证
+        纪律：失败须为预期断言而非导入错误），实现落位后等价直接导入。"""
+        from pyprobe.cpython import objects
+    
+        fn = getattr(objects, "read_name", None)
+>       assert fn is not None, "O12: read_name 未实现"
+E       AssertionError: O12: read_name 未实现
+E       assert None is not None
+
+tests/test_objects.py:39: AssertionError
+_____________ TestReadName.test_unreadable_header_propagates[3.11] _____________
+
+self = <tests.test_objects.TestReadName object at 0x78788831c8c0>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_unreadable_header_propagates(self, layout):
+        """O12：头部不可读 → None（与 read_unicode 同语义；可信度校验
+        仅在读取成功后附加，不改变失败传播）。"""
+>       read_name = _read_name()
+                    ^^^^^^^^^^^^
+
+tests/test_objects.py:278: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def _read_name():
+        """O12 被测符号的 Red 安全获取——缺席时以断言失败呈现（Red 验证
+        纪律：失败须为预期断言而非导入错误），实现落位后等价直接导入。"""
+        from pyprobe.cpython import objects
+    
+        fn = getattr(objects, "read_name", None)
+>       assert fn is not None, "O12: read_name 未实现"
+E       AssertionError: O12: read_name 未实现
+E       assert None is not None
+
+tests/test_objects.py:39: AssertionError
+_____________ TestReadName.test_unreadable_header_propagates[3.12] _____________
+
+self = <tests.test_objects.TestReadName object at 0x78788831c140>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_unreadable_header_propagates(self, layout):
+        """O12：头部不可读 → None（与 read_unicode 同语义；可信度校验
+        仅在读取成功后附加，不改变失败传播）。"""
+>       read_name = _read_name()
+                    ^^^^^^^^^^^^
+
+tests/test_objects.py:278: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def _read_name():
+        """O12 被测符号的 Red 安全获取——缺席时以断言失败呈现（Red 验证
+        纪律：失败须为预期断言而非导入错误），实现落位后等价直接导入。"""
+        from pyprobe.cpython import objects
+    
+        fn = getattr(objects, "read_name", None)
+>       assert fn is not None, "O12: read_name 未实现"
+E       AssertionError: O12: read_name 未实现
+E       assert None is not None
+
+tests/test_objects.py:39: AssertionError
+_____________ TestReadName.test_unreadable_header_propagates[3.13] _____________
+
+self = <tests.test_objects.TestReadName object at 0x78788831c110>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_unreadable_header_propagates(self, layout):
+        """O12：头部不可读 → None（与 read_unicode 同语义；可信度校验
+        仅在读取成功后附加，不改变失败传播）。"""
+>       read_name = _read_name()
+                    ^^^^^^^^^^^^
+
+tests/test_objects.py:278: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def _read_name():
+        """O12 被测符号的 Red 安全获取——缺席时以断言失败呈现（Red 验证
+        纪律：失败须为预期断言而非导入错误），实现落位后等价直接导入。"""
+        from pyprobe.cpython import objects
+    
+        fn = getattr(objects, "read_name", None)
+>       assert fn is not None, "O12: read_name 未实现"
+E       AssertionError: O12: read_name 未实现
+E       assert None is not None
+
+tests/test_objects.py:39: AssertionError
+_____________ TestReadName.test_unreadable_header_propagates[3.14] _____________
+
+self = <tests.test_objects.TestReadName object at 0x78788831d040>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_unreadable_header_propagates(self, layout):
+        """O12：头部不可读 → None（与 read_unicode 同语义；可信度校验
+        仅在读取成功后附加，不改变失败传播）。"""
+>       read_name = _read_name()
+                    ^^^^^^^^^^^^
+
+tests/test_objects.py:278: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def _read_name():
+        """O12 被测符号的 Red 安全获取——缺席时以断言失败呈现（Red 验证
+        纪律：失败须为预期断言而非导入错误），实现落位后等价直接导入。"""
+        from pyprobe.cpython import objects
+    
+        fn = getattr(objects, "read_name", None)
+>       assert fn is not None, "O12: read_name 未实现"
+E       AssertionError: O12: read_name 未实现
+E       assert None is not None
+
+tests/test_objects.py:39: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_frames.py::TestWalkFrames::test_garbage_name_content_kept_as_unreadable[3.11]
+FAILED tests/test_frames.py::TestWalkFrames::test_garbage_name_content_kept_as_unreadable[3.12]
+FAILED tests/test_frames.py::TestWalkFrames::test_garbage_name_content_kept_as_unreadable[3.13]
+FAILED tests/test_frames.py::TestWalkFrames::test_garbage_name_content_kept_as_unreadable[3.14]
+FAILED tests/test_frames.py::TestWalkFrames::test_garbage_name_and_filename_truncates[3.11]
+FAILED tests/test_frames.py::TestWalkFrames::test_garbage_name_and_filename_truncates[3.12]
+FAILED tests/test_frames.py::TestWalkFrames::test_garbage_name_and_filename_truncates[3.13]
+FAILED tests/test_frames.py::TestWalkFrames::test_garbage_name_and_filename_truncates[3.14]
+FAILED tests/test_names.py::TestNameCredibility::test_garbage_thread_name_excluded[3.11]
+FAILED tests/test_names.py::TestNameCredibility::test_garbage_thread_name_excluded[3.12]
+FAILED tests/test_names.py::TestNameCredibility::test_garbage_thread_name_excluded[3.13]
+FAILED tests/test_names.py::TestNameCredibility::test_garbage_thread_name_excluded[3.14]
+FAILED tests/test_objects.py::TestReadName::test_printable_content_kept[3.11]
+FAILED tests/test_objects.py::TestReadName::test_printable_content_kept[3.12]
+FAILED tests/test_objects.py::TestReadName::test_printable_content_kept[3.13]
+FAILED tests/test_objects.py::TestReadName::test_printable_content_kept[3.14]
+FAILED tests/test_objects.py::TestReadName::test_control_chars_rejected[3.11]
+FAILED tests/test_objects.py::TestReadName::test_control_chars_rejected[3.12]
+FAILED tests/test_objects.py::TestReadName::test_control_chars_rejected[3.13]
+FAILED tests/test_objects.py::TestReadName::test_control_chars_rejected[3.14]
+FAILED tests/test_objects.py::TestReadName::test_replacement_char_rejected[3.11]
+FAILED tests/test_objects.py::TestReadName::test_replacement_char_rejected[3.12]
+FAILED tests/test_objects.py::TestReadName::test_replacement_char_rejected[3.13]
+FAILED tests/test_objects.py::TestReadName::test_replacement_char_rejected[3.14]
+FAILED tests/test_objects.py::TestReadName::test_latin1_c1_controls_rejected[3.11]
+FAILED tests/test_objects.py::TestReadName::test_latin1_c1_controls_rejected[3.12]
+FAILED tests/test_objects.py::TestReadName::test_latin1_c1_controls_rejected[3.13]
+FAILED tests/test_objects.py::TestReadName::test_latin1_c1_controls_rejected[3.14]
+FAILED tests/test_objects.py::TestReadName::test_unreadable_header_propagates[3.11]
+FAILED tests/test_objects.py::TestReadName::test_unreadable_header_propagates[3.12]
+FAILED tests/test_objects.py::TestReadName::test_unreadable_header_propagates[3.13]
+FAILED tests/test_objects.py::TestReadName::test_unreadable_header_propagates[3.14]
+================ 32 failed, 947 passed, 19 deselected in 4.50s =================
+
+
+===== 迭代 2：F9 co_name 形态校验（latin-1 可打印垃圾残余类）=====
+
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/admin/projects/pyprobe
+configfile: pyproject.toml
+plugins: cov-7.1.0, anyio-4.15.1
+collected 1006 items / 19 deselected / 987 selected
+
+tests/test_api_exports.py ........                                       [  0%]
+tests/test_cli.py .................................                      [  4%]
+tests/test_code.py ............................                          [  6%]
+tests/test_color.py .....................                                [  9%]
+tests/test_dicts.py ....................................                 [ 12%]
+tests/test_dto.py .........                                              [ 13%]
+tests/test_dumps.py ....................                                 [ 15%]
+tests/test_errors.py ......................                              [ 17%]
+tests/test_frames.py ................................................FFF [ 23%]
+F....                                                                    [ 23%]
+tests/test_identity.py .........                                         [ 24%]
+tests/test_infra.py ...                                                  [ 24%]
+tests/test_jsonout.py ......                                             [ 25%]
+tests/test_layout.py ................................................... [ 30%]
+........................................................................ [ 37%]
+........................................................................ [ 45%]
+................                                                         [ 46%]
+tests/test_mem.py .........                                              [ 47%]
+tests/test_names.py ..............                                       [ 49%]
+tests/test_native.py .....................                               [ 51%]
+tests/test_objects.py .................................................. [ 56%]
+..........................................................               [ 62%]
+tests/test_package.py ...                                                [ 62%]
+tests/test_procfs.py ...................                                 [ 64%]
+tests/test_profile.py ...........                                        [ 65%]
+tests/test_ptrace.py ...............................                     [ 68%]
+tests/test_runtime.py ............................................       [ 73%]
+tests/test_sampling.py ...........                                       [ 74%]
+tests/test_session.py ........                                           [ 75%]
+tests/test_snapshot.py ....................                              [ 77%]
+tests/test_structure.py .........                                        [ 78%]
+tests/test_symbols.py ..................                                 [ 79%]
+tests/test_syscall_abi.py .........                                      [ 80%]
+tests/test_syscalls.py ................................................. [ 85%]
+...................                                                      [ 87%]
+tests/test_text.py ..............................................        [ 92%]
+tests/test_topstats.py ........                                          [ 93%]
+tests/test_views.py .............................                        [ 96%]
+tests/test_web_app.py ..........                                         [ 97%]
+tests/test_web_monitor.py ..................                             [ 98%]
+tests/test_web_serve.py ...........                                      [100%]
+
+=================================== FAILURES ===================================
+________ TestWalkFrames.test_printable_garbage_code_name_rejected[3.11] ________
+
+self = <tests.test_frames.TestWalkFrames object at 0x70f1b8d87e90>
+layout = Layout(version='3.11', key='3.11', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 48, 'PyCompactUnicodeObject_size': 72, 'PyUnicodeObject.data_any': 72, '_Py_CODEUNIT_size': 2}))
+
+    def test_printable_garbage_code_name_rejected(self, layout):
+        """F9：latin-1 可打印垃圾——O12 唯一拦不住的类（无控制字符、
+        无 U+FFFD）——既非标识符也非 "<...>" 编译器特殊形态 → name 按
+        不可读处理。批 15 E2E 复现的最后一个乱码样本（'ÿ...'）即此。"""
+        mem = FakeMemory()
+        build_unicode_kind(mem, layout, NAME_ADDR, "ÿ¡·", kind=1)
+        build_unicode(mem, layout, FILE_ADDR, "app/main.py")
+        build_bytes(mem, layout, LT_OBJ_ADDR, linetable_no_line())
+        build_code(mem, layout, CODE_ADDR, NAME_ADDR, FILE_ADDR, 10,
+                   LT_OBJ_ADDR)
+        build_frame(mem, layout, FRAME_ADDR, CODE_ADDR, 0,
+                    CODE_ADDR + layout.get("CodeObject.co_code_adaptive"))
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+        assert len(frames) == 1
+>       assert frames[0].name is None
+E       AssertionError: assert 'ÿ¡·' is None
+E        +  where 'ÿ¡·' = FrameInfo(name='ÿ¡·', filename='app/main.py', line=10).name
+
+tests/test_frames.py:203: AssertionError
+________ TestWalkFrames.test_printable_garbage_code_name_rejected[3.12] ________
+
+self = <tests.test_frames.TestWalkFrames object at 0x70f1b8e6c0b0>
+layout = Layout(version='3.12', key='3.12', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_printable_garbage_code_name_rejected(self, layout):
+        """F9：latin-1 可打印垃圾——O12 唯一拦不住的类（无控制字符、
+        无 U+FFFD）——既非标识符也非 "<...>" 编译器特殊形态 → name 按
+        不可读处理。批 15 E2E 复现的最后一个乱码样本（'ÿ...'）即此。"""
+        mem = FakeMemory()
+        build_unicode_kind(mem, layout, NAME_ADDR, "ÿ¡·", kind=1)
+        build_unicode(mem, layout, FILE_ADDR, "app/main.py")
+        build_bytes(mem, layout, LT_OBJ_ADDR, linetable_no_line())
+        build_code(mem, layout, CODE_ADDR, NAME_ADDR, FILE_ADDR, 10,
+                   LT_OBJ_ADDR)
+        build_frame(mem, layout, FRAME_ADDR, CODE_ADDR, 0,
+                    CODE_ADDR + layout.get("CodeObject.co_code_adaptive"))
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+        assert len(frames) == 1
+>       assert frames[0].name is None
+E       AssertionError: assert 'ÿ¡·' is None
+E        +  where 'ÿ¡·' = FrameInfo(name='ÿ¡·', filename='app/main.py', line=10).name
+
+tests/test_frames.py:203: AssertionError
+________ TestWalkFrames.test_printable_garbage_code_name_rejected[3.13] ________
+
+self = <tests.test_frames.TestWalkFrames object at 0x70f1b8e6c170>
+layout = Layout(version='3.13', key='3.13', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_printable_garbage_code_name_rejected(self, layout):
+        """F9：latin-1 可打印垃圾——O12 唯一拦不住的类（无控制字符、
+        无 U+FFFD）——既非标识符也非 "<...>" 编译器特殊形态 → name 按
+        不可读处理。批 15 E2E 复现的最后一个乱码样本（'ÿ...'）即此。"""
+        mem = FakeMemory()
+        build_unicode_kind(mem, layout, NAME_ADDR, "ÿ¡·", kind=1)
+        build_unicode(mem, layout, FILE_ADDR, "app/main.py")
+        build_bytes(mem, layout, LT_OBJ_ADDR, linetable_no_line())
+        build_code(mem, layout, CODE_ADDR, NAME_ADDR, FILE_ADDR, 10,
+                   LT_OBJ_ADDR)
+        build_frame(mem, layout, FRAME_ADDR, CODE_ADDR, 0,
+                    CODE_ADDR + layout.get("CodeObject.co_code_adaptive"))
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+        assert len(frames) == 1
+>       assert frames[0].name is None
+E       AssertionError: assert 'ÿ¡·' is None
+E        +  where 'ÿ¡·' = FrameInfo(name='ÿ¡·', filename='app/main.py', line=10).name
+
+tests/test_frames.py:203: AssertionError
+________ TestWalkFrames.test_printable_garbage_code_name_rejected[3.14] ________
+
+self = <tests.test_frames.TestWalkFrames object at 0x70f1b8e6c230>
+layout = Layout(version='3.14', key='3.14', verified=True, table=mappingproxy({'pointer_size': 8, 'int_size': 4, 'RuntimeState.... 'PyASCIIObject_size': 40, 'PyCompactUnicodeObject_size': 56, 'PyUnicodeObject.data_any': 56, '_Py_CODEUNIT_size': 2}))
+
+    def test_printable_garbage_code_name_rejected(self, layout):
+        """F9：latin-1 可打印垃圾——O12 唯一拦不住的类（无控制字符、
+        无 U+FFFD）——既非标识符也非 "<...>" 编译器特殊形态 → name 按
+        不可读处理。批 15 E2E 复现的最后一个乱码样本（'ÿ...'）即此。"""
+        mem = FakeMemory()
+        build_unicode_kind(mem, layout, NAME_ADDR, "ÿ¡·", kind=1)
+        build_unicode(mem, layout, FILE_ADDR, "app/main.py")
+        build_bytes(mem, layout, LT_OBJ_ADDR, linetable_no_line())
+        build_code(mem, layout, CODE_ADDR, NAME_ADDR, FILE_ADDR, 10,
+                   LT_OBJ_ADDR)
+        build_frame(mem, layout, FRAME_ADDR, CODE_ADDR, 0,
+                    CODE_ADDR + layout.get("CodeObject.co_code_adaptive"))
+        frames = walk_frames(mem, layout, FRAME_ADDR, 0)
+        assert len(frames) == 1
+>       assert frames[0].name is None
+E       AssertionError: assert 'ÿ¡·' is None
+E        +  where 'ÿ¡·' = FrameInfo(name='ÿ¡·', filename='app/main.py', line=10).name
+
+tests/test_frames.py:203: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_frames.py::TestWalkFrames::test_printable_garbage_code_name_rejected[3.11]
+FAILED tests/test_frames.py::TestWalkFrames::test_printable_garbage_code_name_rejected[3.12]
+FAILED tests/test_frames.py::TestWalkFrames::test_printable_garbage_code_name_rejected[3.13]
+FAILED tests/test_frames.py::TestWalkFrames::test_printable_garbage_code_name_rejected[3.14]
+================= 4 failed, 983 passed, 19 deselected in 5.48s =================

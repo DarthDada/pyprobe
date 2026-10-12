@@ -6,10 +6,19 @@
 from .. import dto
 from ..kernel.views import PTR_SIZE
 from .code import addr2line, read_code_header
-from .objects import read_unicode
+from .objects import read_name
 
 #: Circular-chain / runaway-frame guard (契约 F2, 复刻约束).
 MAX_FRAMES = 100
+
+
+def _plausible_code_name(name: str) -> bool:
+    """F9 — a real co_name is a source identifier or a compiler-generated
+    "<...>" special (<lambda>/<module>/<listcomp>/…); anything else is
+    torn-read garbage that survived O12's printable check (the latin-1
+    printable class — no control characters, no U+FFFD)."""
+    return name.isidentifier() or (
+        name.startswith("<") and name.endswith(">"))
 
 
 def walk_frames(view, layout, frame_addr: int,
@@ -54,10 +63,17 @@ def walk_frames(view, layout, frame_addr: int,
         if header is None:
             break  # F5 — code header unreadable: truncate, keep collected
 
-        filename = (read_unicode(view, layout, header.filename_addr)
+        # O12 — display names go through the strict reader: torn reads of
+        # recycled memory yield binary garbage that read_unicode would
+        # lossily pass through as a "function name".
+        filename = (read_name(view, layout, header.filename_addr)
                     if header.filename_addr else None)
-        name = (read_unicode(view, layout, header.name_addr)
+        name = (read_name(view, layout, header.name_addr)
                 if header.name_addr else None)
+        if name is not None and not _plausible_code_name(name):
+            # F9 — latin-1 printable garbage is still garbage; real
+            # co_name values are identifiers or "<...>" specials.
+            name = None
 
         # C6 — instruction offset into co_code_adaptive, clamped at 0.
         lasti = prev_instr - (f_code + co_code_adaptive)

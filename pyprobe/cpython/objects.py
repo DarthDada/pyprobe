@@ -120,3 +120,24 @@ def _decode_unicode_body(view, data_addr: int, kind: int,
         return None
     return data.decode(encoding, "replace")
 
+
+def read_name(view, layout, addr: int) -> str | None:
+    """Read a PyUnicode destined for display as a name (O12).
+
+    Strict variant of ``read_unicode``: content failing the credibility
+    check — non-printable characters (``isprintable()`` false, covering
+    the control ranges and DEL) or U+FFFD (the lossy-decode marker) — is
+    treated as unreadable. Rationale: sampling runs without stopping the
+    target, so a torn read can land on recycled memory that happens to
+    parse as a valid PyUnicode header; O9's replace-decode would pass the
+    binary payload through as a "function name" into top/record statistics
+    (observed under 4-way concurrent load — mojibake in the panel is a
+    usability failure). Key-comparison sites keep ``read_unicode``.
+    """
+    s = read_unicode(view, layout, addr)
+    if s is None:
+        return None
+    if not s.isprintable() or "\ufffd" in s:
+        return None  # O12 — torn-read garbage content
+    return s
+
