@@ -6,15 +6,17 @@ Usage:
   python -m pyprobe syscall -p <pid>           Syscall tracing (strace-style)
   python -m pyprobe record -p <pid>            Sample & write folded stacks
   python -m pyprobe top -p <pid>               Live sampling top view
+  python -m pyprobe web -p <pid>               Live web dashboard (pyprobe[web])
 
-契约（contracts.md 批 6 表 CLI1–CLI4; 结构与旧 cli.py 逐字——子命令、
-选项形态、错误消息均为复刻约束).
+契约（contracts.md 批 6 表 CLI1–CLI4 + 批 8 表 WC1–WC3; 结构与旧 cli.py
+逐字——子命令、选项形态、错误消息均为复刻约束）.
 """
 
 import argparse
 import sys
 from importlib.metadata import version as _pkg_version
 
+from .present.color import red, should_color
 from .present.dumps import (
     dump_native,
     dump_python,
@@ -180,6 +182,34 @@ def build_parser():
         "--color", choices=["auto", "always", "never"], default="auto",
         help="colorize output (default: auto-detect tty)")
 
+    web = subparsers.add_parser(
+        "web",
+        help="live web monitoring dashboard (requires pyprobe[web] extras)",
+        description=(
+            "Serve an HTTP dashboard for a target CPython process: "
+            "top-style hot-function ranking plus the full live call "
+            "stack of every active thread, pushed over SSE. Listens on "
+            "127.0.0.1 by default; Ctrl-C stops the server."
+        ),
+    )
+    web.add_argument(
+        "-p", "--pid", type=int, required=True, metavar="<pid>",
+        help="target process PID")
+    web.add_argument(
+        "-r", "--rate", type=_positive_float(0, 1000, "rate"),
+        default=50, metavar="<hz>",
+        help="sampling rate in Hz (default: 50; must be in (0, 1000])")
+    web.add_argument(
+        "-i", "--interval", type=_positive_float(0, 60, "interval"),
+        default=1.0, metavar="<sec>",
+        help="dashboard refresh interval in seconds (default: 1.0)")
+    web.add_argument(
+        "--host", default="127.0.0.1", metavar="<addr>",
+        help="bind address (default: 127.0.0.1; not exposed publicly)")
+    web.add_argument(
+        "--port", type=int, default=9470, metavar="<n>",
+        help="bind port (default: 9470)")
+
     return parser
 
 
@@ -222,7 +252,36 @@ def main(argv=None):
             args.pid, rate=args.rate, interval=args.interval,
             color=_COLOR_MAP[args.color])
 
+    if args.command == "web":
+        return _dispatch_web(args)
+
     return 1
+
+
+def _dispatch_web(args):
+    """WC2/WC3 — web 分支：延迟 import + 缺依赖转提示 + rc 透传。
+
+    web 依赖（fastapi/uvicorn 及其传递依赖）缺席 → stderr 提示 + rc 2
+    （DP5 环境不满足语义）；pyprobe 自身代码的 ImportError 不被吞——仅
+    非 pyprobe 模块的缺席才转提示（ST-W1：函数体内 import 是唯一合法的
+    cli→web 边）。
+    """
+    try:
+        from .web.serve import serve_web
+    except ImportError as e:
+        missing = (isinstance(e, ModuleNotFoundError) and e.name
+                   and e.name != "pyprobe"
+                   and not e.name.startswith("pyprobe."))
+        if missing:
+            print(
+                red("[!] the web subcommand requires extra dependencies "
+                    "— install with: pip install 'pyprobe[web]'",
+                    should_color(sys.stderr)),
+                file=sys.stderr)
+            return 2
+        raise
+    return serve_web(args.pid, rate=args.rate, interval=args.interval,
+                     host=args.host, port=args.port)
 
 
 if __name__ == "__main__":

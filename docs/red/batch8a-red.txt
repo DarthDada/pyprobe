@@ -1,0 +1,764 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/admin/projects/pyprobe
+configfile: pyproject.toml
+plugins: cov-7.1.0, anyio-4.15.1
+collected 934 items / 18 deselected / 916 selected
+
+tests/test_api_exports.py ........                                       [  0%]
+tests/test_cli.py ...........................                            [  3%]
+tests/test_code.py ............................                          [  6%]
+tests/test_color.py .....................                                [  9%]
+tests/test_dicts.py ....................................                 [ 13%]
+tests/test_dto.py .........                                              [ 14%]
+tests/test_dumps.py ....................                                 [ 16%]
+tests/test_errors.py ......................                              [ 18%]
+tests/test_frames.py ........................................            [ 23%]
+tests/test_identity.py .........                                         [ 24%]
+tests/test_infra.py ...                                                  [ 24%]
+tests/test_jsonout.py ......                                             [ 25%]
+tests/test_layout.py ................................................... [ 30%]
+........................................................................ [ 38%]
+........................................................................ [ 46%]
+................                                                         [ 48%]
+tests/test_mem.py .........                                              [ 49%]
+tests/test_names.py ..........                                           [ 50%]
+tests/test_native.py .....................                               [ 52%]
+tests/test_objects.py .................................................. [ 57%]
+......................................                                   [ 62%]
+tests/test_package.py ...                                                [ 62%]
+tests/test_procfs.py ...................                                 [ 64%]
+tests/test_profile.py ...........                                        [ 65%]
+tests/test_ptrace.py ...............................                     [ 68%]
+tests/test_runtime.py ............................................       [ 73%]
+tests/test_sampling.py ...........                                       [ 75%]
+tests/test_session.py ........                                           [ 75%]
+tests/test_snapshot.py ....................                              [ 78%]
+tests/test_structure.py .....                                            [ 78%]
+tests/test_symbols.py ..................                                 [ 80%]
+tests/test_syscall_abi.py .........                                      [ 81%]
+tests/test_syscalls.py ................................................. [ 86%]
+...................                                                      [ 88%]
+tests/test_text.py ..............................................        [ 93%]
+tests/test_topstats.py ........                                          [ 94%]
+tests/test_views.py .............................                        [ 98%]
+tests/test_web_monitor.py FFFFFFFFFFFFF.FFFF                             [100%]
+
+=================================== FAILURES ===================================
+__________ TestConstruction.test_pyprobe_error_raises_at_construction __________
+
+self = <tests.test_web_monitor.TestConstruction object at 0x74c3ecb02a80>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x74c3ecb21130>
+
+    def test_pyprobe_error_raises_at_construction(self, monkeypatch):
+        """WM1：构造即解析目标——sampler_factory 抛 PyProbeError 子类时
+        异常同步上抛（不进后台线程、不需 start 才暴露）。"""
+        release = threading.Event()
+        done = threading.Event()
+        stub = StubSampler(PID, [], FakeClock(), release, done)
+        monkeypatch.setattr(mon_mod, "time", FakeClock())
+    
+        def factory(pid):
+            raise ProcessNotFound(pid)
+    
+>       with pytest.raises(ProcessNotFound):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ProcessNotFound
+
+tests/test_web_monitor.py:133: Failed
+______________ TestSamplingThread.test_absolute_schedule_no_drift ______________
+
+self = <tests.test_web_monitor.TestSamplingThread object at 0x74c3ecb02360>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x74c3ecb23680>
+
+    def test_absolute_schedule_no_drift(self, monkeypatch):
+        """WM2：绝对时间调度——rate=10 下样本恰落 0.1s 一格
+        [0, .1, .2, .3, .4]，不漂移不少采。"""
+        m, stub, release = _harness(
+            monkeypatch, [[_thread(frames=[_frame("f")])]] * 5)
+        m.start()
+        try:
+>           assert stub.done.wait(2), "脚本轮次未耗尽（采样线程未运行）"
+E           AssertionError: 脚本轮次未耗尽（采样线程未运行）
+E           assert False
+E            +  where False = wait(2)
+E            +    where wait = <threading.Event at 0x74c3ecb20b90: unset>.wait
+E            +      where <threading.Event at 0x74c3ecb20b90: unset> = <tests.test_web_monitor.StubSampler object at 0x74c3ecb217f0>.done
+
+tests/test_web_monitor.py:146: AssertionError
+___________ TestSamplingThread.test_behind_schedule_resets_baseline ____________
+
+self = <tests.test_web_monitor.TestSamplingThread object at 0x74c3ecb01ca0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x74c3ec9a1c40>
+
+    def test_behind_schedule_resets_baseline(self, monkeypatch):
+        """WM2（PF2 语义承接）：单轮耗时超过采样间隔 → 重置基线而非
+        补发爆发——落后不追，采样率不失真。"""
+        m, stub, release = _harness(
+            monkeypatch, [[_thread(frames=[_frame("f")])]] * 3, advance=0.25)
+        m.start()
+        try:
+>           assert stub.done.wait(2)
+E           assert False
+E            +  where False = wait(2)
+E            +    where wait = <threading.Event at 0x74c3ec9a34a0: unset>.wait
+E            +      where <threading.Event at 0x74c3ec9a34a0: unset> = <tests.test_web_monitor.StubSampler object at 0x74c3ec9a1eb0>.done
+
+tests/test_web_monitor.py:158: AssertionError
+_____________ TestBroadcast.test_every_interval_to_all_subscribers _____________
+
+self = <tests.test_web_monitor.TestBroadcast object at 0x74c3ecb00710>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x74c3ecb21ac0>
+
+    def test_every_interval_to_all_subscribers(self, monkeypatch):
+        """WM3：每 interval 一帧投递至全部订阅队列；帧内容逐队列一致；
+        首帧 t=0 即广播（elapsed 0，不等满一个 interval）。"""
+        m, stub, release = _harness(
+            monkeypatch, [[_thread(frames=[_frame("f")])]] * 6,
+            rate=100, interval=0.017)
+        q1 = m.subscribe()
+        q2 = m.subscribe()
+        m.start()
+        try:
+>           assert stub.done.wait(2)
+E           assert False
+E            +  where False = wait(2)
+E            +    where wait = <threading.Event at 0x74c3ecb23200: unset>.wait
+E            +      where <threading.Event at 0x74c3ecb23200: unset> = <tests.test_web_monitor.StubSampler object at 0x74c3ecb22600>.done
+
+tests/test_web_monitor.py:175: AssertionError
+______________ TestBroadcast.test_frame_threads_are_latest_sample ______________
+
+self = <tests.test_web_monitor.TestBroadcast object at 0x74c3ecb00e60>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x74c3ec9a30b0>
+
+    def test_frame_threads_are_latest_sample(self, monkeypatch):
+        """WM2/WM3：留存最新快照——帧内 threads 是最近一次采样的完整
+        ThreadInfo 序列化（旧样本不残留）；samples 随每样本 TopStats.update
+        累计。"""
+        a = _thread(native_tid=1, name="a", frames=[_frame("fa")])
+        b = _thread(native_tid=2, name="b", thread_id=9,
+                    frames=[_frame("fb", "app/b.py", 7)])
+        m, stub, release = _harness(
+            monkeypatch, [[a], [a], [a], [b]], rate=10, interval=0.25)
+        q = m.subscribe()
+        m.start()
+        try:
+>           assert stub.done.wait(2)
+E           assert False
+E            +  where False = wait(2)
+E            +    where wait = <threading.Event at 0x74c3ec9a3770: unset>.wait
+E            +      where <threading.Event at 0x74c3ec9a3770: unset> = <tests.test_web_monitor.StubSampler object at 0x74c3ec9a1f40>.done
+
+tests/test_web_monitor.py:198: AssertionError
+________________ TestStatsFrame.test_stats_frame_key_set_exact _________________
+
+q = <queue.Queue object at 0x74c3ec9a04a0>, timeout = 2
+
+    def _get(q, timeout=2):
+        """取一帧；超时转 pytest.fail——让 Red 失败落在预期断言上。"""
+        try:
+>           return q.get(timeout=timeout)
+                   ^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_web_monitor.py:100: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <queue.Queue object at 0x74c3ec9a04a0>, block = True, timeout = 2
+
+    def get(self, block=True, timeout=None):
+        '''Remove and return an item from the queue.
+    
+        If optional args 'block' is true and 'timeout' is None (the default),
+        block if necessary until an item is available. If 'timeout' is
+        a non-negative number, it blocks at most 'timeout' seconds and raises
+        the Empty exception if no item was available within that time.
+        Otherwise ('block' is false), return an item if one is immediately
+        available, else raise the Empty exception ('timeout' is ignored
+        in that case).
+        '''
+        with self.not_empty:
+            if not block:
+                if not self._qsize():
+                    raise Empty
+            elif timeout is None:
+                while not self._qsize():
+                    self.not_empty.wait()
+            elif timeout < 0:
+                raise ValueError("'timeout' must be a non-negative number")
+            else:
+                endtime = time() + timeout
+                while not self._qsize():
+                    remaining = endtime - time()
+                    if remaining <= 0.0:
+>                       raise Empty
+E                       _queue.Empty
+
+../../.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/queue.py:179: Empty
+
+During handling of the above exception, another exception occurred:
+
+self = <tests.test_web_monitor.TestStatsFrame object at 0x74c3ecb206b0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x74c3ec9a0e30>
+
+    def test_stats_frame_key_set_exact(self, monkeypatch):
+        """WM4：stats 帧键集 pin——process 五键（version_warning 透出）、
+        elapsed/samples/idle_samples、top_functions 六键条目（pct 占
+        samples 百分比、time=own/rate）、threads 七键条目（完整帧链不
+        丢弃，own_pct 为顶帧函数 own 占比）。"""
+        active = _thread(native_tid=101, thread_id=7, name="worker",
+                         frames=[_frame("f1", "app/x.py", 1),
+                                 _frame("f2", "app/y.py", 2)])
+        idle = _thread(native_tid=102, idle=True)
+        m, stub, release = _harness(
+            monkeypatch, [[active, idle]], rate=50, interval=1.0)
+        q = m.subscribe()
+        m.start()
+        try:
+>           frame = _get(q)
+                    ^^^^^^^
+
+tests/test_web_monitor.py:228: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+q = <queue.Queue object at 0x74c3ec9a04a0>, timeout = 2
+
+    def _get(q, timeout=2):
+        """取一帧；超时转 pytest.fail——让 Red 失败落在预期断言上。"""
+        try:
+            return q.get(timeout=timeout)
+        except queue.Empty:
+>           pytest.fail("订阅队列 2s 内无帧到达（WM2/WM3：采样线程未广播）")
+E           Failed: 订阅队列 2s 内无帧到达（WM2/WM3：采样线程未广播）
+
+tests/test_web_monitor.py:102: Failed
+__________________ TestStatsFrame.test_boundary_zero_samples ___________________
+
+q = <queue.Queue object at 0x74c3ec9a24b0>, timeout = 2
+
+    def _get(q, timeout=2):
+        """取一帧；超时转 pytest.fail——让 Red 失败落在预期断言上。"""
+        try:
+>           return q.get(timeout=timeout)
+                   ^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_web_monitor.py:100: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <queue.Queue object at 0x74c3ec9a24b0>, block = True, timeout = 2
+
+    def get(self, block=True, timeout=None):
+        '''Remove and return an item from the queue.
+    
+        If optional args 'block' is true and 'timeout' is None (the default),
+        block if necessary until an item is available. If 'timeout' is
+        a non-negative number, it blocks at most 'timeout' seconds and raises
+        the Empty exception if no item was available within that time.
+        Otherwise ('block' is false), return an item if one is immediately
+        available, else raise the Empty exception ('timeout' is ignored
+        in that case).
+        '''
+        with self.not_empty:
+            if not block:
+                if not self._qsize():
+                    raise Empty
+            elif timeout is None:
+                while not self._qsize():
+                    self.not_empty.wait()
+            elif timeout < 0:
+                raise ValueError("'timeout' must be a non-negative number")
+            else:
+                endtime = time() + timeout
+                while not self._qsize():
+                    remaining = endtime - time()
+                    if remaining <= 0.0:
+>                       raise Empty
+E                       _queue.Empty
+
+../../.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/queue.py:179: Empty
+
+During handling of the above exception, another exception occurred:
+
+self = <tests.test_web_monitor.TestStatsFrame object at 0x74c3ecb209e0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x74c3ec9a2d50>
+
+    def test_boundary_zero_samples(self, monkeypatch):
+        """WM4 边界：全 idle 首样本 → samples==0，pct/time 为 0、
+        top_functions 空、idle 线程 frames 为 []。"""
+        m, stub, release = _harness(
+            monkeypatch, [[_thread(native_tid=103, idle=True)]],
+            rate=50, interval=1.0)
+        q = m.subscribe()
+        m.start()
+        try:
+>           data = _get(q)["data"]
+                   ^^^^^^^
+
+tests/test_web_monitor.py:266: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+q = <queue.Queue object at 0x74c3ec9a24b0>, timeout = 2
+
+    def _get(q, timeout=2):
+        """取一帧；超时转 pytest.fail——让 Red 失败落在预期断言上。"""
+        try:
+            return q.get(timeout=timeout)
+        except queue.Empty:
+>           pytest.fail("订阅队列 2s 内无帧到达（WM2/WM3：采样线程未广播）")
+E           Failed: 订阅队列 2s 内无帧到达（WM2/WM3：采样线程未广播）
+
+tests/test_web_monitor.py:102: Failed
+__________ TestStatsFrame.test_boundary_active_thread_without_frames ___________
+
+q = <queue.Queue object at 0x74c3ec9a2bd0>, timeout = 2
+
+    def _get(q, timeout=2):
+        """取一帧；超时转 pytest.fail——让 Red 失败落在预期断言上。"""
+        try:
+>           return q.get(timeout=timeout)
+                   ^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_web_monitor.py:100: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <queue.Queue object at 0x74c3ec9a2bd0>, block = True, timeout = 2
+
+    def get(self, block=True, timeout=None):
+        '''Remove and return an item from the queue.
+    
+        If optional args 'block' is true and 'timeout' is None (the default),
+        block if necessary until an item is available. If 'timeout' is
+        a non-negative number, it blocks at most 'timeout' seconds and raises
+        the Empty exception if no item was available within that time.
+        Otherwise ('block' is false), return an item if one is immediately
+        available, else raise the Empty exception ('timeout' is ignored
+        in that case).
+        '''
+        with self.not_empty:
+            if not block:
+                if not self._qsize():
+                    raise Empty
+            elif timeout is None:
+                while not self._qsize():
+                    self.not_empty.wait()
+            elif timeout < 0:
+                raise ValueError("'timeout' must be a non-negative number")
+            else:
+                endtime = time() + timeout
+                while not self._qsize():
+                    remaining = endtime - time()
+                    if remaining <= 0.0:
+>                       raise Empty
+E                       _queue.Empty
+
+../../.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/queue.py:179: Empty
+
+During handling of the above exception, another exception occurred:
+
+self = <tests.test_web_monitor.TestStatsFrame object at 0x74c3ecb20d10>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x74c3ec9a2420>
+
+    def test_boundary_active_thread_without_frames(self, monkeypatch):
+        """WM4 边界：活跃线程无顶帧（in-C 状态，TS4）→ own_pct 为 0、
+        frames 为 []、idle 仍为 False（与 idle 线程可区分）。"""
+        m, stub, release = _harness(
+            monkeypatch, [[_thread(native_tid=104, frames=[])]],
+            rate=50, interval=1.0)
+        q = m.subscribe()
+        m.start()
+        try:
+>           data = _get(q)["data"]
+                   ^^^^^^^
+
+tests/test_web_monitor.py:285: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+q = <queue.Queue object at 0x74c3ec9a2bd0>, timeout = 2
+
+    def _get(q, timeout=2):
+        """取一帧；超时转 pytest.fail——让 Red 失败落在预期断言上。"""
+        try:
+            return q.get(timeout=timeout)
+        except queue.Empty:
+>           pytest.fail("订阅队列 2s 内无帧到达（WM2/WM3：采样线程未广播）")
+E           Failed: 订阅队列 2s 内无帧到达（WM2/WM3：采样线程未广播）
+
+tests/test_web_monitor.py:102: Failed
+_____________ TestStatsFrame.test_top_functions_ranked_and_capped ______________
+
+self = <tests.test_web_monitor.TestStatsFrame object at 0x74c3ecb21040>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x74c3eaa50560>
+
+    def test_top_functions_ranked_and_capped(self, monkeypatch):
+        """WM4：top_functions 按 (-own, name) 排序、截 15 条（对齐
+        render_top 的 top_n 惯例）——own 计数与 time=own/rate 口径。"""
+        hot = _thread(native_tid=1, frames=[_frame("hot")])
+        others = [_thread(native_tid=10 + i, frames=[_frame(f"f{i:02d}")])
+                  for i in range(1, 20)]
+        rounds = [[*others, hot]] + [[hot]] * 4
+        m, stub, release = _harness(
+            monkeypatch, rounds, rate=10, interval=0.045)
+        q = m.subscribe()
+        m.start()
+        try:
+>           assert stub.done.wait(2)
+E           assert False
+E            +  where False = wait(2)
+E            +    where wait = <threading.Event at 0x74c3eaa51880: unset>.wait
+E            +      where <threading.Event at 0x74c3eaa51880: unset> = <tests.test_web_monitor.StubSampler object at 0x74c3eaa51910>.done
+
+tests/test_web_monitor.py:306: AssertionError
+_______________ TestFanout.test_subscribe_returns_bounded_queue ________________
+
+self = <tests.test_web_monitor.TestFanout object at 0x74c3ecb213a0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x74c3eaa52390>
+
+    def test_subscribe_returns_bounded_queue(self, monkeypatch):
+        """WM5：subscribe() 返回有界队列（maxsize=64）——慢消费者不拖垮
+        采样线程的前提。"""
+        m, _, release = _harness(monkeypatch, [])
+        q = m.subscribe()
+>       assert q.maxsize == 64
+E       assert 0 == 64
+E        +  where 0 = <queue.Queue object at 0x74c3eaa52360>.maxsize
+
+tests/test_web_monitor.py:326: AssertionError
+_____________ TestFanout.test_full_queue_drops_oldest_keeps_latest _____________
+
+self = <tests.test_web_monitor.TestFanout object at 0x74c3ecb216d0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x74c3eaa52f00>
+
+    def test_full_queue_drops_oldest_keeps_latest(self, monkeypatch):
+        """WM5：队列满丢最旧保最新（监控取最新语义）——100 次广播后
+        仅留末 64 帧；且队列积压不阻塞采样（100 轮全部完成）。"""
+        m, stub, release = _harness(
+            monkeypatch, [[_thread(frames=[_frame("f")])]] * 100,
+            rate=1000, interval=0.001)
+        q = m.subscribe()
+        m.start()
+        try:
+>           assert stub.done.wait(2)
+E           assert False
+E            +  where False = wait(2)
+E            +    where wait = <threading.Event at 0x74c3eaa52ff0: unset>.wait
+E            +      where <threading.Event at 0x74c3eaa52ff0: unset> = <tests.test_web_monitor.StubSampler object at 0x74c3eaa53080>.done
+
+tests/test_web_monitor.py:338: AssertionError
+__________ TestFanout.test_unsubscribe_idempotent_and_stops_delivery ___________
+
+self = <tests.test_web_monitor.TestFanout object at 0x74c3ecb00650>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x74c3eaa53b30>
+
+    def test_unsubscribe_idempotent_and_stops_delivery(self, monkeypatch):
+        """WM5：unsubscribe 幂等（重复调用无异常）；退订后不再收到帧，
+        在订队列照常收帧。"""
+        m, stub, release = _harness(
+            monkeypatch, [[_thread(frames=[_frame("f")])]] * 3)
+        q1 = m.subscribe()
+        q2 = m.subscribe()
+        m.start()
+        try:
+>           assert stub.done.wait(2)
+E           assert False
+E            +  where False = wait(2)
+E            +    where wait = <threading.Event at 0x74c3eaa53c20: unset>.wait
+E            +      where <threading.Event at 0x74c3eaa53c20: unset> = <tests.test_web_monitor.StubSampler object at 0x74c3eaa53ce0>.done
+
+tests/test_web_monitor.py:358: AssertionError
+_____________ TestFanout.test_subscribe_midrun_replays_last_frame ______________
+
+self = <tests.test_web_monitor.TestFanout object at 0x74c3ecb02240>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x74c3eaa53050>
+
+    def test_subscribe_midrun_replays_last_frame(self, monkeypatch):
+        """WM5/WA3 支点：订阅时已有广播帧 → 立即收到最近一帧（SSE 首帧
+        即时性的 monitor 侧支点）；未广播过则不投递。"""
+        m, stub, release = _harness(
+            monkeypatch, [[_thread(frames=[_frame("f")])]], rate=10)
+        q1 = m.subscribe()
+        m.start()
+        try:
+>           assert stub.done.wait(2)  # 首帧（t=0）已广播
+            ^^^^^^^^^^^^^^^^^^^^^^^^
+E           assert False
+E            +  where False = wait(2)
+E            +    where wait = <threading.Event at 0x74c3eaa531a0: unset>.wait
+E            +      where <threading.Event at 0x74c3eaa531a0: unset> = <tests.test_web_monitor.StubSampler object at 0x74c3eaa52f90>.done
+
+tests/test_web_monitor.py:378: AssertionError
+_______________ TestExit.test_process_exit_broadcast_and_sticky ________________
+
+q = <queue.Queue object at 0x74c3eaa51cd0>, timeout = 2
+
+    def _get(q, timeout=2):
+        """取一帧；超时转 pytest.fail——让 Red 失败落在预期断言上。"""
+        try:
+>           return q.get(timeout=timeout)
+                   ^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_web_monitor.py:100: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <queue.Queue object at 0x74c3eaa51cd0>, block = True, timeout = 2
+
+    def get(self, block=True, timeout=None):
+        '''Remove and return an item from the queue.
+    
+        If optional args 'block' is true and 'timeout' is None (the default),
+        block if necessary until an item is available. If 'timeout' is
+        a non-negative number, it blocks at most 'timeout' seconds and raises
+        the Empty exception if no item was available within that time.
+        Otherwise ('block' is false), return an item if one is immediately
+        available, else raise the Empty exception ('timeout' is ignored
+        in that case).
+        '''
+        with self.not_empty:
+            if not block:
+                if not self._qsize():
+                    raise Empty
+            elif timeout is None:
+                while not self._qsize():
+                    self.not_empty.wait()
+            elif timeout < 0:
+                raise ValueError("'timeout' must be a non-negative number")
+            else:
+                endtime = time() + timeout
+                while not self._qsize():
+                    remaining = endtime - time()
+                    if remaining <= 0.0:
+>                       raise Empty
+E                       _queue.Empty
+
+../../.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/queue.py:179: Empty
+
+During handling of the above exception, another exception occurred:
+
+self = <tests.test_web_monitor.TestExit object at 0x74c3ecb213d0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x74c3eaa51c70>
+
+    def test_process_exit_broadcast_and_sticky(self, monkeypatch):
+        """WM6：ProcessExited → 广播 exit 帧（data 空）→ 采样线程终止
+        （其后无新帧）；exit 粘性——新订阅立即收到恰好一帧 exit；
+        .exited 为 True。"""
+        m, stub, release = _harness(
+            monkeypatch, [[_thread(frames=[_frame("f")])],
+                          ProcessExited(PID)])
+        q = m.subscribe()
+        m.start()
+        try:
+>           assert _get(q)["type"] == "stats"
+                   ^^^^^^^
+
+tests/test_web_monitor.py:404: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+q = <queue.Queue object at 0x74c3eaa51cd0>, timeout = 2
+
+    def _get(q, timeout=2):
+        """取一帧；超时转 pytest.fail——让 Red 失败落在预期断言上。"""
+        try:
+            return q.get(timeout=timeout)
+        except queue.Empty:
+>           pytest.fail("订阅队列 2s 内无帧到达（WM2/WM3：采样线程未广播）")
+E           Failed: 订阅队列 2s 内无帧到达（WM2/WM3：采样线程未广播）
+
+tests/test_web_monitor.py:102: Failed
+___________________ TestStop.test_stop_idempotent_and_joins ____________________
+
+q = <queue.Queue object at 0x74c3eaa50bf0>, timeout = 2
+
+    def _get(q, timeout=2):
+        """取一帧；超时转 pytest.fail——让 Red 失败落在预期断言上。"""
+        try:
+>           return q.get(timeout=timeout)
+                   ^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_web_monitor.py:100: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <queue.Queue object at 0x74c3eaa50bf0>, block = True, timeout = 2
+
+    def get(self, block=True, timeout=None):
+        '''Remove and return an item from the queue.
+    
+        If optional args 'block' is true and 'timeout' is None (the default),
+        block if necessary until an item is available. If 'timeout' is
+        a non-negative number, it blocks at most 'timeout' seconds and raises
+        the Empty exception if no item was available within that time.
+        Otherwise ('block' is false), return an item if one is immediately
+        available, else raise the Empty exception ('timeout' is ignored
+        in that case).
+        '''
+        with self.not_empty:
+            if not block:
+                if not self._qsize():
+                    raise Empty
+            elif timeout is None:
+                while not self._qsize():
+                    self.not_empty.wait()
+            elif timeout < 0:
+                raise ValueError("'timeout' must be a non-negative number")
+            else:
+                endtime = time() + timeout
+                while not self._qsize():
+                    remaining = endtime - time()
+                    if remaining <= 0.0:
+>                       raise Empty
+E                       _queue.Empty
+
+../../.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/queue.py:179: Empty
+
+During handling of the above exception, another exception occurred:
+
+self = <tests.test_web_monitor.TestStop object at 0x74c3ecb20e30>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x74c3eaa51100>
+
+    def test_stop_idempotent_and_joins(self, monkeypatch):
+        """WM7：stop() 幂等——未 start 先 stop 无异常；重复调用无副作用；
+        stop 后线程确已终止（队列冻结）。"""
+        m, stub, release = _harness(
+            monkeypatch, [[_thread(frames=[_frame("f")])]])
+        m.stop()  # 未 start：无异常
+        q = m.subscribe()
+        m.start()
+        try:
+>           _get(q)  # 首帧到达：线程确在运行
+            ^^^^^^^
+
+tests/test_web_monitor.py:427: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+q = <queue.Queue object at 0x74c3eaa50bf0>, timeout = 2
+
+    def _get(q, timeout=2):
+        """取一帧；超时转 pytest.fail——让 Red 失败落在预期断言上。"""
+        try:
+            return q.get(timeout=timeout)
+        except queue.Empty:
+>           pytest.fail("订阅队列 2s 内无帧到达（WM2/WM3：采样线程未广播）")
+E           Failed: 订阅队列 2s 内无帧到达（WM2/WM3：采样线程未广播）
+
+tests/test_web_monitor.py:102: Failed
+_______ TestInjectionAndSurfacing.test_factory_called_with_pid_and_attrs _______
+
+self = <tests.test_web_monitor.TestInjectionAndSurfacing object at 0x74c3ecb20860>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x74c3ec9a3da0>
+
+    def test_factory_called_with_pid_and_attrs(self, monkeypatch):
+        """WM8：sampler_factory 注入点以 pid 调用；proc_info /
+        version_warning 自 session 透出（SE2 承接），None 亦原样。"""
+        clock = FakeClock()
+        release = threading.Event()
+        done = threading.Event()
+        stub = StubSampler(PID, [], clock, release, done)
+        warn_stub = StubSampler(PID, [], clock, release, done,
+                                warning="[!] stub warn")
+        monkeypatch.setattr(mon_mod, "time", clock)
+        calls = []
+    
+        def factory(pid):
+            calls.append(pid)
+            return stub
+    
+        m = mon_mod.Monitor(PID, sampler_factory=factory)
+>       assert calls == [PID]
+E       assert [] == [4242]
+E         
+E         Right contains one more item: 4242
+E         Use -v to get more diff
+
+tests/test_web_monitor.py:456: AssertionError
+_____________ TestInjectionAndSurfacing.test_monitor_never_prints ______________
+
+q = <queue.Queue object at 0x74c3ec9a1250>, timeout = 2
+
+    def _get(q, timeout=2):
+        """取一帧；超时转 pytest.fail——让 Red 失败落在预期断言上。"""
+        try:
+>           return q.get(timeout=timeout)
+                   ^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_web_monitor.py:100: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <queue.Queue object at 0x74c3ec9a1250>, block = True, timeout = 2
+
+    def get(self, block=True, timeout=None):
+        '''Remove and return an item from the queue.
+    
+        If optional args 'block' is true and 'timeout' is None (the default),
+        block if necessary until an item is available. If 'timeout' is
+        a non-negative number, it blocks at most 'timeout' seconds and raises
+        the Empty exception if no item was available within that time.
+        Otherwise ('block' is false), return an item if one is immediately
+        available, else raise the Empty exception ('timeout' is ignored
+        in that case).
+        '''
+        with self.not_empty:
+            if not block:
+                if not self._qsize():
+                    raise Empty
+            elif timeout is None:
+                while not self._qsize():
+                    self.not_empty.wait()
+            elif timeout < 0:
+                raise ValueError("'timeout' must be a non-negative number")
+            else:
+                endtime = time() + timeout
+                while not self._qsize():
+                    remaining = endtime - time()
+                    if remaining <= 0.0:
+>                       raise Empty
+E                       _queue.Empty
+
+../../.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/queue.py:179: Empty
+
+During handling of the above exception, another exception occurred:
+
+self = <tests.test_web_monitor.TestInjectionAndSurfacing object at 0x74c3ecb21970>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x74c3ec9a3260>
+capsys = <_pytest.capture.CaptureFixture object at 0x74c3ec9a07a0>
+
+    def test_monitor_never_prints(self, monkeypatch, capsys):
+        """WM8：Monitor 全生命周期不打印（呈现归 serve/CLI 层）——
+        构造、采样、广播、停止均无 stdout/stderr 输出。"""
+        m, stub, release = _harness(
+            monkeypatch, [[_thread(frames=[_frame("f")])]])
+        q = m.subscribe()
+        m.start()
+        try:
+>           _get(q)
+
+tests/test_web_monitor.py:472: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+q = <queue.Queue object at 0x74c3ec9a1250>, timeout = 2
+
+    def _get(q, timeout=2):
+        """取一帧；超时转 pytest.fail——让 Red 失败落在预期断言上。"""
+        try:
+            return q.get(timeout=timeout)
+        except queue.Empty:
+>           pytest.fail("订阅队列 2s 内无帧到达（WM2/WM3：采样线程未广播）")
+E           Failed: 订阅队列 2s 内无帧到达（WM2/WM3：采样线程未广播）
+
+tests/test_web_monitor.py:102: Failed
+=========================== short test summary info ============================
+FAILED tests/test_web_monitor.py::TestConstruction::test_pyprobe_error_raises_at_construction
+FAILED tests/test_web_monitor.py::TestSamplingThread::test_absolute_schedule_no_drift
+FAILED tests/test_web_monitor.py::TestSamplingThread::test_behind_schedule_resets_baseline
+FAILED tests/test_web_monitor.py::TestBroadcast::test_every_interval_to_all_subscribers
+FAILED tests/test_web_monitor.py::TestBroadcast::test_frame_threads_are_latest_sample
+FAILED tests/test_web_monitor.py::TestStatsFrame::test_stats_frame_key_set_exact
+FAILED tests/test_web_monitor.py::TestStatsFrame::test_boundary_zero_samples
+FAILED tests/test_web_monitor.py::TestStatsFrame::test_boundary_active_thread_without_frames
+FAILED tests/test_web_monitor.py::TestStatsFrame::test_top_functions_ranked_and_capped
+FAILED tests/test_web_monitor.py::TestFanout::test_subscribe_returns_bounded_queue
+FAILED tests/test_web_monitor.py::TestFanout::test_full_queue_drops_oldest_keeps_latest
+FAILED tests/test_web_monitor.py::TestFanout::test_unsubscribe_idempotent_and_stops_delivery
+FAILED tests/test_web_monitor.py::TestFanout::test_subscribe_midrun_replays_last_frame
+FAILED tests/test_web_monitor.py::TestExit::test_process_exit_broadcast_and_sticky
+FAILED tests/test_web_monitor.py::TestStop::test_stop_idempotent_and_joins - ...
+FAILED tests/test_web_monitor.py::TestInjectionAndSurfacing::test_factory_called_with_pid_and_attrs
+FAILED tests/test_web_monitor.py::TestInjectionAndSurfacing::test_monitor_never_prints
+================ 17 failed, 899 passed, 18 deselected in 29.50s ================

@@ -4,6 +4,8 @@ Dispatch targets are monkeypatched at the cli module's import seams;
 tests pin argument shapes (复刻约束) and exit-code passthrough.
 """
 
+import sys
+
 import pytest
 
 import pyprobe.cli as cli
@@ -205,3 +207,89 @@ class TestExitCodePassthrough:
         """CLI4：dump_* 返回码原样成为 main 返回值（如 dump_top 的 2）。"""
         monkeypatch.setattr(cli, "dump_top", lambda *a, **kw: 2)
         assert main(["top", "-p", "1"]) == 2
+
+
+class _ImportBlocker:
+    """meta_path finder：对指定顶层模块名抛 MNFE（模拟 web 依赖缺席）。"""
+
+    def __init__(self, name):
+        self.name = name
+
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split(".")[0] == self.name:
+            raise ModuleNotFoundError(
+                f"No module named {fullname!r}", name=fullname)
+        return None
+
+
+class TestWebDispatch:
+    def _patch_serve(self, monkeypatch, rc=7):
+        """替换 serve_web 为记录桩（延迟 import 的属性查找点）。"""
+        import pyprobe.web.serve as serve_mod
+        recorded = {}
+
+        def fake_serve(pid, *, rate, interval, host, port):
+            recorded.update(pid=pid, rate=rate, interval=interval,
+                            host=host, port=port)
+            return rc
+
+        monkeypatch.setattr(serve_mod, "serve_web", fake_serve)
+        return recorded
+
+    def test_defaults_and_passthrough(self, monkeypatch):
+        """WC1/WC3：web 默认值（rate=50、interval=1.0、host=127.0.0.1、
+        port=9470）+ serve_web 返回码透传。"""
+        recorded = self._patch_serve(monkeypatch, rc=7)
+        assert main(["web", "-p", "123"]) == 7
+        assert recorded == {"pid": 123, "rate": 50.0, "interval": 1.0,
+                            "host": "127.0.0.1", "port": 9470}
+
+    def test_explicit_options(self, monkeypatch):
+        """WC1：-r/-i/--host/--port 显式形态透传。"""
+        recorded = self._patch_serve(monkeypatch)
+        assert main(["web", "-p", "5", "-r", "10", "-i", "2.5",
+                     "--host", "0.0.0.0", "--port", "8080"]) == 7
+        assert recorded == {"pid": 5, "rate": 10.0, "interval": 2.5,
+                            "host": "0.0.0.0", "port": 8080}
+
+    def test_pid_required(self):
+        """WC1：-p 必填 → 缺失 SystemExit 2。"""
+        with pytest.raises(SystemExit) as ei:
+            main(["web"])
+        assert ei.value.code == 2
+
+    def test_rate_interval_ranges(self):
+        """WC1：rate ∈ (0,1000]、interval ∈ (0,60]（_positive_float 同款
+        越界拒绝）。"""
+        for bad in (["web", "-p", "1", "-r", "0"],
+                    ["web", "-p", "1", "-r", "1001"],
+                    ["web", "-p", "1", "-i", "0"],
+                    ["web", "-p", "1", "-i", "61"]):
+            with pytest.raises(SystemExit) as ei:
+                main(bad)
+            assert ei.value.code == 2
+
+    def test_missing_deps_friendly_rc2(self, monkeypatch, capsys):
+        """WC2：web 依赖缺席（fastapi 被屏蔽）→ stderr 安装提示 + rc 2
+        （DP5 环境不满足语义），非 pyprobe 缺席才转提示。"""
+        monkeypatch.delenv("CLICOLOR_FORCE", raising=False)
+        for mod in list(sys.modules):
+            if mod.split(".")[0] in ("fastapi", "uvicorn") \
+                    or mod.startswith("pyprobe.web"):
+                monkeypatch.delitem(sys.modules, mod)
+        monkeypatch.setattr(
+            sys, "meta_path", [_ImportBlocker("fastapi"), *sys.meta_path])
+        assert main(["web", "-p", "123"]) == 2
+        err = capsys.readouterr().err
+        assert ("[!] the web subcommand requires extra dependencies "
+                "— install with: pip install 'pyprobe[web]'") in err
+
+    def test_own_import_error_not_swallowed(self, monkeypatch):
+        """WC2 成对：pyprobe 自身 ImportError（serve_web 属性缺席）→
+        原样上抛，不转安装提示。"""
+        import types
+
+        broken = types.ModuleType("pyprobe.web.serve")  # 无 serve_web 属性
+        monkeypatch.setitem(sys.modules, "pyprobe.web.serve", broken)
+        with pytest.raises(ImportError):
+            main(["web", "-p", "123"])

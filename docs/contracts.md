@@ -171,7 +171,7 @@ pyprobe 在**呈现层**（`present/text.py`）施加同一截断：`_shorten_sy
 
 ### A13. Web 监控模式（`pyprobe[web]` extras 与 `web/` 顶层消费者包）
 
-**状态**：accepted（2026-10；批 8 进行中，未落地）
+**状态**：accepted（2026-10；批 8 进行中——8a extras 与 Monitor 已落地）
 
 新增 web 服务器模式：`pyprobe web -p <pid>` 起 HTTP 服务器监控单个目标进程，
 浏览器页面实时展示热点视图（top 信息结构）与**完整线程调用栈**（活跃线程帧链
@@ -186,10 +186,15 @@ pyprobe 在**呈现层**（`present/text.py`）施加同一截断：`_shorten_sy
   （否则 ImportError 传染核心包；API1 名单不变），web 只经 `pyprobe.web` 显式
   触达。
 - **依赖方向扩展**：`kernel → target → cpython → observe → present → {cli, web}`；
-  cli→web 合法（dispatch 消费），web→cli 禁止，任何能力层→web 禁止；web 仅可
-  依赖 observe 与横切层（dto/errors）——**web→present 禁止**（web 的 JSON 面经
+  cli→web 合法（dispatch 消费），web→cli 禁止，任何能力层→web 禁止；web 仅可依赖
+  observe 与横切层（dto/errors）——**web→present 禁止**（web 的 JSON 面经
   `dataclasses.asdict` 直出，不复用 CLI 呈现层；present 保持 CLI 呈现语义纯净）。
   结构契约测试机械强制（A8 机制延伸，ST-W 系条目）。
+- **批 8b 实施期修订（2026-10-12）**：WS1 的红色 `[!]` 错误行需要色码原语
+  （`red`/`should_color`），其唯一归宿自 A8 起在 `present/color.py`——「web→present
+  绝对禁止」与 WS1 无法同时满足。窄例外：web 可 import `pyprobe.present.color`
+  （仅此一个 present 子模块；文本/JSON 呈现函数 `format_*`/`render_*` 仍禁），
+  ST-W1 以白名单机械强制。
 - **延迟 import 与缺依赖语义**：cli.py dispatch 分支函数体内 import；web 依赖
   （fastapi/uvicorn 及其传递依赖）缺席 → stderr
   `[!] the web subcommand requires extra dependencies — install with: pip install 'pyprobe[web]'`
@@ -703,8 +708,8 @@ SnapshotView（单次快照语义），长时追踪（批次 5 syscalls）用 Li
 | WM1 | 构造即解析目标（Sampler 初始化，SE1 语义承接）：ProcessNotFound/SymbolNotFound 等 PyProbeError 子类构造期上抛，不进后台线程 | test_web_monitor.py |
 | WM2 | start() 起后台采样线程：按 rate 绝对时间调度（PF2 语义承接：落后重置不补发）；每样本 TopStats.update 并留存该样本 ThreadInfo 列表为最新快照 | 同 |
 | WM3 | 每 interval 广播一帧 `{type: "stats", data: …}` 至全部订阅队列；data.threads 为最新一次采样的完整 ThreadInfo 序列化——完整帧链不丢弃（A13：实时调用栈增强点） | 同 |
-| WM4 | stats data 键集 pin：`process={pid, cmdline, exe_path, python_version, version_warning}`；`elapsed`: float；`samples`/`idle_samples`: int；`top_functions: [{name, own, total, own_pct, total_pct, time}]`（pct 为占 samples 百分比、time=own/rate 秒；samples==0 时 pct/time 为 0）；`threads: [{native_tid, thread_id, name, idle, own_pct, frames: [{name, filename, line}]}]`（own_pct 为该线程顶帧函数的 own 占比，无顶帧为 0；idle 线程 frames 为 []） | 同（键集 + 边界值成对） |
-| WM5 | 订阅扇出：subscribe() 返回有界队列（maxsize=64）；满时丢最旧保最新（监控取最新语义；广播 put_nowait 不阻塞采样线程）；unsubscribe 幂等 | 同 |
+| WM4 | stats data 键集 pin：`process={pid, cmdline, exe_path, python_version, version_warning}`；`elapsed`: float；`samples`/`idle_samples`: int；`top_functions: [{name, own, total, own_pct, total_pct, time}]`（仅 own 字典成员入榜——render_top 同口径；按 `(-own, name)` 排序、截 15 条对齐 top_n；pct 为占 samples 百分比、time=own/rate 秒；samples==0 时 pct/time 为 0）；`threads: [{native_tid, thread_id, name, idle, own_pct, frames: [{name, filename, line}]}]`（own_pct 为该线程顶帧函数的 own 占比，无顶帧为 0；idle 线程 frames 为 []） | 同（键集 + 边界值成对） |
+| WM5 | 订阅扇出：subscribe() 返回有界队列（maxsize=64）；满时丢最旧保最新（监控取最新语义；广播 put_nowait 不阻塞采样线程）；unsubscribe 幂等；订阅时若已有广播帧立即重放最近一帧（WA3「首帧立即到达」的 monitor 侧支点；无帧不投递） | 同 |
 | WM6 | ProcessExited → 广播 `{type: "exit", data: {}}` → 采样线程终止；exit 粘性（新订阅立即收到一帧 exit）；`.exited` 属性为 True | 同 |
 | WM7 | stop() 幂等：置停止标志 + join(timeout=5)；重复调用无副作用 | 同 |
 | WM8 | sampler_factory 注入点（对齐 Sampler view_factory 测试模式）；version_warning 自 session 透出（SE2 承接），Monitor 本身不打印 | 同 |
@@ -715,7 +720,7 @@ SnapshotView（单次快照语义），长时追踪（批次 5 syscalls）用 Li
 |---|--------|--------|
 | WA1 | GET / → static/index.html（缺失 → 503 纯文本提示构建产物缺席，不 traceback）；GET /assets/* 经 StaticFiles 挂载（目录穿越防护由其实现承担）；static_dir 注入点 | test_web_app.py（TestClient） |
 | WA2 | GET /api/process → `asdict(proc_info)` 四键 + `version_warning` 键（None → null）；键集 pin（非 ASCII 值不 pin 转义形态——前端透明） | 同 |
-| WA3 | GET /api/events → StreamingResponse：media_type `text/event-stream`；`Cache-Control: no-cache` + `X-Accel-Buffering: no`；进入即 subscribe，首帧立即到达（stats 或粘性 exit）；客户端断开 → unsubscribe 且生成器结束 | 同（流式断言） |
+| WA3 | GET /api/events → StreamingResponse：media_type `text/event-stream`；`Cache-Control: no-cache` + `X-Accel-Buffering: no`；进入即 subscribe，首帧立即到达（stats 或粘性 exit）；客户端断开 → unsubscribe 且生成器结束 | 同（starlette 1.6 TestClient HTTP 传输全量缓冲——内容断言按完整流读取（exit 帧收尾），断连/首帧增量语义走原生 ASGI 驱动；批 8b 实施期发现） |
 | WA4 | SSE 帧编码：`event: stats\ndata: <单行 json>\n\n`；exit：`event: exit\ndata: {}\n\n`；exit 帧发出后服务器正常结束该流（前端收 exit 后 close() 不重连，防无限重连循环，FE2 配套）；15s 无帧输出 `: ping\n\n` 心跳 | 同 |
 | WA5 | 路由无全局状态：monitor 经 create_app 注入（stub monitor + TestClient 单测，无真实目标进程） | 同 |
 
@@ -741,14 +746,14 @@ SnapshotView（单次快照语义），长时追踪（批次 5 syscalls）用 Li
 
 | # | 行为点 | 新测试 |
 |---|--------|--------|
-| ST-W1 | web 层 import 方向：能力层（kernel/target/cpython/observe/present）不得 import web；web 仅可 import observe 与横切（禁 kernel/target/cpython/present/cli）；cli→web 合法且仅经函数内延迟 import | test_structure.py |
+| ST-W1 | web 层 import 方向：能力层（kernel/target/cpython/observe/present）不得 import web；web 仅可 import observe 与横切 + `present.color` 窄例外（A13 批 8b 修订；禁 kernel/target/cpython/present 其余/cli）；cli→web 合法且仅经函数内延迟 import | test_structure.py |
 | ST-W2 | pyprobe/__init__.py 不得 import web（核心零依赖红线，A13）；API1 名单不变 | test_structure.py + test_api_exports.py |
 
 **端到端**（integration，≤15s 预算）
 
 | # | 行为点 | 新测试 |
 |---|--------|--------|
-| E2E-W1 | 真实子进程（conftest target 模式）+ 真 Monitor + TestClient（in-process，不经 uvicorn）拉 /api/events：首帧 stats 含目标函数名/线程名；terminate 目标后收到 exit 帧 | test_web_live.py（integration） |
+| E2E-W1 | 真实子进程（conftest target 模式）+ 真 Monitor + in-process 不经 uvicorn 拉 /api/events（批 8b 实施期修订：原生 ASGI 驱动替代 TestClient——starlette 1.6 后者全量缓冲，增量 SSE 不可观测；「in-process、不经 uvicorn」意图不变）：首帧 stats 含目标函数名/线程名；terminate 目标后收到 exit 帧 | test_web_live.py（integration） |
 
 **前端**（`frontend/`，React + Vite；产物入库 `pyprobe/web/static/`）
 

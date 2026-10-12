@@ -25,7 +25,8 @@ CPython 运行时状态并呈现。它提供四种工作模式：
 - **采样与性能分析**（`record` / `top` 子命令）— 周期性采样 Python 调用栈：
   `record` 聚合为 folded stacks，`top` 终端实时刷新各线程当前帧与热点函数排行
   （§15）。使用 `process_vm_readv(2)`，**不需要 ptrace attach**。
-- **Web 监控**（`web` 子命令，可选 extras `pyprobe[web]`，ADR A13；批 8 进行中，未落地）— 采样观测模式
+- **Web 监控**（`web` 子命令，可选 extras `pyprobe[web]`，ADR A13；批 8 进行中——8a extras
+  与 Monitor、8b HTTP 服务与 CLI 已落地）— 采样观测模式
   的浏览器前端：HTTP 服务器 + SSE 推送热点统计与活跃线程**完整调用栈**。与 `top`
   共享 Sampler/TopStats，同样**不需要 ptrace attach**；web 是与 cli 平级的顶层
   消费形态，非第五种观测模式。
@@ -60,7 +61,7 @@ kernel → target → cpython → observe → present → {cli, web}
 ## 2. 模块结构（架构地图）
 
 会话先读本表按「入口」定位文件；**禁止未读地图先全库 grep**。地图只写已落地结构（批 8 的
-`web/`、`frontend/` 未落地，见 ADR A13）；改结构时更新对应行并刷新验证日期（规则见 AGENTS.md）。
+`frontend/` 未落地，见 ADR A13）；改结构时更新对应行并刷新验证日期（规则见 AGENTS.md）。
 
 | 路径 | 职责 | 入口（文件:符号） | 禁令/依赖 |
 |------|------|------------------|-----------|
@@ -70,14 +71,14 @@ kernel → target → cpython → observe → present → {cli, web}
 | `pyprobe/observe/` | 时间维度：快照 / 采样 / 事件流 | `session.py:open_session`、`sampling.py:Sampler` | → cpython |
 | `pyprobe/present/` | 呈现：文本 / JSON / 颜色 | `text.py:format_process`、`dumps.py:dump_python` | → observe |
 | `pyprobe/cli.py` | argparse 薄壳（stack/syscall/record/top） | `cli.py:main` | 可 import 全部；web 延迟 import |
-| `pyprobe/dto.py` + `pyprobe/errors.py` | 横切：纯数据 DTO / 异常层级 | — | 禁 import 任何层 |
-| `pyprobe/offsets.py` + `pyprobe/colors.py` | 兼容门面（只读再出口） | — | 层模块禁用（结构测试） |
+| `pyprobe/web/` | Web 编排：采样调度 + 订阅扇出、HTTP/SSE 服务、启动编排 | `monitor.py:Monitor`、`app.py:create_app`、`serve.py:serve_web` | 仅 observe + 横切 + `present.color`（A13 批 8b 修订窄例外）；禁 present 其余/cli |
+| `pyprobe/dto.py` `pyprobe/errors.py` `pyprobe/offsets.py` `pyprobe/colors.py` | 横切（DTO/异常）+ 兼容门面 | — | dto/errors 禁 import 层；offsets/colors 层模块禁用 |
 | `tools/gen_offsets.c` | 偏移量生成器（真实头文件） | `scripts/gen_offsets.sh` | — |
 | `scripts/` | 构建 / 测试 / CI 唯一入口 | `scripts/ci.sh` | 禁裸命令 |
 | `tests/` | 测试（按 oracle 类型组织，§13） | `conftest.py:target_pid` | 禁照抄被测常量 |
 | `reference/c/` | C 参考实现（交叉校验，不交付） | `scripts/build.sh` | 不对外交付 |
 
-以代码为准，验证于 2026-10-11
+以代码为准，验证于 2026-10-12
 
 ---
 
@@ -92,7 +93,7 @@ kernel → target → cpython → observe → present → {cli, web}
 | 格式化 | `format_process` / `format_native` / `format_summary` / `format_folded` | 数据 → CLI 风格字符串（`present/text.py`） | `str` |
 | 格式化 | `format_process_json` / `format_native_json` / `format_syscalls_json` | 数据 → JSON（`present/jsonout.py`） | `str` |
 | CLI 封装 | `dump_python` / `dump_native` / `dump_syscalls` / `dump_record` / `dump_top` | collect + format + print + 退出码（`present/dumps.py`） | `int` |
-| Web 编排 | `serve_web`（批 8 未落地） | Monitor + FastAPI + uvicorn 编排（`web/serve.py`，ADR A13） | `int` |
+| Web 编排 | `serve_web` | Monitor + FastAPI + uvicorn 编排（`web/serve.py`，ADR A13） | `int` |
 
 > 上表只钉分层职责与命名；逐函数签名以代码为准，公开 API 面契约见
 > [contracts.md §4](contracts.md) 模块契约表（双写漂移史见 ADR A14）。
@@ -418,7 +419,7 @@ else:
 
 `resolve_layout(version)` 可用于在无目标进程时直接取版本布局（A1 新增 API）。
 
-### 12.4 Web 监控模式（可选 extras，ADR A13；批 8 进行中，未落地）
+### 12.4 Web 监控模式（可选 extras，ADR A13；批 8 进行中——8a extras 与 Monitor、8b HTTP 服务与 CLI 已落地）
 
 ```bash
 pip install 'pyprobe[web]'        # fastapi + uvicorn 最小集；核心 wheel 零依赖不变

@@ -35,7 +35,7 @@ pip install setuptools wheel        # 预装构建依赖（以 [build-system].re
 scripts/build_wheels.sh             # 脚本自动检测并走 pip 回退路径
 ```
 
-开发（非构建）路径同理：无 `uv` 时 `scripts/sync.sh` 以 pip 安装包本体 + 开发工具（pytest / pytest-cov / watchfiles / ruff），`scripts/lint.sh`（内部 `python -m ruff`）与 `scripts/run_tests.sh` 在纯 pip 环境下同样可用。
+开发（非构建）路径同理：无 `uv` 时 `scripts/sync.sh` 以 pip 安装包本体（含 web extras，即 `.[web]`）+ 开发工具（pytest / pytest-cov / watchfiles / ruff / httpx2），`scripts/lint.sh`（内部 `python -m ruff`）与 `scripts/run_tests.sh` 在纯 pip 环境下同样可用。
 
 > 改 `pyproject.toml` 的 `[build-system].requires` 时，需同步更新此处预装命令与 `scripts/_common.sh` 的回退逻辑。
 

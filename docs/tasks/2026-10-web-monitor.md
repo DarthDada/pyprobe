@@ -1,6 +1,6 @@
 # 任务：Web 监控模式（`pyprobe[web]`）
 
-> 状态：进行中（2026-10 起）· 当前批次：8a（extras 与 Monitor）
+> 状态：进行中（2026-10 起）· 当前批次：8c（React 前端）
 > 契约 SSOT：ADR A13（[contracts.md](../contracts.md) §2）+ 批次 8 行为点清单
 > （contracts.md §4，WM/WA/WS/WC/ST-W/E2E-W/FE 系）；架构落点
 > [design.md](../design.md) §2 模块结构 / §12.4 集成模式。
@@ -10,16 +10,19 @@
 
 - [x] 1. 需求分析与选型确认（2026-10）
 - [x] 2. 批 0 — ADR 与契约（2026-10）：ADR A13 入 contracts.md §2；批次 8 契约表入 §4（模块表 + 24 行为点）；§1 依赖方向铁律扩展为 `present → {cli, web}`；design.md 同步（§1 概述、§1.1 方向、§2 结构树、§3 API 表、§12.4、§13.5）；TODO/AGENTS.md 同步
-- [ ] 3. 批 8a — extras 与 Monitor（2026-10）
+- [x] 3. 批 8a — extras 与 Monitor（2026-10，已落地；Red/Green 见 docs/red/batch8a-{red,green}.txt）
   - `pyproject.toml`：`[project.optional-dependencies] web = ["fastapi>=0.141.1", "uvicorn>=0.30"]`；dev 组补 `fastapi`/`uvicorn`/`httpx`（不带 3.12 标记，3.11+ 全版本可测）；`package-data` 收 `web/static/*`、`web/static/assets/*`（显式两层，维持 `setuptools>=61` 下限）
   - `scripts/sync.sh` + `scripts/_common.sh`：uv 路径 `--all-extras`、pip 回退路径 `.[web]`，两条路径同步改（AGENTS.md 铁律）
   - `web/monitor.py`（WM1–8，TDD）：sampler_factory 注入喂构造 ThreadInfo 序列；绝对时间调度；有界队列扇出（满丢最旧保最新）；ProcessExited → exit 粘性终态；stop() 幂等
-- [ ] 4. 批 8b — HTTP 服务与 CLI（2026-10）
+  - 实现期契约精化（已回写 contracts.md 批 8 表）：WM4 top_functions 仅 own 字典成员入榜、`(-own, name)` 排序、截 15；WM5 订阅重放最近帧（WA3 支点）；start() 清停止标志（stop-before-start 非砖死）
+  - 验证：全套件 934 passed、覆盖 97%（monitor.py 98%）、lint 绿、smoke wheel 含 `pyprobe/web/` 子包
+- [x] 4. 批 8b — HTTP 服务与 CLI（2026-10，已落地；Red/Green 见 docs/red/batch8b-{red,green}.txt）
   - `web/app.py`（WA1–5）：`create_app(monitor, *, static_dir=None)`；`GET /` / `/assets/*` / `/api/process` / `/api/events`（SSE 帧编码 pin）
   - `web/serve.py`（WS1–5）：`serve_web(pid, *, rate, interval, host, port) -> int`；`[!]` 错误 rc 1 / 端口占用友好报错 / Ctrl-C 干净退出 rc 0
   - `cli.py` web 子命令（WC1–3）：`-p/-r/-i/--host/--port` 参数形态；dispatch 分支函数内延迟 import
   - 结构契约（ST-W1–2）：web 层 import 方向 + `__init__.py` 不 import web，test_structure.py 机械强制
-  - 端到端（E2E-W1）：真子进程 + 真 Monitor + TestClient（in-process）拉 SSE，首帧 stats 含目标函数名、terminate 后收 exit 帧（integration，≤15s）
+  - 端到端（E2E-W1）：真子进程 + 真 Monitor in-process 拉 SSE，首帧 stats 含目标函数名、terminate 后收 exit 帧（integration，≤15s）
+  - 实施期发现与契约修订（已回写 contracts.md）：starlette 1.6 TestClient HTTP 传输全量缓冲——/api/events 内容断言按完整流读取（exit 帧收尾），增量语义（断连退订/首帧送达/E2E 驱动）改原生 ASGI（E2E-W1 机制修订，意图不变）；A13 窄例外 web 可 import `present.color`（WS1 红 `[!]` 与 web→present 禁令冲突）；dev 依赖 httpx → httpx2（starlette 1.6 偏好）
 - [ ] 5. 批 8c — React 前端（2026-10）
   - `frontend/` Vite + React 工程：进程头 + Active threads 表（点击展开完整调用栈）+ Idle 行 + Top functions 表；EventSource 消费，exit 帧显示终态横幅并 close() 不重连（FE1–2）
   - 产物构建至 `pyprobe/web/static/` 并入库
