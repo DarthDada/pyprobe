@@ -171,7 +171,7 @@ pyprobe 在**呈现层**（`present/text.py`）施加同一截断：`_shorten_sy
 
 ### A13. Web 监控模式（`pyprobe[web]` extras 与 `web/` 顶层消费者包）
 
-**状态**：accepted（2026-10；批 8 进行中——8a extras 与 Monitor 已落地）
+**状态**：accepted（2026-10；批 8 已全落地 8a–8d，后续迭代见 TODO「Web 监控后续迭代」）
 
 新增 web 服务器模式：`pyprobe web -p <pid>` 起 HTTP 服务器监控单个目标进程，
 浏览器页面实时展示热点视图（top 信息结构）与**完整线程调用栈**（活跃线程帧链
