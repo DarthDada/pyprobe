@@ -15,11 +15,16 @@ on:
     paths-ignore:
       - "**.md"
       - "docs/**"
+      # FE3 解耦：前端与已入库产物走 frontend.yml，不进 Python 流水线
+      - "frontend/**"
+      - "pyprobe/web/static/**"
   push:
     branches: [main]
     paths-ignore:
       - "**.md"
       - "docs/**"
+      - "frontend/**"
+      - "pyprobe/web/static/**"
   workflow_dispatch:
 
 concurrency:

@@ -1,6 +1,6 @@
 # 任务：Web 监控模式（`pyprobe[web]`）
 
-> 状态：进行中（2026-10 起）· 当前批次：8c（React 前端）
+> 状态：进行中（2026-10 起）· 当前批次：8d（文档收尾）
 > 契约 SSOT：ADR A13（[contracts.md](../contracts.md) §2）+ 批次 8 行为点清单
 > （contracts.md §4，WM/WA/WS/WC/ST-W/E2E-W/FE 系）；架构落点
 > [design.md](../design.md) §2 模块结构 / §12.4 集成模式。
@@ -23,10 +23,12 @@
   - 结构契约（ST-W1–2）：web 层 import 方向 + `__init__.py` 不 import web，test_structure.py 机械强制
   - 端到端（E2E-W1）：真子进程 + 真 Monitor in-process 拉 SSE，首帧 stats 含目标函数名、terminate 后收 exit 帧（integration，≤15s）
   - 实施期发现与契约修订（已回写 contracts.md）：starlette 1.6 TestClient HTTP 传输全量缓冲——/api/events 内容断言按完整流读取（exit 帧收尾），增量语义（断连退订/首帧送达/E2E 驱动）改原生 ASGI（E2E-W1 机制修订，意图不变）；A13 窄例外 web 可 import `present.color`（WS1 红 `[!]` 与 web→present 禁令冲突）；dev 依赖 httpx → httpx2（starlette 1.6 偏好）
-- [ ] 5. 批 8c — React 前端（2026-10）
-  - `frontend/` Vite + React 工程：进程头 + Active threads 表（点击展开完整调用栈）+ Idle 行 + Top functions 表；EventSource 消费，exit 帧显示终态横幅并 close() 不重连（FE1–2）
-  - 产物构建至 `pyprobe/web/static/` 并入库
-  - CI 前端校验任务：仅 `frontend/**` 变更触发，`npm ci && npm run build && git diff --exit-code pyprobe/web/static/`，与主流水线解耦（FE3）
+- [x] 5. 批 8c — React 前端（2026-10，已落地；FE1–2 手动验证出口记录下述）
+  - `frontend/` Vite + React 工程（react 19 / vite 7，package-lock 入库）：进程头（对齐 TX3 + Elapsed 行 + version_warning 行）+ Active threads 表（点击行展开完整帧链，▸/▾ 手风琴）+ Idle 行 + Top functions 表；EventSource 消费 /api/events，exit 帧显示「目标进程已退出」终态横幅并 close() 不重连（FE1–2）
+  - 产物构建至 `pyprobe/web/static/`（index.html + assets/ 哈希文件，布局对齐 WA1 伺服契约）并入库；`.gitignore` 仅忽略 `node_modules/`
+  - CI 前端校验任务 `.github/workflows/frontend.yml`：仅 `frontend/**`（及 static/、workflow 自身）变更触发，`npm ci && npm run build && git diff --exit-code pyprobe/web/static/`（补 untracked porcelain 兜底——vite 换哈希名时新文件不入 git diff）；主 ci.yml paths-ignore 排除 frontend/ 与 static/，双向解耦（FE3）
+  - FE1/FE2 手动验证（出口记录）：真实目标（spin_forever/burn_cycle 忙线程 + bg-sleeper 闲线程）+ in-process Monitor/create_app/uvicorn（serve_web 同款装配；ptrace_scope=1 下 pyprobe 须为目标祖先，故非 CLI 直起——CLI 分发与 rc 语义已由批 8b 单测覆盖）。16 项断言全过：/api/process 键集、index.html + 哈希 asset 伺服、产物内含 FE1 各区标题与终态横幅文案、首帧 stats（top_functions 含 burn_cycle、idle/active 拆分、帧链含 burn_cycle→spin_forever、键集 pin）、terminate 后 exit 帧 `data: {}` 收尾、uvicorn 干净关闭、monitor.exited 粘性
+  - 本批无新增 pytest（FE1–2 契约定为手动验证、FE3 为 CI 任务，批 0 已定）；无 docs/red/batch8c 存档
 - [ ] 6. 批 8d — 文档收尾（2026-10）：README（extras 安装、web 子命令用法、权限段补行；命令示例须来自真实输出，§10.5-4 精神）；design.md §12.4 示例重跑核对；本条勾销
 
 ## 后续迭代（首版不含）

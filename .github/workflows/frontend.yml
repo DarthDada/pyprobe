@@ -1,0 +1,47 @@
+# FE3 — 产物入库新鲜度：frontend/**（或已入库产物自身）变更时重建前端，
+# 断言 pyprobe/web/static/ 无 diff（源码改了产物没跟上 → 红）。与主流水线
+# 解耦：独立 workflow + 主 ci.yml paths-ignore 已排除 frontend/ 与 static/，
+# 前端变更不触发 Python 流水线，反之亦然。
+name: Frontend
+
+on:
+  pull_request:
+    paths:
+      - "frontend/**"
+      - "pyprobe/web/static/**"
+      - ".github/workflows/frontend.yml"
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - "pyprobe/web/static/**"
+      - ".github/workflows/frontend.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install (locked)
+        working-directory: frontend
+        run: npm ci
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+      - name: Committed artifacts are fresh (FE3)
+        # 契约 pin 命令之外补 untracked 兜底：vite 换哈希产物名时新文件
+        # 不入 git diff，porcelain 一并兜住。
+        run: |
+          git diff --exit-code pyprobe/web/static/
+          test -z "$(git status --porcelain pyprobe/web/static/)"

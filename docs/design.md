@@ -60,8 +60,7 @@ kernel → target → cpython → observe → present → {cli, web}
 
 ## 2. 模块结构（架构地图）
 
-会话先读本表按「入口」定位文件；**禁止未读地图先全库 grep**。地图只写已落地结构（批 8 的
-`frontend/` 未落地，见 ADR A13）；改结构时更新对应行并刷新验证日期（规则见 AGENTS.md）。
+会话先读本表按「入口」定位文件；**禁止未读地图先全库 grep**。地图只写已落地结构；改结构时更新对应行并刷新验证日期（规则见 AGENTS.md）。
 
 | 路径 | 职责 | 入口（文件:符号） | 禁令/依赖 |
 |------|------|------------------|-----------|
@@ -73,6 +72,7 @@ kernel → target → cpython → observe → present → {cli, web}
 | `pyprobe/cli.py` | argparse 薄壳（stack/syscall/record/top） | `cli.py:main` | 可 import 全部；web 延迟 import |
 | `pyprobe/web/` | Web 编排：采样调度 + 订阅扇出、HTTP/SSE 服务、启动编排 | `monitor.py:Monitor`、`app.py:create_app`、`serve.py:serve_web` | 仅 observe + 横切 + `present.color`（A13 批 8b 修订窄例外）；禁 present 其余/cli |
 | `pyprobe/dto.py` `pyprobe/errors.py` `pyprobe/offsets.py` `pyprobe/colors.py` | 横切（DTO/异常）+ 兼容门面 | — | dto/errors 禁 import 层；offsets/colors 层模块禁用 |
+| `frontend/` | Web 前端（React + Vite，ADR A13）：EventSource 消费 SSE，页面结构对齐 top | `src/App.jsx` | 独立于 Python 分层；产物入库 `pyprobe/web/static/`，新鲜度由 CI 前端任务机械校验（FE3） |
 | `tools/gen_offsets.c` | 偏移量生成器（真实头文件） | `scripts/gen_offsets.sh` | — |
 | `scripts/` | 构建 / 测试 / CI 唯一入口 | `scripts/ci.sh` | 禁裸命令 |
 | `tests/` | 测试（按 oracle 类型组织，§13） | `conftest.py:target_pid` | 禁照抄被测常量 |

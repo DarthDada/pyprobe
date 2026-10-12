@@ -15,3 +15,6 @@ uv.lock
 
 # C build artifacts
 build/
+
+# Frontend toolchain（产物 pyprobe/web/static/ 按契约 FE3 入库，不忽略）
+node_modules/
