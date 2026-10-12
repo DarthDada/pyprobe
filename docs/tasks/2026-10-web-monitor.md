@@ -1,6 +1,6 @@
 # 任务：Web 监控模式（`pyprobe[web]`）
 
-> 状态：进行中（2026-10 起）· 当前批次：8d（文档收尾）
+> 状态：已完成（2026-10，批 8a–8d 全部落地）——本文件留存为批次验收档案
 > 契约 SSOT：ADR A13（[contracts.md](../contracts.md) §2）+ 批次 8 行为点清单
 > （contracts.md §4，WM/WA/WS/WC/ST-W/E2E-W/FE 系）；架构落点
 > [design.md](../design.md) §2 模块结构 / §12.4 集成模式。
@@ -29,12 +29,12 @@
   - CI 前端校验任务 `.github/workflows/frontend.yml`：仅 `frontend/**`（及 static/、workflow 自身）变更触发，`npm ci && npm run build && git diff --exit-code pyprobe/web/static/`（补 untracked porcelain 兜底——vite 换哈希名时新文件不入 git diff）；主 ci.yml paths-ignore 排除 frontend/ 与 static/，双向解耦（FE3）
   - FE1/FE2 手动验证（出口记录）：真实目标（spin_forever/burn_cycle 忙线程 + bg-sleeper 闲线程）+ in-process Monitor/create_app/uvicorn（serve_web 同款装配；ptrace_scope=1 下 pyprobe 须为目标祖先，故非 CLI 直起——CLI 分发与 rc 语义已由批 8b 单测覆盖）。16 项断言全过：/api/process 键集、index.html + 哈希 asset 伺服、产物内含 FE1 各区标题与终态横幅文案、首帧 stats（top_functions 含 burn_cycle、idle/active 拆分、帧链含 burn_cycle→spin_forever、键集 pin）、terminate 后 exit 帧 `data: {}` 收尾、uvicorn 干净关闭、monitor.exited 粘性
   - 本批无新增 pytest（FE1–2 契约定为手动验证、FE3 为 CI 任务，批 0 已定）；无 docs/red/batch8c 存档
-- [ ] 6. 批 8d — 文档收尾（2026-10）：README（extras 安装、web 子命令用法、权限段补行；命令示例须来自真实输出，§10.5-4 精神）；design.md §12.4 示例重跑核对；本条勾销
+- [x] 6. 批 8d — 文档收尾（2026-10，已落地）
+  - README：命令清单补 `web` 行；新增「Web 监控（web）」章节（extras 安装、真实启动行示例、参数表、页面结构/终态/缺依赖行为说明、前端产物重建命令）；权限段首条（process_vm_readv 系）补 `web`
+  - design.md §12.4：标题去批次进度注记；示例重跑核对（2026-10 真实 CLI 默认端口起服：启动行 `[i] pyprobe web: monitoring pid … at http://127.0.0.1:9470/`、页面与 /api/process、/api/events 首帧均可复现），用法细节指向 README（SSOT 不重复）
+  - TODO：§1 web 条目勾销清除、§6 首版勾销改写为后续迭代索引（DOC4 预算内，66→64 行）；本文件状态 → 已完成
+  - 验证：lint 绿（check_docs DOC1–6）+ 全套件 966 passed
 
-## 后续迭代（首版不含）
+## 后续迭代
 
-- 多 PID 监控（多采样器 + 前端进程切换）
-- `GET /api/snapshot` 按需单次栈快照（增量路由，复用 collect_snapshot）
-- 火焰图（record 聚合 + 页面内嵌渲染）
-- syscall 事件流页面
-- 交互控制（暂停采样 / 调频率）——需 WebSocket 替换或补充 SSE
+首版不含的迭代项已随批 8d 移交 [TODO「Web 监控后续迭代」](../../TODO.md#6-web-监控后续迭代)（单一事实来源，本文件不保留副本）。

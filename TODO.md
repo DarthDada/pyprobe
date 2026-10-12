@@ -7,7 +7,7 @@
 3. [native 栈输出对齐 gdb](#3-native-栈输出对齐-gdb)
 4. [syscall 对齐 strace](#4-syscall-对齐-strace)
 5. [深度检查与差异化](#5-深度检查与差异化)
-6. [Web 监控模式（pyprobe[web]，进行中）](#6-web-监控模式pyprobeweb进行中)
+6. [Web 监控后续迭代](#6-web-监控后续迭代)
 
 > **定位**：本文件是任务索引 + 状态 + 当前目标（注意力锚点）——agent 应在任务执行中主动更新，
 > 而非只在会话开始读一次。单任务详情（背景/步骤/验收）进 [docs/tasks/](docs/tasks/)，
@@ -22,7 +22,6 @@
 
 - [ ] 1. `info` 子命令（2026-09）：解释器数、线程数、空闲/运行统计、`sys.argv`/`sys.executable`、GIL 状态等进程级概览，复用 `collect_python`
 - [ ] 2. 按名称匹配目标进程（2026-09）：`-m/--match <name>`（扫 `/proc/*/cmdline`），省去先 `pgrep` 再传 `-p`；并可对"目标不是 CPython 进程"给出早期友好报错（目前要到符号查找失败才发现）
-- [ ] 3. Web 监控模式（2026-09）：`pyprobe web -p <pid>`（可选 extras `pyprobe[web]`）——计划与进度详见 [§6](#6-web-监控模式pyprobeweb进行中)（进行中）
 
 ## 2. 版本与架构覆盖
 
@@ -58,9 +57,8 @@
 - [ ] 1. Python 帧局部变量/参数读取（2026-09）：遍历 `_PyInterpreterFrame.localsplus`，dump 时显示调用参数。py-spy 无此能力，是真正差异化功能，但需完整 object graph 解析
 - [ ] 2. Python/native 混合栈（2026-09）：py-spy `--native` 会把 Python 帧内联进 native 栈；当前两种栈割裂，`--native` 输出对 Python 用户语义有限
 
-## 6. Web 监控模式（`pyprobe[web]`，进行中）
+## 6. Web 监控后续迭代
 
-> 契约 SSOT：ADR A13（[contracts.md §2](docs/contracts.md)）+ 批次 8 行为点清单（contracts.md §4，
-> WM/WA/WS/WC/ST-W/E2E-W/FE 系）；架构落点 design.md §2 模块结构 / §12.4 集成模式。
+> 首版已落地（批 8a–8d，ADR A13；契约 contracts.md §2/§4 批次 8 表；任务档案 [docs/tasks/2026-10-web-monitor.md](docs/tasks/2026-10-web-monitor.md)）。
 
-- [ ] 1. 批 8a–8d 依次推进（2026-10）：需求与选型已确认（2026-10，见 ADR A13）；详细计划、逐批清单与后续迭代见 [docs/tasks/2026-10-web-monitor.md](docs/tasks/2026-10-web-monitor.md)；当前：批 8d（文档收尾）
+- [ ] 1. Web 监控迭代（2026-10）：多 PID 监控（多采样器 + 前端进程切换）；`GET /api/snapshot` 按需单次栈快照（复用 collect_snapshot）；火焰图（record 聚合 + 页面内嵌渲染）；syscall 事件流页面；交互控制（暂停采样/调频率——需 WebSocket 替换或补充 SSE）

@@ -134,6 +134,7 @@ pyprobe stack -p <pid> --json     机器可读 JSON 输出
 pyprobe syscall -p <pid>          系统调用追踪（strace 风格）
 pyprobe record -p <pid>           周期采样 → folded stacks
 pyprobe top -p <pid>              实时热点视图（终端刷新）
+pyprobe web -p <pid>              实时热点 Web 面板（需 pyprobe[web] extras）
 ```
 
 | 参数 | 说明 |
@@ -256,6 +257,37 @@ Top functions
 - 需要终端（stdout 非 tty 报错退出码 2，非交互场景请用 `record`）
 - Ctrl-C 干净退出（恢复光标），目标进程退出自动结束
 
+## Web 监控（web）
+
+`top` 的浏览器形态：实时热点排行 + 每个活跃线程的完整实时调用栈（点击线程行展开），SSE 推送每秒整表刷新。核心 wheel 零依赖不变，Web 功能以 extras 提供：
+
+```bash
+pip install 'pyprobe[web]'          # 仅 fastapi + uvicorn 最小集
+pyprobe web -p 14695                # 浏览器打开 http://127.0.0.1:9470/
+```
+
+启动行走 stderr（真实输出）：
+
+```
+[i] pyprobe web: monitoring pid 16164 at http://127.0.0.1:9470/
+```
+
+| 参数 | 说明 |
+|------|------|
+| `-r`, `--rate <hz>` | 采样频率（缺省 50，范围 (0, 1000]） |
+| `-i`, `--interval <sec>` | 面板刷新间隔（缺省 1.0，范围 (0, 60]） |
+| `--host <addr>` | 绑定地址（缺省 127.0.0.1，不对外暴露） |
+| `--port <n>` | 绑定端口（缺省 9470；占用时友好报错退出码 1） |
+
+- 页面结构对齐 `top`：进程头 + Active threads 表（点击展开完整调用栈）+ Idle threads 行 + Top functions 表
+- 目标进程退出后服务保活：页面显示「目标进程已退出」终态横幅，已采集数据仍可查看；Ctrl-C 停止服务器（干净退出，不影响目标）
+- web 依赖缺席时 `pyprobe web` 报 `[!] the web subcommand requires extra dependencies — install with: pip install 'pyprobe[web]'`（退出码 2），其余子命令不受影响
+- 前端源码在 `frontend/`（React + Vite），构建产物已入库（`pyprobe/web/static/`），wheel 构建**不需要 Node**；改动前端后重新生成产物（CI 前端任务校验产物新鲜度）：
+
+```bash
+cd frontend && npm ci && npm run build
+```
+
 ## 开发脚本
 
 所有构建/测试命令均经 `scripts/` 实现，CI 一律走 `scripts/ci.sh` 编排，避免手敲裸命令变形。公共逻辑（uv/python3 回退、`build_wheel`）抽到 `scripts/_common.sh`，各脚本 `source` 之。
@@ -308,7 +340,7 @@ scripts/run_tests.sh -- -m 'not slow'  # 跳过慢测试（真实采样/sleep �
 
 > 完整权限模型（ptrace_scope、dumpable、process_vm_readv vs ptrace）见 [docs/design.md §9 权限模型](docs/design.md#9-权限模型)。
 
-- **Python 栈 / 采样**（`stack` 默认、`record`、`top`）：`process_vm_readv(2)`，**不需要 ptrace attach**，不受 `dumpable=0` 限制；`ptrace_scope=1`（默认）下仅能读取子进程，root 可读任意进程。
+- **Python 栈 / 采样**（`stack` 默认、`record`、`top`、`web`）：`process_vm_readv(2)`，**不需要 ptrace attach**，不受 `dumpable=0` 限制；`ptrace_scope=1`（默认）下仅能读取子进程，root 可读任意进程。
 - **Native / Syscall**（`--native`、`syscall`）：`ptrace(2)` attach 全部线程，权限同上但 `dumpable=0` 目标不可用（如 uvicorn/FastAPI 非 root）；仅 x86-64；结束时自动 detach，不会挂死目标进程。
 
 ```bash

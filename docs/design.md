@@ -419,7 +419,10 @@ else:
 
 `resolve_layout(version)` 可用于在无目标进程时直接取版本布局（A1 新增 API）。
 
-### 12.4 Web 监控模式（可选 extras，ADR A13；批 8 进行中——8a extras 与 Monitor、8b HTTP 服务与 CLI 已落地）
+### 12.4 Web 监控模式（可选 extras，ADR A13）
+
+> 用法（安装、参数、权限）见 [README](../README.md#web-监控web)；本例已重跑核对
+> （2026-10，默认端口起服、启动行与页面/接口响应真实可复现）。
 
 ```bash
 pip install 'pyprobe[web]'        # fastapi + uvicorn 最小集；核心 wheel 零依赖不变
