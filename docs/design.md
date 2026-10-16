@@ -221,6 +221,12 @@ libc）。读取循环处理 `EINTR`（重试）与短读（partial read）；�
 `pyprobe/offsets.json`。新版本接入以 spec-oracle 测试为入口：内置表 vs 生成产物
 （`tests/test_layout.py`，契约 L8/L9）。
 
+**新增偏移键流程**：`tools/gen_offsets.c` 加字段 → `target/layout.py` 四版本
+`_VERIFIED_OFFSETS` 表加值 → `tests/test_layout.py` oracle 加键 →
+`scripts/gen_offsets.sh` 重生成 offsets.json。非本地版本的表值：在对应 Python
+版本环境运行 `scripts/gen_offsets.sh` 生成该版本产物后并入内置表（需真实头文件；
+CI 跨版本矩阵 `scripts/ci_target.sh` 负责各版本集成验证，不产表值）。
+
 ---
 
 ## 7. CPython 数据结构遍历（cpython/，ADR A3）
