@@ -1,10 +1,10 @@
 #!/bin/bash
 # Lint the codebase with ruff (config in pyproject.toml [tool.ruff]) and check
-# the documentation contract (scripts/check_docs.sh, ADR A14).
+# the documentation contract (scripts/check_docs.sh).
 #
-# Runs `ruff check` over pyprobe/ and tests/, then the docs checker (D1–D5:
-# links/anchors, script refs, TODO section refs, doc budget ratchet, TODO
-# dates). Fails fast on the first violation so CI stays green only when the
+# Runs `ruff check` over pyprobe/ and tests/, then the docs checker (DOC1/2/3/
+# 5/6: links/anchors, script refs, TODO section refs, TODO dates, contract-id
+# backlinks). Fails fast on the first violation so CI stays green only when the
 # tree is clean.
 #
 # Usage:

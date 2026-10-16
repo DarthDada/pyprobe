@@ -1,17 +1,20 @@
-# pyprobe 模块与 ADR 契约
+# pyprobe 模块与行为点契约
 
-> 本文件记录第一性原理重建（原 TODO §10，2026-10 原子替换完成）的**架构决策（ADR A1–A13）**、
-> 分层与依赖规则、模块契约骨架、行为点清单与派发包模板。架构叙述 SSOT 见
-> [design.md](design.md)，本文是其 ADR / 模块契约明细；tests/ 的契约守护测试注释回链
+> **读者导航**：本文是 **agent 工作契约**——模块契约、行为点编号、验收标准，
+> 密度为机械校验优化。人类读者请读 [design.md](design.md)（架构单一事实来源，
+> §16 附「有意为之的怪行为」防误修清单）。
+>
+> 本文件记录第一性原理重建（原 TODO §10，2026-10 原子替换完成）的分层与依赖规则、
+> 模块契约骨架、行为点清单与派发包模板。架构叙述 SSOT 见
+> [design.md](design.md)，本文是其模块契约明细；tests/ 的契约守护测试注释回链
 > 本文条目编号（如 T12、V8、SY9）。
 >
 > 替换状态：`next/` 已原子替换旧树（`git rm -r pyprobe tests` +
 > `git mv next/{pyprobe,tests} …`，§10.6）。下文"旧树"指替换前实现，作为行为对齐的
-> 运行时 oracle 与知识来源。迁移期台账（旧测试逐文件标注、行为点表「旧测试出处」列）
-> 已归档 [docs/migration-2026-10.md](migration-2026-10.md)（ADR A14）。
+> 运行时 oracle 与知识来源。迁移期台账属验收回执，已删除（2026-10-16，git 历史可查）。
 >
-> 铁律（延续）：**ADR 纪律**（架构或行为变更必须先成 ADR 记入本文件再实施）、
-> **复刻约束**（怪但文档化的行为一律保留，禁止"顺手优化"——批 7 对齐门禁实证过其必要性）。
+> 铁律（延续）：**复刻约束**（怪但文档化的行为一律保留，禁止"顺手优化"——批 7 对齐
+> 门禁实证过其必要性）。原 **ADR 纪律**已随 ADR 制度退役（§2，2026-10-16）。
 
 ## 1. 第一性原理与分层
 
@@ -20,230 +23,20 @@ pyprobe 的本质是**外部观测者问题**：仅凭 PID 与内核接口重建
 能力归属表见 [design.md §1.1](design.md#11-七项不可约能力与分层)（架构 SSOT，不在此重复）。
 
 **依赖方向铁律**：`kernel → target → cpython → observe → present → {cli, web}`
-（cli 与 web 平级、互不依赖；cli→web 合法且仅经函数内延迟 import，见 A13），仅横切层
-（`errors` / `dto` / `color`）可被任意层引用且自身不依赖任何层。import 方向由结构契约
-测试机械强制（ADR A8），禁反向。
+（cli 与 web 平级、互不依赖；cli→web 合法且仅经函数内延迟 import，见 design.md
+§12.4），仅横切层（`errors` / `dto` / `color`）可被任意层引用且自身不依赖任何层。
+import 方向由结构契约测试机械强制，禁反向。
 
-## 2. 架构决策记录（ADR——重构允许的全部架构变更）
+## 2. 架构决策记录（ADR——制度已退役，2026-10-16）
 
-> 决策已确认（2026-10）：A1、A2、A3/A4/A5 三件套、A8 全部纳入；A9–A12 为替换后
-> 增量解禁（native P0-1/P0-2/P0-3/P1-4/P1-5）；A13 为替换后新功能扩展（web 监控
-> 模式）；A14 为文档契约机械化（docs lint）。每项 ADR 带状态行，落地时须有
-> 守护测试，且测试注释回链本文件对应条目（§10.5-5 验收项）。
-
-### A1. Layout 值对象化（吞并旧 §8.1）
-
-**状态**：landed（2026-10，b11fc84 原子替换）
-
-`resolve_layout(version) -> Layout` 显式传递，消灭旧 `offsets._active` 全局单例与
-`get()` 读路径副作用（隐式 configure）。收益：可同时观测不同 CPython 版本的进程；
-测试无需手工复位全局态。dev override（offsets.json）语义保留。库 API 面新增
-`resolve_layout` 为 §10.5-2 的显式例外。
-
-### A2. 统一 ptrace 引擎（`kernel/ptrace.py`）
-
-**状态**：landed（2026-10，b11fc84 原子替换）
-
-一套 seize/interrupt/wait 状态机 + GETREGS + detach，syscall 追踪与 native 回溯共享；
-native 侧 ATTACH→SEIZE（与旧 design.md §14.2 相同的安全 detach 理由）；消灭旧
-native_dump 与 syscall_tracer 两套 attach 逻辑。native 行为有变，§10.5-1 的
-`stack --native --json` 旧新差异对比为其强制验证项。
-
-### A3. CPython 对象模型层（`cpython/`）
-
-**状态**：landed（2026-10，b11fc84 原子替换）
-
-PyLong/Unicode/Bytes/Dict/Code/Frame/ThreadState/InterpreterState 各有绑定 Layout 的
-typed reader；遍历代码零裸偏移运算（消灭旧 stack_dump 内 co_lo/co_hi 式跨度心算）；
-版本差异只住 Layout。
-
-### A4. 内存视图分离
-
-**状态**：landed（2026-10，b11fc84 原子替换）
-
-`SnapshotView`（页级 LRU，单次快照语义）/ `LiveView`（不缓存，长时观测）替代旧树
-"RemoteReader 缓存 + read_uncached + _UncachedReader + 每 sample 手工新建 reader"
-四个零散机制；每种观测声明自己的一致性需求。
-
-### A5. DTO 去 format() 化
-
-**状态**：landed（2026-10，b11fc84 原子替换）
-
-数据与呈现严格分离（反转旧 §8.9 妥协）：格式化全部入 `present/text.py`，dto 只存数据。
-
-### A6. 保留决策（第一性原理验证后保留，非惯性）
-
-**状态**：landed（2026-10，b11fc84 原子替换）
-
-collect/format/dump 三层语义、CLI 薄壳、errors 层级、clicolors 颜色策略维持不变——
-在新分层中以 session→snapshot→present 与 `present/color.py` 的形态重现。
-
-### A7. 行为修复（吞并旧 §9 P0/P1）
-
-**状态**：landed（2026-10，b11fc84 原子替换）
-
-随对应批次落地，旧树不单独修：
-
-- TopStats idle 统计（旧 §9 P0-1）：守卫查 idle 列表去重，active→idle 从 current 移除；
-  守护测试覆盖"同一 idle 线程连续采样"与"active→idle 转换"（批次 4）
-- arch 检查下沉到 ptrace 引擎 attach 路径（旧 §9 P0-2；批次 1/5）
-- TraceFilter 混合包含/排除改 `include - exclude` 语义（旧 §9 P0-3；批次 5）
-- 旧 §9 P1 批次：timespec_out exit 重读、EOF 空渲染、execve 走用户过滤器、attach 全
-  异常回滚、无名帧 OWN% 归一、琐碎项打包（批次 4/5）
-
-### A8. 子包化与依赖规则
-
-**状态**：landed（2026-10，b11fc84 原子替换）
-
-`kernel/ target/ cpython/ observe/ present/` + 横切（errors/dto）；import 方向
-由结构契约测试机械强制（禁反向）。包名仍为 `pyprobe`，替换免改名。
-颜色策略属呈现层（`present/color.py`，仅 present/cli 可引用），非横切——
-A5 落地后 dto 不再依赖颜色（2026-10 批次 1 契约细化，修订 §10.1 A8 原文
-"横切含 color" 的表述）。
-
-### A9. native 冻结期新功能解禁（原 TODO §3 P0-1 / P0-2）
-
-**状态**：landed（2026-10，e7533db）
-
-原子替换后，下述两项曾作为 native 的"冻结期不实施"复刻项（NA1 备注）保留；
-现解禁，作为替换**之后**的增量特性落地（2026-10，非复刻约束违反）：
-
-- **P0-1 libdw 加载名回退**：`_load_libdw` 依次尝试 `libdw.so.1` → `libdw.so`
-  → `find_library("dw")`，首个可加载者胜出；全部失败抛最后的 `OSError`
-  （不静默吞掉加载失败）。有 `libdw.so.1` 的常见环境行为与旧树一致，
-  故对成功路径非行为变更。
-- **P0-2 可选符号探测**：加载后探测 `dwarf_getscopes` / `dwfl_module_getsrc`
-  / `dwarf_cfi_addrframe` 是否导出，记入 `available_symbols`；后续 P1/P2
-  消费者按能力位跳过缺失特性，核心"符号名 + 回溯"路径（NA4）不依赖可选符号。
-  当前无消费者，为 P1/P2 的前置能力位。
-
-**不改动**：本 ADR 批内不改 NA6 的 `unwind_failed` 判定与 TX5 输出；P0-3 随后由
-A10 解禁修正，P1-4（符号后缀截断）仍为契约冻结项。
-
-### A10. native 回溯失败判定对齐 gdb（原 TODO §3 P0-3）
-
-**状态**：landed（2026-10，e7533db）
-
-NA6 此前冻结旧判定 `unwind_failed = (fr != 0 且 0 帧)`。该判定把"回溯在地址 0
-即停"的线程当成成功：dwfl 返回单个 `pc == 0` 哨兵帧（如 io_uring `iou-sqp-*`
-内核工作线程），pyprobe 显示一帧即告成功，而 gdb `thread apply all bt` 会打印
-`#0  0x0000000000000000 in ?? ()` 后接 `Backtrace stopped: Cannot access memory
-at address 0x0`。现解禁并修正：
-
-- **判定**：`unwind_failed` 为真当 `fr != 0 且 0 帧`，**或**结果为单个 `pc == 0`
-  的哨兵帧。
-- **呈现**（TX5）：`unwind_failed` 时恒在帧行**之后**输出红色
-  `Backtrace stopped: Cannot access memory at address 0x0`；无帧时退化为仅有该行
-  （与旧行为一致）。lone `pc == 0` 帧**保留**（对齐 gdb 显示 `#0 0x0`）。
-
-这是对 NA6/TX5 复刻约束的有意解禁（记录于本 ADR）；原批 7 差异豁免不再涵盖该项。
-NA9 的集成 oracle 不受影响。
-
-### A11. native 符号 LLVM 后缀截断（原 TODO §3 P1-4）
-
-**状态**：landed（2026-10，e7533db）
-
-gdb 展示 LLVM 生成的局部符号时用**短符号名**（截断尾部 `.llvm.<数字>` 判别后缀）。
-pyprobe 在**呈现层**（`present/text.py`）施加同一截断：`_shorten_symbol` =
-`re.sub(r'\.llvm\.\d+$', '', name)`（如 `run_mod.llvm.1234` → `run_mod`）。
-
-- 仅改文本输出（TX5）；DTO 与 `--json` 保持 `dwfl_module_addrname` 原值
-  （数据面完整，与 Python 帧路径缩短同规则——design.md §3.1）。
-- 无该后缀的名字（含 `??`）原样保留。
-
-### A12. native 帧源码位置 `at file:line`（原 TODO §3 P1-5）
-
-**状态**：landed（2026-10，e7533db）
-
-对齐 gdb：native 帧在能解析出源码位置时输出 `at <file>:<line>`，否则维持
-`from <module>`（互斥，gdb 语义）。
-
-- **解析**：frame_cb 在符号查找后，经 `dwfl_module_getsrc(mod, lookup)` +
-  `dwfl_lineinfo(line, …)` 取 `(filename, lineno)`；能力位 gate 于 NA10 的
-  `available_symbols`（探测集新增 `dwfl_lineinfo`），缺则跳过、保底 `from module`。
-- **数据**：`dto.NativeFrame` 增 `filename: str | None`、`line: int | None`
-  （D1 键集与 JS1/JS2 native schema 随之扩展——本 ADR 覆盖 §3「JSON schema
-  逐字节兼容」约束的**有意变更**，`--json` 面新增这两个键）。
-- **呈现**：TX5 帧行有 source → `  #j  0x<pc16> in <sym> () at <file>:<line>`；
-  无 source 但有模块 → `... from <module>`；皆无 → `... in <sym> ()`。
-- 仅带 DWARF 行表的模块（如 `-g` 编译的扩展 / uvloop）生效；无调试信息的模块
-  与 gdb 一致地只有 `from`。
-
-### A13. Web 监控模式（`pyprobe[web]` extras 与 `web/` 顶层消费者包）
-
-**状态**：accepted（2026-10；批 8 已全落地 8a–8d，后续迭代见 TODO「Web 监控后续迭代」）
-
-新增 web 服务器模式：`pyprobe web -p <pid>` 起 HTTP 服务器监控单个目标进程，
-浏览器页面实时展示热点视图（top 信息结构）与**完整线程调用栈**（活跃线程帧链
-随推送帧下发，不丢弃——Web 形态相对终端的增强）。决策已确认（2026-10）：
-
-- **定位**：web 不是第五种观测模式，而是与 cli 平级的**顶层消费形态**——复用
-  observe 采样模式（Sampler + TopStats）与 dto 数据面；七项不可约能力归属不变
-  （web/monitor 是采样能力的消费编排，非新能力包，不违反 §1 建包铁律）。
-- **extras 隔离（核心零依赖红线不破）**：`[project.optional-dependencies] web =
-  ["fastapi>=0.141.1", "uvicorn>=0.30"]`（最小集，不拉 `fastapi[standard]` 全家
-  桶）；核心 wheel 无新运行时依赖。`pyprobe/__init__.py` **不得 import web**
-  （否则 ImportError 传染核心包；API1 名单不变），web 只经 `pyprobe.web` 显式
-  触达。
-- **依赖方向扩展**：`kernel → target → cpython → observe → present → {cli, web}`；
-  cli→web 合法（dispatch 消费），web→cli 禁止，任何能力层→web 禁止；web 仅可依赖
-  observe 与横切层（dto/errors）——**web→present 禁止**（web 的 JSON 面经
-  `dataclasses.asdict` 直出，不复用 CLI 呈现层；present 保持 CLI 呈现语义纯净）。
-  结构契约测试机械强制（A8 机制延伸，ST-W 系条目）。
-- **批 8b 实施期修订（2026-10-12）**：WS1 的红色 `[!]` 错误行需要色码原语
-  （`red`/`should_color`），其唯一归宿自 A8 起在 `present/color.py`——「web→present
-  绝对禁止」与 WS1 无法同时满足。窄例外：web 可 import `pyprobe.present.color`
-  （仅此一个 present 子模块；文本/JSON 呈现函数 `format_*`/`render_*` 仍禁），
-  ST-W1 以白名单机械强制。
-- **延迟 import 与缺依赖语义**：cli.py dispatch 分支函数体内 import；web 依赖
-  （fastapi/uvicorn 及其传递依赖）缺席 → stderr
-  `[!] the web subcommand requires extra dependencies — install with: pip install 'pyprobe[web]'`
-  + **rc 2**（对齐 DP5 top 非 tty 的"环境不满足"语义）；pyprobe 自身代码的
-  ImportError 不得被该分支吞掉（仅依赖缺席转提示）。
-- **目标退出语义**：ProcessExited → 广播 exit 终态事件后采样线程终止；服务器
-  **继续运行**（页面保活显示终态）；新 SSE 连接立即收到粘性 exit 帧。
-- **前端产物入库**：React + Vite 构建产物（`pyprobe/web/static/`）**git 跟踪**——
-  wheel 构建不依赖 Node，README 离线构建承诺不变；CI 前端校验任务仅
-  `frontend/**` 变更时触发（产物新鲜度 diff 校验），与主流水线解耦。
-- **打包**：package-data 显式列 `web/static/*`、`web/static/assets/*` 两层——
-  不用 `**` 递归 glob，维持 `setuptools>=61` 下限（避免连带 `_common.sh` 回退与
-  README 离线预装说明的散弹式修改）。
-- **安全默认**：`--host` 默认 127.0.0.1（不暴露公网）；`--port` 默认 9470
-  （避开 examples/fastapi_app.py 的 8000 与常见开发端口）。
-- **权限模型**：与 record/top 相同（`process_vm_readv(2)`，无 ptrace attach）——
-  README 权限段随批次落地补一行。
-
-### A14. 文档契约机械化（文档规则 lint 化）
-
-**状态**：landed（2026-10-11）
-
-文档纪律此前全靠文字约定维持（"改 X 时同步 Y"、跨文档随手引用章节号），
-已实证失效：AGENTS.md 引用已删除的 TODO 旧 §6.3（typecheck 条目评估结论
-"不采用"后引用未更新）、§6 派发包模板引用已删除的 `next.sh`（原 scripts 入口）、
-design.md §3 与本文 §4 的函数签名双写后各自漂移（`collect_syscalls` 默认值、
-`collect_profile` 的 `sampler_factory` 参数两处不一致）。决策：
-
-- **DOC1–DOC6 检查器**：新增 `scripts/check_docs.sh`（实现
-  `scripts/check_docs.py`，零依赖），随 `scripts/lint.sh` 强制执行：
-  DOC1 md 相对链接（含 `#锚点`）必须可解析；DOC2 文档引用的 `scripts/*.sh`
-  必须存在；DOC3 禁止裸章节号引用 TODO（编号随条目增删漂移，历史指称须写作
-  "原 TODO §<n>"；扫描 md + py/sh/yml，docs/red 证据档案豁免）；DOC4 常驻文档
-  预算棘轮（AGENTS.md / TODO.md / design.md §2 地图行数基线只降不升）；DOC5
-  TODO 未勾条目必须带 `（YYYY-MM` 日期锚；DOC6 代码中回链的契约编号
-  （T12、NA11、WM1、ST-W1…）必须在本文档有定义行（检查器规则命名用 DOC 前缀，
-  与行为点编号 D1/D2 区分）。
-- **消灭同步而非承诺同步**：文档中的"同步"字样即技术债——同一事实只留
-  一份，其余放指针；函数签名/字段名单以代码为准（agent grep 现场取，
-  不再双写）。
-- **生命周期入验收**：§6 派发包模板验收标准补"TODO 勾销并清理尸体"与
-  "临时资产登记或删除"；ADR 逐项带状态行（本节已回填）。
-- **地图实体化**：design.md §2 收敛为四字段架构地图（路径 | 职责 | 入口
-  （文件：符号） | 禁令/依赖）+ "以代码为准，验证于" 末行；仅描述已落地
-  结构（未落地形态留在对应 ADR，如 A13），`tests/test_structure.py` 机械
-  校验地图条目与文件系统一致。
-- **迁移期台账归档**：批 1–6 的"旧测试出处"列与"旧测试标注"节迁至
-  `docs/migration-2026-10.md`；行为点编号（T12、WM1…）保留原地——测试
-  注释回链不失效。
+A1–A14 复盘结论：多数条目是重构施工日志而非决策（提案者与实质决策者同为 AI，
+owner 批准时无替代方案可选），且仍具约束力的内容已全部并入
+[design.md](design.md) 对应章节——依赖铁律见 §1；native gdb 对齐见 design.md §8；
+web 约束见 design.md §12.4；有意为之的怪行为见 design.md §16；文档检查规则现行
+定义以 `scripts/check_docs.py` 文档字符串为准（DOC4 行数棘轮同日废除：行数只是
+认知成本的代理，棘轮倒逼文档过度压缩）。历史全文见 git log 与本文件 2026-10-16
+前版本。此后不再单独立 ADR：令人意外的架构选择在 design.md 对应章节写一句
+"为什么"即可。
 
 ## 3. 复刻约束（非差异，禁止"顺手优化"）
 
@@ -774,7 +567,7 @@ SnapshotView（单次快照语义），长时追踪（批次 5 syscalls）用 Li
 
 ### 5.1 行为点清单表（每批一张）
 
-迁移期表含「旧模块 / 旧测试出处」列，已随台账归档（docs/migration-2026-10.md，ADR A14）；现行表形：
+迁移期表曾含「旧模块 / 旧测试出处」列，已随台账删除（2026-10-16，git 历史可查）；现行表形：
 
 | 行为点 | 新测试 | 状态 |
 |--------|--------|------|
@@ -782,8 +575,8 @@ SnapshotView（单次快照语义），长时追踪（批次 5 syscalls）用 Li
 
 ### 5.2 旧测试逐文件标注（替换前 100% 过一遍）
 
-迁移期的逐文件标注（批 1–6 实例）已归档 [docs/migration-2026-10.md](migration-2026-10.md)，
-行为点表「旧测试出处」列随之移除（ADR A14）；机制保留，未来大迁移仍适用：
+迁移期的逐文件标注（批 1–6 实例）属验收回执，已删除（2026-10-16，git 历史可查）；
+机制保留，未来大迁移仍适用：
 
 | 旧测试文件 | 覆盖判定 | 放弃理由（入 ADR） |
 |------------|----------|--------------------|
@@ -806,13 +599,15 @@ AGENTS.md「TDD 工作流」节；契约守护测试另须在注释中回链本�
 ```
 批次：<N — 名称>
 契约引文：docs/contracts.md §<锚点>（逐条引用，含 ADR 编号）
-只读测试清单：tests/test_<x>.py（逐文件列出，含 Red 验证输出存档路径）
+只读测试清单：tests/test_<x>.py（逐文件列出；Red 验证输出在派发会话中展示）
 可写范围：pyprobe/<允许新建/修改的文件白名单>
 验收标准：
   - diff 严格落在可写范围内
   - scripts/run_tests.sh 全绿、scripts/lint.sh 净、覆盖率棘轮不降
   - Red→Green 证据链：Red 输出（预期断言失败）→ 实现后 Green
-  - 文档同步：contracts.md 对应条目填实；TODO 勾销并移除尸体（详情归档 docs/tasks/）
+  - 文档同步：contracts.md 对应条目填实；TODO 勾销并移除尸体
+  - 可视化交付：web 技术栈的功能原理可视化解释（AGENTS.md「可视化交付」条；
+    修复/基础设施批次豁免）
   - 临时资产（门禁脚本/证据存档）登记于 AGENTS.md 或架构地图，否则删除
 契约缺陷回报：发现契约/测试错误时停止实现，回报 <具体条目 + 复现路径>，等待主代理裁决
 ```
@@ -821,8 +616,7 @@ AGENTS.md「TDD 工作流」节；契约守护测试另须在注释中回链本�
 
 > 第一性原理重构（`next/` 重建 + 原子替换）已于 2026-10 完成，计划条目从 TODO 迁出。
 > 本节保留原 §10 的条款编号定义，供本文及其它文档/测试/代码中的 `§10.x` 引用解析——
-> 除本文件外一律写作 `contracts.md §10.x`。ADR 正文见 §2，行为点清单机制见 §5，
-> 复刻约束见 §3。
+> 除本文件外一律写作 `contracts.md §10.x`。行为点清单机制见 §5，复刻约束见 §3。
 
 ### §10.1 架构决策记录（ADR）
 

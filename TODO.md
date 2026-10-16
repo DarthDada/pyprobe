@@ -8,13 +8,19 @@
 4. [syscall 对齐 strace](#4-syscall-对齐-strace)
 5. [深度检查与差异化](#5-深度检查与差异化)
 6. [Web 监控后续迭代](#6-web-监控后续迭代)
+7. [想法停车场](#7-想法停车场未评估未必开发)
 
 > **定位**：本文件是任务索引 + 状态 + 当前目标（注意力锚点）——agent 应在任务执行中主动更新，
-> 而非只在会话开始读一次。单任务详情（背景/步骤/验收）进 [docs/tasks/](docs/tasks/)，
+> 而非只在会话开始读一次。
 > 完成即清理，不留尸体；条目带 `（YYYY-MM）` 日期。
 > **优先级**：§1–§5 新功能逐项推进，aarch64（§2）为后续项。工程基础设施已完成（git hooks +
 > CI 跨版本矩阵，见 git 历史）；变异/类型/属性测试三项经评估不采用，不再列入。
 > 重构章节（原 §8/§9/§10）的条款编号定义见 [docs/contracts.md](docs/contracts.md) §7。
+>
+> **中长期开发模式**（2026-10）：需求 → agent 分析拆任务 → TDD + 父子 agent 协作
+> （派发包模板见 contracts.md §6）。**可视化原则**：每个功能须附带 web 技术栈的
+> 原理可视化解释（如 CPython 内存布局、libdw 工作机制），面向人类理解，形态随
+> 批次契约定义。临时想法先入 §7 想法停车场，未必开发。
 
 ## 1. CLI 易用性与集成
 
@@ -33,8 +39,8 @@
 ## 3. native 栈输出对齐 gdb
 
 > 背景：`pyprobe stack --native` 对齐 gdb `thread apply all bt`（2026-09 实测）。P0（libdw
-> 加载回退 / 符号探测降级 / 回溯失败标注）与 P1（LLVM 后缀截断、file:line）已落地，
-> 入 ADR A9–A12（[contracts.md](docs/contracts.md) §2）。以下为剩余项，全部基于现有技术栈
+> 加载回退 / 符号探测降级 / 回溯失败标注）与 P1（LLVM 后缀截断、file:line）已落地
+> （2026-10，历史见 git）。以下为剩余项，全部基于现有技术栈
 > （ctypes + libdw/libdwfl，无新依赖）。
 
 - [ ] 1. 线程头格式（2026-09）：补 pthread 描述符地址（`Thread 1 (Thread 0x7f... (LWP 7101) "python3")`）——需评估获取方式（ptrace 读 pthread 结构 vs 保持现状仅 LWP）
@@ -59,7 +65,11 @@
 
 ## 6. Web 监控后续迭代
 
-> 首版已落地（批 8a–8d，ADR A13；契约 contracts.md §2/§4 批次 8 表；任务档案 [docs/tasks/2026-10-web-monitor.md](docs/tasks/2026-10-web-monitor.md)）。
-> 快照端点已落地（批 16，WM9/WA6；任务档案 [docs/tasks/2026-10-web-snapshot.md](docs/tasks/2026-10-web-snapshot.md)）。
+> 首版已落地（批 8a–8d；契约见 contracts.md §4 批次 8 表）。
+> 快照端点已落地（批 16，WM9/WA6）。
 
 - [ ] 1. Web 监控迭代（2026-10）：火焰图（record 聚合 + 页面内嵌渲染）；syscall 事件流页面；交互控制（暂停采样/调频率——需 WebSocket 替换或补充 SSE）
+
+## 7. 想法停车场（未评估，未必开发）
+
+> 临时想到的问题/想法先停在这里，带日期；评估后要么转为 §1–§6 正式条目，要么删除。

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Documentation contract checker (contracts.md ADR A14).
+"""Documentation contract checker (docs lint; ADR 制度已退役，历史见 contracts.md §2).
 
 Doc rules used to live in prose ("改 X 时同步 Y") and drifted: dangling
 references (AGENTS.md -> a removed TODO section; the §6 dispatch template ->
@@ -10,12 +10,14 @@ This checker lints the docs so those rules are mechanically enforced:
 * DOC2  ``scripts/*.sh`` paths referenced from docs must exist on disk;
 * DOC3  no bare ``TODO §<n>`` references (section numbers renumber; a
       historical reference must be written ``原 TODO §<n>``); scanned
-      across md + py/sh/yml, with docs/red evidence archives exempt;
-* DOC4  resident-doc budget ratchet (AGENTS.md / TODO.md / the design.md §2
-      architecture map) — line counts may only shrink, never grow;
+      across md + py/sh/yml;
 * DOC5  open TODO items (``- [ ]``) must carry a ``（YYYY-MM`` date anchor;
 * DOC6  contract item ids back-referenced from tests/pyprobe (T12, NA11, WM1,
       ST-W1, …) must be defined as table rows in contracts.md.
+
+DOC4 (resident-doc line-count ratchet) was removed on 2026-10-16
+(contracts.md A14 修订): line count is a proxy for reading cost, not the
+cost itself — the ratchet pushed docs toward dense pointer-speak.
 
 Stdlib only. Prints every violation and exits non-zero when any is found.
 """
@@ -28,22 +30,13 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 PKG = REPO / "pyprobe"
 
-# DOC4 ratchet baselines (line-count caps; only lower them, never raise).
-# Raising a cap requires deleting equivalent content in the same change
-# (ADR A14: residency budget — every line dilutes instruction-following).
-# The design.md §2 map is resident too (Kiro structure.md / MEMO budget).
-MAP_KEY = "design.md §2 架构地图"
-BUDGET = {"AGENTS.md": 65, "TODO.md": 66, MAP_KEY: 23}
-
 DOC_FILES = [REPO / name for name in ("README.md", "AGENTS.md", "TODO.md")]
 DOC_FILES += sorted((REPO / "docs").rglob("*.md"))
 
-# DOC3 scans code too: stale TODO-section refs lived in CI/hooks/scripts/tests
-# (ADR A14). docs/red holds frozen evidence archives — exempt by design.
+# DOC3 scans code too: stale TODO-section refs lived in CI/hooks/scripts/tests.
 DOC3_SUFFIXES = {".md", ".py", ".sh", ".yml"}
 DOC3_SKIP_DIRS = {".git", ".venv", "__pycache__", "build", "dist",
                 ".ruff_cache", ".pytest_cache", "pyprobe.egg-info"}
-DOC3_SKIP_PREFIXES = ("docs/red/",)
 
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 SCHEME_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*:")
@@ -129,32 +122,8 @@ def _doc3_files() -> list[Path]:
         rel = path.relative_to(REPO)
         if any(part in DOC3_SKIP_DIRS for part in rel.parts):
             continue
-        if str(rel).startswith(DOC3_SKIP_PREFIXES):
-            continue
         out.append(path)
     return sorted(out)
-
-
-def _design_map_lines() -> int:
-    """Line count of the design.md §2 architecture-map section."""
-    text = (REPO / "docs" / "design.md").read_text(encoding="utf-8")
-    section = text.split("\n## 2. ", 1)[1].split("\n## ", 1)[0]
-    return len(section.splitlines())
-
-
-def check_doc4_budget() -> list[str]:
-    """D4: resident-doc budget ratchet (only shrink, never grow)."""
-    counts = {
-        "AGENTS.md": len(_lines(REPO / "AGENTS.md")),
-        "TODO.md": len(_lines(REPO / "TODO.md")),
-        MAP_KEY: _design_map_lines(),
-    }
-    out = []
-    for name, cap in BUDGET.items():
-        if counts[name] > cap:
-            out.append(
-                f"{name}: [DOC4] {counts[name]} 行 > 棘轮基线 {cap} 行（只降不升）")
-    return out
 
 
 def defined_contract_ids() -> set[str]:
@@ -201,7 +170,6 @@ def main() -> int:
             violations += check_doc5_todo_dates(path)
     for path in _doc3_files():
         violations += check_doc3_todo_refs(path)
-    violations += check_doc4_budget()
     ids = defined_contract_ids()
     prefixes = {re.sub(r"\d+$", "", i) for i in ids}
     for path in sorted(REPO.glob("tests/*.py")) + sorted(PKG.glob("**/*.py")):
@@ -211,7 +179,7 @@ def main() -> int:
     if violations:
         print(f"\n[!] check_docs: {len(violations)} violation(s)")
         return 1
-    print(f"check_docs: OK ({len(DOC_FILES)} docs, DOC1–DOC6)")
+    print(f"check_docs: OK ({len(DOC_FILES)} docs, DOC1/2/3/5/6)")
     return 0
 
 

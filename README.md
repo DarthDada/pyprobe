@@ -5,6 +5,7 @@ CPython 进程外检查工具 — 无需 ptrace attach（Python 栈模式）即�
 提供纯 Python 实现（主交付物），另附 C 参考实现用于开发期交叉校验（不对外交付）。
 
 > **架构与设计**：模块结构、分层 API、内存读取、偏移量、CPython 遍历、权限模型、版本支持、测试架构等详见 [docs/design.md](docs/design.md)。
+> **防误修清单**：看似 bug 实为刻意的行为（0 地址假帧、`.llvm` 截断、32 字符截断、非 tty 直接退出…）汇总见 [design.md §16](docs/design.md#16-有意为之的怪行为防误修清单)。
 
 ## 快速开始
 
@@ -303,7 +304,7 @@ cd frontend && npm ci && npm run build
 | `scripts/smoke.sh` | wheel 冒烟测试（构建 + 隔离 venv 安装 + import/CLI 校验） |
 | `scripts/run_tests.sh` | 测试（`unit`/`integration`/全部；`--cov` 覆盖率基线；`watch` 保存即重跑） |
 | `scripts/lint.sh` | ruff 代码检查（`--fix` 自动修复；`format` 应用格式化） |
-| `scripts/check_docs.sh` | 文档契约检查（链接/锚点、脚本引用、TODO 引用、预算棘轮；ADR A14，随 `lint.sh` 执行） |
+| `scripts/check_docs.sh` | 文档契约检查（链接/锚点、脚本引用、TODO 引用与日期锚、契约编号回链；随 `lint.sh` 执行） |
 | `scripts/ci.sh` | CI 全流程编排（`sync gen-offsets lint test smoke`，`full` 含 `build-c`） |
 | `scripts/ci_target.sh` | CI 跨版本阶段：对矩阵 `TARGET_PYTHON`（3.11–3.14）跑集成测试 |
 | `scripts/install_hooks.sh` | 启用 git hooks（`core.hooksPath=.githooks`；pre-commit/pre-push） |

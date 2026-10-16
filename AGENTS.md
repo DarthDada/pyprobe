@@ -22,15 +22,13 @@
 | `README.md` | 人 + AI | 用户/贡献者都需的：快速开始、构建/测试/运行命令、开发脚本表、CLI 用法、权限要求 | AI 行为约束、架构内部 |
 | `AGENTS.md`（本文件） | 仅 AI | AI 专属行为约束、跨文档指针 | 人类向的操作说明、架构内容 |
 | `docs/design.md` | 人 + AI | 架构**单一事实来源**：架构地图（§2）、分层 API、内存/偏移量/CPython 遍历、权限模型、测试架构、手动探测约束技术原因 | 操作命令、脚本列表 |
-| `docs/contracts.md` | 人 + AI | 模块与 ADR 契约**单一事实来源**：ADR A1–A14（带状态）、分层依赖铁律、模块契约骨架、行为点清单与派发包模板 | 操作命令 |
-| `docs/tasks/` | 人 + AI | 单任务详情（背景/步骤/验收标准）；TODO 只留索引 | 长期知识（属 design/contracts） |
-| `docs/migration-2026-10.md` | 人 + AI | 迁移期台账归档（旧测试逐文件标注；ADR A14） | 现行契约（属 contracts） |
-| `TODO.md` | 人 + AI | 待办索引 + 状态 + 当前目标；条目带日期、完成即清 | 任务详情（进 `docs/tasks/`）|
+| `docs/contracts.md` | 仅 AI | 模块契约**单一事实来源**：分层依赖铁律、模块契约骨架、行为点清单与派发包模板（ADR 制度已退役，见 §2） | 操作命令、架构叙述（属 design） |
+| `TODO.md` | 人 + AI | 待办索引 + 状态 + 当前目标；条目带日期、完成即清 | 长期知识（属 design/contracts） |
 
 跨文档原则：
 - **命令一律指向 `scripts/`**：任何文档（含本文件）提到构建/测试/运行命令时写脚本名，不写裸 `uv sync`/`uv build`/`pytest`，避免操作变形
 - **不重复**：各文档仅引用其它文档的锚点，不复制其内容；同一事实只在一处定义
-- **消灭同步而非承诺同步**（ADR A14）：同一事实只留一份，其余放指针；文档里出现「同步」即技术债。唯一例外是构建依赖的行为一致性（`pyproject.toml` `[build-system].requires`、`scripts/_common.sh` 回退、README 离线预装）——三处非文本复制、无法机械校验，维持人工同步
+- **消灭同步而非承诺同步**：同一事实只留一份，其余放指针；文档里出现「同步」即技术债。唯一例外是构建依赖的行为一致性（`pyproject.toml` `[build-system].requires`、`scripts/_common.sh` 回退、README 离线预装）——三处非文本复制、无法机械校验，维持人工同步
 
 # Manual probing（AI 行为约束）
 > 完整技术原因见 [design.md §13.6 手动探测约束](docs/design.md#136-手动探测约束)
@@ -39,23 +37,24 @@
 - **禁止** shell `&` + `$!`/`pgrep` 取 PID（`uv run` 包装器导致 PID 错位）；**禁止**持久 shell 裸 `&` 跑长驻进程（管道继承致 shell 卡死）
 
 # Lint / Typecheck
-- Lint 走 `scripts/lint.sh`（ruff + 文档契约检查 `scripts/check_docs.sh`，ADR A14），CI 在 test 阶段前强制；禁裸 `ruff` 命令
+- Lint 走 `scripts/lint.sh`（ruff + 文档契约检查 `scripts/check_docs.sh`），CI 在 test 阶段前强制；禁裸 `ruff` 命令
 - Typecheck 暂无（ctypes 重度使用，mypy/pyright 噪音大；经评估不采用，见 TODO 头部注记）
 
 # TDD 工作流（强制约束）
-> 契约与 ADR 记录见 [docs/contracts.md](docs/contracts.md)（ADR 见 contracts.md §2，模块契约与行为点清单见 §4–§5）。
+> 契约见 [docs/contracts.md](docs/contracts.md)（模块契约与行为点清单见 §4–§5）。
 
 - **循环**：契约 → 测试 → Red 验证 → 实现 → 全套件绿 + lint；严格先契约后测试、先测试后实现，禁止反向
-- **Red 验证**：新测试必须先跑出失败，且失败原因须为预期断言（非语法/导入错误）；输出存档至 `docs/red/batch<N>-{red,green}.txt`（N = 批次/ADR 编号），供验收
+- **Red 验证**：新测试必须先跑出失败，且失败原因须为预期断言（非语法/导入错误）；Red 输出在会话中展示供验收，不留存文件
 - **同验收批**：测试与实现同批提交验收；双代理分工下子代理仅实现——禁改 tests/docs/契约/脚本，契约或测试有误时停手回报，禁止就地修测试迁就实现
-- **ADR 纪律**：架构变更先成 ADR 记入 [docs/contracts.md](docs/contracts.md) 再实施，禁止绕过契约的"顺手优化"（contracts.md §10.3 复刻约束的教训）
+- **架构变更纪律**：ADR 制度已退役（2026-10-16，contracts.md §2）——令人意外的架构选择在 design.md 对应章节写一句"为什么"；复刻约束（contracts.md §3）仍禁止"顺手优化"
 - **测试数据纪律**：权威来源 + 出处注释、可辨识哨兵值、精确复现路径、边界与失败模式成对
 - **测试注释纪律**：每条单元测试必须带简要注释（docstring 或行注释），说明测试目的或防护对象（防什么回归、锁哪条契约），以此证明该测试存在的必要性，也便于协作时理解意图；契约守护测试在注释中回链契约条目编号（如 T12、V8）。无注释的测试视同意图不明，验收打回
 - 命令一律走 `scripts/run_tests.sh`（同裸命令禁令）；覆盖率棘轮只升不降（出口 ≥80）
+- **可视化交付**：每个功能批次须附带 web 技术栈的原理可视化解释（如 CPython 内存布局、libdw 机制），面向人类理解；形态随批次契约定义
 
 # Architecture
 - 详见 [docs/design.md](docs/design.md)
-- 模块与 ADR 契约 SSOT：[docs/contracts.md](docs/contracts.md)
+- 模块契约 SSOT：[docs/contracts.md](docs/contracts.md)
 
 ## 架构地图使用规则（design.md §2）
 1. 会话先读地图按「入口」定位文件；**禁止未读地图先全库 grep**

@@ -1,12 +1,13 @@
 # pyprobe 架构设计
 
 > 本文是 pyprobe 架构与设计的**单一事实来源**（single source of truth）。
-> 模块级契约、ADR 与行为点清单（contracts.md §10 重构产出）见 [contracts.md](contracts.md)；
+> 模块级契约与行为点清单（contracts.md §10 重构产出）见 [contracts.md](contracts.md)；
 > AGENTS.md（构建/运行/测试操作指令）与 README.md（快速上手）仅引用本文与
 > contracts.md，不重复架构内容，避免散弹式修改。
 >
-> 本文描述的是第一性原理重构（contracts.md §10）后的架构（旧树已由 `next/` 原子替换，2026-10；
-> 见 [contracts.md ADR A1–A13](contracts.md#2-架构决策记录adr重构允许的全部架构变更)）。
+> 本文描述的是第一性原理重构（contracts.md §10）后的架构（旧树已由 `next/` 原子替换，
+> 2026-10）。原 ADR 制度已退役（2026-10-16）：仍具约束力的决策内容已并入本文对应
+> 章节，历史全文见 git log；「有意为之的怪行为」汇总见 §16。
 
 ---
 
@@ -25,8 +26,7 @@ CPython 运行时状态并呈现。它提供四种工作模式：
 - **采样与性能分析**（`record` / `top` 子命令）— 周期性采样 Python 调用栈：
   `record` 聚合为 folded stacks，`top` 终端实时刷新各线程当前帧与热点函数排行
   （§15）。使用 `process_vm_readv(2)`，**不需要 ptrace attach**。
-- **Web 监控**（`web` 子命令，可选 extras `pyprobe[web]`，ADR A13；批 8 进行中——8a extras
-  与 Monitor、8b HTTP 服务与 CLI 已落地）— 采样观测模式
+- **Web 监控**（`web` 子命令，可选 extras `pyprobe[web]`）— 采样观测模式
   的浏览器前端：HTTP 服务器 + SSE 推送热点统计与活跃线程**完整调用栈**。与 `top`
   共享 Sampler/TopStats，同样**不需要 ptrace attach**；web 是与 cli 平级的顶层
   消费形态，非第五种观测模式。
@@ -307,7 +307,9 @@ syscall 追踪与 native 回溯共享同一套 seize/interrupt/wait 状态机（
 - 源码位置（A12）：`dwfl_module_getsrc`+`dwfl_lineinfo` 取 `(filename, line)`，仅在
   模块带 DWARF 行表时可得（gate 于 `available_symbols`）；否则帧只有模块路径。
 - 线程结果按 tid 升序；`unwind_failed` = `fr != 0 且 0 帧`，或 lone `pc == 0`
-  哨兵帧（ADR A10，对齐 gdb "Backtrace stopped"）。
+  哨兵帧（对齐 gdb：io_uring `iou-sqp-*` 等内核工作线程回溯只得一个 `pc == 0`
+  假帧，gdb 对此打印 `Backtrace stopped: Cannot access memory at address 0x0`——
+  假帧保留显示，但判定为失败并输出同款红色提示行）。
 - ctypes 回调（`CFUNCTYPE`）经 `ctypes.py_object` 传递 Python list 收集结果。
 
 > A2 使 native 行为有变，contracts.md §10.5-1 的 `stack --native --json` 旧新差异对比为其强制验证
@@ -429,7 +431,9 @@ pip install 'pyprobe[web]'        # fastapi + uvicorn 最小集；核心 wheel �
 pyprobe web -p <pid>              # http://127.0.0.1:9470/ 实时热点 + 完整线程调用栈
 ```
 
-- `web/` 与 cli 平级（依赖方向 `… → present → {cli, web}`）；`pyprobe/__init__.py`
+- `web/` 与 cli 平级（依赖方向 `… → present → {cli, web}`）；web **不得 import
+  `present`**（窄例外 `present.color`；JSON 面经 `dataclasses.asdict` 直出——文本
+  格式化是终端专属语义，结构测试 ST-W1 机械强制）；`pyprobe/__init__.py`
   不 import web，缺依赖时 `pyprobe web` 友好报错（rc 2），其余子命令不受影响。
 - 前端为 React + Vite（`frontend/`），构建产物**入库 git**（`pyprobe/web/static/`），
   wheel 构建不依赖 Node；离线构建流程（§12.1 与 README）不受影响。
@@ -602,3 +606,22 @@ stdout 纯 folded、进度/摘要走 stderr（管道安全），`-o` 写文件�
   生效。
 - `fold_key` root-first（reverse 守护）；绝对调度 `next_t += interval`。
 - `color=False` 渲染无 ANSI；JSON 可 `json.loads` 并与 `collect_python` 交叉验证。
+
+---
+
+## 16. 有意为之的怪行为（防误修清单）
+
+下列行为**看似 bug，实为刻意**——逐字节对齐旧版 / strace / gdb，或是对外兼容承诺。
+改动前先读对应章节；每项均有守护测试，"修复"它们会让测试变红（契约侧见
+contracts.md §3 复刻约束）。
+
+| 行为 | 为什么 | 详见 |
+|------|--------|------|
+| native 线程只回溯出一个地址为 0 的帧 → 判回溯失败 | io_uring 等内核线程的假帧；gdb 同样报 "Backtrace stopped" | §8.2 |
+| 文本输出截断符号尾部 `.llvm.<数字>` | gdb 显示短符号名；JSON 数据面保留原值 | §3.1 |
+| syscall 参数 6 个全显、summary 带 `total/s` 列、字符串 32 字符截断 | 对齐 strace 输出 | §14.3 |
+| 栈输出线程按 tid 升序；路径缩短（Python 帧末 2 级 / native basename） | 复刻旧版输出格式 | §3 / §8 |
+| `top` 在非 tty 环境直接退出（rc 2），不降级 | 非交互场景无意义，宁肯明示环境不满足 | §15.3 |
+| `--json` schema 与退出码逐字节稳定 | 兼容承诺；唯一豁免：native 帧新增 `filename`/`line`（§8.2 源码位置） | §3.2 |
+| `record` 进度/摘要去 stderr，folded 数据只去 stdout | 管道洁净：数据流不被日志污染 | §15.4 |
+| native 帧能解析源码位置时输出 `at file:line`，与 `from <module>` 互斥 | gdb 语义 | §8.2 |
