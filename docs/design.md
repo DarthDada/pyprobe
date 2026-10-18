@@ -31,6 +31,27 @@ CPython 运行时状态并呈现。它提供四种工作模式：
   共享 Sampler/TopStats，同样**不需要 ptrace attach**；web 是与 cli 平级的顶层
   消费形态，非第五种观测模式。
 
+全部形态共用同一条观测链——**定位锚点 → 读内存 → 走指针图 → 呈现**；内核接口是
+仅有的事实来源（无注入、无代理、无需目标配合）：
+
+```
+① 定位锚点（target/，§5）：/proc/<pid>/exe → ELF 符号 _PyRuntime（st_value=V）
+   /proc/<pid>/maps → exe 首映射起始 = load_base
+   ⇒ runtime_addr = V + load_base（PIE）—— 内存图遍历的起点
+
+② 读内存（kernel/，§4）：process_vm_readv 远程取字节，目标不暂停
+   SnapshotView 页缓存（单次快照）/ LiveView 直读（长时观测）
+
+③ 走指针图（cpython/，§7）：逐跳解析
+   _PyRuntime → PyInterpreterState → PyThreadState 链
+     → _PyInterpreterFrame 链 → PyCodeObject（函数名/文件/行号，PEP 626）
+
+④ 停线程（kernel/ptrace，仅 native / syscall，§8）：SEIZE + INTERRUPT 停全部
+   线程 ⇒ libdwfl DWARF 回溯 / syscall entry-exit 配对（§14）
+
+⑤ 呈现（present/，§3）：dataclass → 文本 / JSON
+```
+
 主交付物为**纯 Python 实现**（仅标准库 ctypes/struct），另附 C 参考实现用于开发期
 交叉校验（不对外交付）。
 
@@ -176,6 +197,22 @@ libc）。读取循环处理 `EINTR`（重试）与短读（partial read）；�
 一次 syscall；≥1 页的读绕过缓存避免驱逐热数据；部分页读取（映射末尾）不缓存，调用方
 按长度检查感知短读。长时观测不得复用快照缓存——目标内存持续变化会读到过期数据。
 
+读请求在 SnapshotView 中的命运：
+
+```
+read_ptr(frame+0x08) ─┐
+read_ptr(frame+0x38)  ├─ 同一 4 KiB 页    LRU 查页基址
+read(frame, 64)      ─┘                    ├ 命中 → 缓存切片返回（0 syscall）
+                                           └ 未命中 → 整页 1 次 process_vm_readv
+                                              入 LRU（≤256 页 = 1 MiB，溢出逐最旧）
+read(addr, ≥4096)    ── 旁路：直走传输层（不占缓存、不逐热页）
+read（跨页, n）      ── 拼页：逐页 fetch 拼装；任一页缺 → 整体 None
+映射末尾不足一页     ── 短读：如实返回但不缓存（调用方按长度感知）
+
+LiveView._fetch_page 不缓存——每次读都是新 syscall：长时观测
+（syscall 追踪、采样热路径）期间目标内存持续变化，缓存即过期。
+```
+
 ---
 
 ## 5. ELF 符号与加载基址（target/symbols.py + kernel/procfs.py）
@@ -194,6 +231,21 @@ libc）。读取循环处理 `EINTR`（重试）与短读（partial read）；�
 取**首个** path 匹配行（含 `" (deleted)"` 后缀）起始地址；`load_base(pid, exe_path)`
 包装读取，OSError → 0。字面匹配，路径解析策略不入 kernel 层（调用方经
 `/proc/<pid>/exe` readlink 提供已解析路径）。
+
+地址推导（PIE 为何需要 load_base）：
+
+```
+磁盘 exe（/proc/<pid>/exe 解析出的路径）   目标进程地址空间
+ ELF64：e_type = ET_DYN（PIE）              /proc/<pid>/maps：
+  .symtab →（缺再查）.dynsym                 555555554000-… r--p python3
+   _PyRuntime  st_value = V                  555555559000-… r-xp python3
+                                             ▲ 首个 exe 映射行起始
+       ET_DYN : runtime_addr = V + B ────────┘ = load_base = B
+       ET_EXEC: runtime_addr = V（不加基址）
+                 ▼
+         runtime_addr —— §7 内存图遍历的起点
+         （符号找不到 → 返回 0 → observe 层抛 SymbolNotFound）
+```
 
 ---
 
@@ -244,6 +296,54 @@ resolve_interpreter(view, layout, runtime_addr)   # main → head 回退
         （layout 探针 ThreadState.current_frame 直达 3.13+；
          否则 cframe → CFrame.current_frame 间接 3.11/3.12）
       → walk_frames(view, layout, frame_addr, trampoline_addr)  # MAX_FRAMES=100
+```
+
+对应的内存布局（偏移以 3.12 为例；3.11 的帧字段位置等不同——版本差异全住
+Layout，§6，遍历代码零裸偏移）：
+
+```
+runtime_addr（§5 定位的 "_PyRuntime" 符号地址）
+   ▼
+┌─ _PyRuntime ───────────────────────────────────────────
+│ +32 interpreters { +8 head, +16 main }
+└────────┬───────────────────────────────────────────────
+         │ main 优先；main 为 0/读不到 → head 回退（R5）
+         ▼
+┌─ PyInterpreterState ───────────────────────────────────
+│ +64    threads { +8 head } ────────────────────────┐
+│ +352   sysdict ─▶ 线程名解析（§7.4）
+│ +381736 interpreter_trampoline（仅 3.12，F4 跳帧依据）
+└────────┬───────────────────────────────────────────┼────
+         ▼                                           │
+┌─ PyThreadState ◀────────── next(+8) 链 ─────────────┘
+│   链上限 MAX_THREADS=256；每节点字段簇一次合并读（R2）
+│ +136 thread_id        +144 native_thread_id
+│ 当前帧两条路径（R4，layout 探针分流）：
+│   3.11/3.12：+56 cframe ─▶ CFrame { current_frame }
+│   3.13/3.14：+72 current_frame（cframe 已删，直达）
+└────────┬───────────────────────────────────────────
+         ▼
+┌─ _PyInterpreterFrame ── previous(+8) ─▶ 外层帧 ─▶ …（MAX_FRAMES=100）
+│ +0  f_code ─▶ PyCodeObject      f_code == 0 → 跳过（F3）
+│ +8  previous                    trampoline 帧 → 跳过（F4）
+│ +56 prev_instr                  name ∧ filename 双 NULL → 终止（F6）
+└────────┬───────────────────────────────────────────
+         │ f_code
+         ▼
+┌─ PyCodeObject ──────────────────────────────
+│ +68  co_firstlineno（i32）
+│ +112 co_filename ─▶ PyUnicode ─▶ "app.py"
+│ +120 co_name     ─▶ PyUnicode ─▶ "main"
+│ +136 co_linetable ─▶ PyBytes（PEP 626 行表）
+│ +192 co_code_adaptive（字节码内联起点）
+└────────────────────────────────────────────
+
+行号推导（code.py；spec-oracle 对照 CPython co_lines() 守护，§13.1）：
+  lasti = prev_instr − (f_code + co_code_adaptive)，负值钳 0
+  line  = 在 co_linetable 中定位覆盖 lasti 的段：首字节 bit7=1 为条目头，
+          覆盖 ((b&7)+1)×2 个 code unit；code=(b>>3)&15 给行增量
+          （13/14 带符号 varint zigzag；15 无行号段 → 回退 firstlineno）
+          line = firstlineno + Σ增量
 ```
 
 - `walk_frames` 沿 `previous` 链走：跳过 `f_code == 0` 的帧与 trampoline 帧；
@@ -301,12 +401,61 @@ syscall 追踪与 native 回溯共享同一套 seize/interrupt/wait 状态机（
 - 事件语义（分组停止吞掉、真实信号转发、TRACECLONE 注册新线程、TRACEEXEC 补发）见
   契约 T 系（`tests/test_ptrace.py` 全状态路径 stub 覆盖）。
 
+引擎状态机：
+
+```
+seize(options)
+  扫 /proc/<pid>/task 逐线程 PTRACE_SEIZE；re-scan 循环抓扫描间隙新建
+  的线程；任意异常 → 已 seize 线程全量 DETACH 回滚（T2）
+      ▼ 全部线程 SEIZED（目标仍在运行）
+stop_all()：逐线程 PTRACE_INTERRUPT + waitpid 收停（T4）
+      ▼ 全部线程 STOPPED ──────────────┬──────────────────────────
+  syscall 模式：                         native 模式：
+  restart_all(PTRACE_SYSCALL)            保持停止，libdwfl 以
+      ▼                                  assume_ptrace_stopped=True
+  wait_event() 循环：                     直接消费（§8.2）
+   SIGTRAP|0x80 → SyscallStop ─▶ 交消费方（§14.2），resume 后续跑
+   group-stop   → 吞掉，内部重启（T6）
+   真信号       → 转发（T7）
+   CLONE 子线程 SIGSTOP → 注册新 tid，吞掉（T8/T11）
+   TRACEEXEC    → ExecEvent（T10）
+   WIFEXITED    → Exited，注销 tid（T12）
+   ECHILD       → 返回 None（T12）
+      ▼ 循环至 max_events / 全部退出 / ECHILD
+detach()（幂等）→ 目标全部线程恢复运行
+```
+
 ### 8.2 流程（native）
 
 `collect_native(pid)`：`PtraceEngine(feature="native stack dump").seize(options=0)` →
 `stop_all()` → libdwfl（`assume_ptrace_stopped=True`）遍历线程/帧 → `finally detach()`。
 **ATTACH→SEIZE**（安全 detach 理由同 §14.2）。libdw/libdwfl 惰性加载（非 native 模式
 导入无副作用）。
+
+libdwfl 回溯机制：
+
+```
+dwfl_begin(callbacks)                          创建 Dwfl 会话
+  find_elf        = dwfl_linux_proc_find_elf       经 /proc 映射定位 ELF
+  find_debuginfo  = dwfl_standard_find_debuginfo   定位 DWARF 调试信息
+  section_address = dwfl_offline_section_address
+      ▼
+dwfl_linux_proc_report(dwfl, pid)    读 /proc/<pid>/maps，每映射建 Module
+dwfl_linux_proc_attach(dwfl, pid, assume_ptrace_stopped=True)
+                                     接管已停止线程（停止由引擎保证）
+      ▼
+dwfl_getthreads ─▶ 逐线程 dwfl_thread_getframes ─▶ 逐帧 frame_cb：
+  ① dwfl_frame_pc 取 pc；非激活帧 lookup = pc−1（返回地址指向调用指令
+    之后，回退 1 字节命中 call 指令的归属）
+  ② 帧间推进由 libdwfl 内部完成：用模块的 CFI（.eh_frame/.debug_frame）
+    从当前帧寄存器态推导调用方帧——「回溯」本身
+  ③ dwfl_addrmodule → dwfl_module_addrname 取符号名（缺 → ??）；
+    dwfl_module_getsrc + dwfl_lineinfo 取 file:line（模块带 DWARF 行表
+    且能力探测通过时；否则退化 from <module>）
+      ▼
+帧上限 256/线程；dwfl 报错且 0 帧、或孤 pc==0 假帧 → unwind_failed
+（gdb "Backtrace stopped" 同款，io_uring 内核工作线程）
+```
 
 - 帧解析：`dwfl_frame_pc`（非激活帧 `lookup=pc−1`）、`dwfl_module_addrname`（缺 →
   `??`）、`dwfl_module_info` 取模块路径；单线程帧上限 `_MAX_FRAMES=256`。
@@ -527,6 +676,27 @@ pyprobe web -p <pid>              # http://127.0.0.1:9470/ 实时热点 + 完整
 - `max_events` 到量即停；`Exited` / ECHILD 结束循环。`on_event` 发射即回调（dump 层
   流式输出与 KeyboardInterrupt 部分结果的通道）。
 
+entry/exit 相位配对（PTRACE_SYSCALL 下线程在每个 syscall 边界停两次；TRACESYSGOOD
+使 stop 信号 = SIGTRAP|0x80，与断点 trap 区分）：
+
+```
+线程 T   用户态 ──┐                  ┌── 用户态
+                  ▼ 内核执行          ▼
+         stop(entry)               stop(exit)
+             │                        │
+pyprobe      │                        │
+  GETREGS：nr = orig_rax（低 32 位）   GETREGS：ret = rax
+           args = rdi,rsi,rdx,        配对弹出 stash[tid]
+                  r10,r8,r9           _emit：SyscallEvent
+  stash[tid] = (nr,args,t0) ────────▶（elapsed = now−t0；errno 解码；
+  resume                              buf_out 此刻回读拼接）
+                                      resume
+
+相位无显式标记——stash 无暂存 = entry，有暂存 = exit。
+边界：execve 成功无 exit stop → TRACEEXEC 补发（ret=0，走用户过滤器）；
+attach 时线程已在 syscall 内 → 首 stop 即 exit（伪事件，§14.4 已知坑）。
+```
+
 ### 14.3 参数渲染与过滤（复刻约束）
 
 - `escape_bytes` / `truncate_escaped` / `render_str_arg`：strace 风格字符串（非可见
@@ -571,6 +741,22 @@ pyprobe web -p <pid>              # http://127.0.0.1:9470/ 实时热点 + 完整
 - `refresh_names()`：重读线程名。`record` 全程不调（名字是聚合键，需稳定）；`top` 每
   周期调一次。
 - `view_factory` 为测试注入点。
+
+一次解析与每周期的分工：
+
+```
+open_session（一次性，进程存活期不变量）   Sampler.sample()（热路径）
+  exe 路径 / _PyRuntime 地址               ① 每样本新建 SnapshotView
+  版本探测 → resolve_layout                 （跨样本复用会读陈旧内存）
+  interp / trampoline 地址        ──每周期─▶ ② read_thread_chain
+  ProcessInfo / 线程名表                    （读不出 → ProcessExited）
+                                           ③ /proc stat 非 R → idle_hint
+record：名字是聚合键，全程不刷新              剪枝（跳过该线程帧遍历）
+top：每周期 refresh_names() 重读名字       ④ 活跃线程 walk_frames
+
+调度（profile.py）：next_t += interval 绝对时间防漂移；
+单周期落后过多 → 重置基线，不追赶。
+```
 
 ### 15.2 调度（profile.py）
 
